@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Activity, AlertTriangle, ArrowRight, Boxes, CheckCircle2, ChevronDown, Factory, Gauge, Layers, PackageCheck, ShieldCheck, Truck, Zap } from 'lucide-react';
+import * as XLSX from 'xlsx';
+import { Activity, AlertTriangle, ArrowRight, Boxes, CheckCircle2, ChevronDown, Download, Factory, Gauge, Layers, PackageCheck, ShieldCheck, Truck, Zap } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
 import { api } from '../../services/api';
 
@@ -9,75 +10,6 @@ const numberOr = (value: any, fallback = 0) => {
 };
 
 const clamp = (value: number, min: number, max: number) => Math.min(Math.max(value, min), max);
-
-const fallbackStats = {
-  inventory: {
-    totalCells: 25000,
-    availableCells: 12450,
-    usedCells: 10290,
-    reservedCells: 900,
-    inProcessCells: 2850,
-    assembledCells: 3100,
-    quarantinedCells: 100,
-    finishedBatteries: 59,
-    inProcessBatteries: 12,
-  },
-  quality: {
-    firstPassYieldPercent: 98.2,
-    quarantinedCount: 100,
-  },
-  orders: {
-    total: 4,
-    inProcess: 2,
-    completed: 59,
-    planned: 3,
-  },
-  kpis: {
-    totalCellsInInventory: 25000,
-    availableCells: 12450,
-    usedCells: 10290,
-    reservedCells: 900,
-    inProcessCells: 2850,
-    assembledCells: 3100,
-    quarantinedCells: 100,
-    totalBatteriesCompleted: 59,
-    batteriesInProduction: 12,
-    activeOrders: 4,
-    firstPassYield: 98.2,
-    onlineMachines: 8,
-    totalMachines: 10,
-  },
-  machines: [
-    { status: 'ONLINE' },
-    { status: 'ONLINE' },
-    { status: 'ONLINE' },
-    { status: 'BUSY' },
-    { status: 'ONLINE' },
-    { status: 'OFFLINE' },
-    { status: 'ONLINE' },
-    { status: 'MAINTENANCE' },
-    { status: 'ONLINE' },
-    { status: 'BUSY' },
-  ],
-  batteryBuildTrend: [
-    { label: 'Mon', value: 7 },
-    { label: 'Tue', value: 11 },
-    { label: 'Wed', value: 16 },
-    { label: 'Thu', value: 14 },
-    { label: 'Fri', value: 19 },
-    { label: 'Sat', value: 22 },
-    { label: 'Sun', value: 18 },
-  ],
-  finishedPackTrend: [
-    { label: 'Mon', value: 5 },
-    { label: 'Tue', value: 8 },
-    { label: 'Wed', value: 10 },
-    { label: 'Thu', value: 12 },
-    { label: 'Fri', value: 14 },
-    { label: 'Sat', value: 16 },
-    { label: 'Sun', value: 15 },
-  ],
-};
 
 const statusColors: Record<string, string> = {
   'In Stock': '#16a34a',
@@ -102,9 +34,10 @@ const todayInputValue = dateInputValue(new Date());
 const defaultStartInputValue = dateInputValue(new Date(Date.now() - 6 * 86400000));
 
 export const CEOMonitoringView: React.FC = () => {
-  const { refreshKey } = useApp();
+  const { refreshKey, addNotification } = useApp();
   const [stats, setStats] = useState<any | null>(null);
   const [loading, setLoading] = useState(true);
+  const [exporting, setExporting] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [activeRange, setActiveRange] = useState<'Today' | 'This Week' | 'This Month' | 'Custom Range'>('Today');
   const [selectedCellStatus, setSelectedCellStatus] = useState<'All' | string>('All');
@@ -121,7 +54,7 @@ export const CEOMonitoringView: React.FC = () => {
       try {
         const res = await api.getDashboardStats();
         if (!cancelled) {
-          setStats({ ...fallbackStats, ...res, inventory: { ...fallbackStats.inventory, ...res?.inventory }, quality: { ...fallbackStats.quality, ...res?.quality }, orders: { ...fallbackStats.orders, ...res?.orders }, kpis: { ...fallbackStats.kpis, ...res?.kpis }, machines: Array.isArray(res?.machines) && res.machines.length ? res.machines : fallbackStats.machines });
+          setStats(res);
           setLoadError(null);
         }
       } catch (error: any) {
@@ -148,12 +81,12 @@ export const CEOMonitoringView: React.FC = () => {
     };
   }, [refreshKey]);
 
-  const source = stats ?? fallbackStats;
-  const inventory = source.inventory ?? fallbackStats.inventory;
-  const quality = source.quality ?? fallbackStats.quality;
-  const orders = source.orders ?? fallbackStats.orders;
-  const machines = Array.isArray(source.machines) && source.machines.length ? source.machines : fallbackStats.machines;
-  const kpis = source.kpis ?? fallbackStats.kpis;
+  const source = stats ?? {};
+  const inventory = source.inventory ?? {};
+  const quality = source.quality ?? {};
+  const orders = source.orders ?? {};
+  const machines = Array.isArray(source.machines) ? source.machines : [];
+  const kpis = source.kpis ?? {};
 
   const customStartTimestamp = Date.parse(`${customStartDate}T12:00:00`);
   const customEndTimestamp = Date.parse(`${customEndDate}T12:00:00`);
@@ -170,16 +103,7 @@ export const CEOMonitoringView: React.FC = () => {
   const scaleValue = (value: number) => Math.max(0, Math.round(value * rangeScale[activeRange]));
 
   const cellsSeries = useMemo(() => {
-    const total = numberOr(inventory.totalCells, 25000);
-    const rows = [
-      { label: 'In Stock', value: numberOr(inventory.availableCells, 12450), color: statusColors['In Stock'] },
-      { label: 'Floor Stock', value: clamp(Math.round(total * 0.2), 0, total), color: statusColors['Floor Stock'] },
-      { label: 'In Module', value: numberOr(inventory.assembledCells, 3100), color: statusColors['In Module'] },
-      { label: 'In Pack', value: numberOr(inventory.inProcessCells, 2850), color: statusColors['In Pack'] },
-      { label: 'In Rack', value: clamp(numberOr(orders.inProcess, 2), 0, total), color: statusColors['In Rack'] },
-      { label: 'Sold', value: clamp(numberOr(inventory.finishedBatteries, 59), 0, total), color: statusColors.Sold },
-      { label: 'Scrap', value: numberOr(inventory.quarantinedCells, 100), color: statusColors.Scrap },
-    ];
+    const rows = (source.cellBuckets || []).map((row: any) => ({ label: row.label, value: numberOr(row.value), color: statusColors[row.label] || '#64748b' }));
 
     const filtered = selectedCellStatus === 'All'
       ? rows
@@ -189,96 +113,96 @@ export const CEOMonitoringView: React.FC = () => {
       ...row,
       value: scaleValue(row.value),
     }));
-  }, [inventory, orders, selectedCellStatus, activeRange]);
+  }, [source.cellBuckets, selectedCellStatus, activeRange]);
 
-  const capacityProduced = ClampKwhFromFinishedBatteries(numberOr(inventory.finishedBatteries, 59));
-  const passRate = clamp(numberOr(quality.firstPassYieldPercent, 98.2), 0, 100);
-  const scrapRate = clamp((numberOr(inventory.quarantinedCells, 100) / Math.max(1, numberOr(inventory.totalCells, 25000))) * 100, 0, 100);
+  const capacityProduced = ClampKwhFromFinishedBatteries(numberOr(inventory.finishedBatteries));
+  const passRate = clamp(numberOr(quality.firstPassYieldPercent), 0, 100);
+  const scrapRate = clamp((numberOr(inventory.quarantinedCells) / Math.max(1, numberOr(inventory.totalCells))) * 100, 0, 100);
   const onlineMachines = machines.filter((machine: any) => ['ONLINE', 'BUSY', 'RUNNING'].includes(String(machine?.status || '').toUpperCase())).length;
 
-  const cellsTotal = scaleValue(numberOr(inventory.totalCells, 25000));
-  const moduleData = useMemo(() => {
-    const base = [
-      { status: 'In Progress', '8S': 148, '12S': 94 },
-      { status: 'In Pack', '8S': 286, '12S': 211 },
-      { status: 'Sold', '8S': 1840, '12S': 1240 },
-      { status: 'Scrap', '8S': 34, '12S': 21 },
-    ];
-    if (selectedModuleConfig === 'Both') return base;
-    return base.map((item) => ({
-      status: item.status,
-      [selectedModuleConfig]: item[selectedModuleConfig as '8S' | '12S'],
-    }));
-  }, [selectedModuleConfig]);
+  const cellsTotal = scaleValue(numberOr(inventory.totalCells));
+  const moduleData = useMemo(() => (source.moduleStatusBuckets || []).map((row: any) => ({ status: String(row.label).replace(/_/g, ' '), '8S': numberOr(row.value), '12S': 0 })), [source.moduleStatusBuckets]);
+  const moduleTotal = (source.moduleStatusBuckets || []).reduce((sum: number, row: any) => sum + numberOr(row.value), 0);
 
   const batteryData = useMemo(() => {
-    const base = {
-      All: [
-        { label: 'In Stock', value: 58, color: statusColors['In Stock'] },
-        { label: 'In Rack', value: 51, color: statusColors['In Rack'] },
-        { label: 'Sold', value: 30, color: statusColors.Sold },
-        { label: 'Scrap', value: 4, color: statusColors.Scrap },
-      ],
-      '5 kWh': [
-        { label: 'In Stock', value: 42, color: statusColors['In Stock'] },
-        { label: 'In Rack', value: 32, color: statusColors['In Rack'] },
-        { label: 'Sold', value: 12, color: statusColors.Sold },
-        { label: 'Scrap', value: 2, color: statusColors.Scrap },
-      ],
-      '7.5 kWh': [
-        { label: 'In Stock', value: 16, color: statusColors['In Stock'] },
-        { label: 'In Rack', value: 19, color: statusColors['In Rack'] },
-        { label: 'Sold', value: 18, color: statusColors.Sold },
-        { label: 'Scrap', value: 2, color: statusColors.Scrap },
-      ],
-    } as const;
-
-    return base[selectedPackType].map((row) => ({
-      ...row,
-      value: scaleValue(row.value),
-    }));
-  }, [selectedPackType, activeRange]);
+    return (source.batteryStatusBuckets || []).map((row: any) => ({ label: String(row.label).replace(/_/g, ' '), value: scaleValue(numberOr(row.value)), color: statusColors[String(row.label).replace(/_/g, ' ')] || '#64748b' }));
+  }, [source.batteryStatusBuckets, activeRange]);
+  const batteryTotal = (source.batteryStatusBuckets || []).reduce((sum: number, row: any) => sum + numberOr(row.value), 0);
 
   const rackData = useMemo(() => {
-    const base = {
-      All: [
-        { label: 'In Stock', value: 12, color: statusColors['In Stock'] },
-        { label: 'Sold', value: 3, color: statusColors.Sold },
-        { label: 'Installed', value: 7, color: statusColors['In Module'] },
-      ],
-      '25 kWh': [
-        { label: 'In Stock', value: 7, color: statusColors['In Stock'] },
-        { label: 'Sold', value: 1, color: statusColors.Sold },
-        { label: 'Installed', value: 4, color: statusColors['In Module'] },
-      ],
-      '75 kWh': [
-        { label: 'In Stock', value: 5, color: statusColors['In Stock'] },
-        { label: 'Sold', value: 2, color: statusColors.Sold },
-        { label: 'Installed', value: 3, color: statusColors['In Module'] },
-      ],
-    } as const;
-
-    return base[selectedRackType].map((row) => ({
-      ...row,
-      value: scaleValue(row.value),
-    }));
-  }, [selectedRackType, activeRange]);
+    return (source.rackStatusBuckets || []).map((row: any) => ({ label: String(row.label).replace(/_/g, ' '), value: scaleValue(numberOr(row.value)), color: statusColors[String(row.label).replace(/_/g, ' ')] || '#64748b' }));
+  }, [source.rackStatusBuckets, activeRange]);
+  const rackTotal = (source.rackStatusBuckets || []).reduce((sum: number, row: any) => sum + numberOr(row.value), 0);
 
   const kpiCards = [
-    { label: 'Capacity Produced', value: `${formatNumber(scaleValue(capacityProduced))} kWh`, delta: '+18.8% vs yesterday', positive: true, icon: <Zap className="h-5 w-5 text-emerald-600" />, bg: '#f0fdf4' },
-    { label: 'Batteries Produced', value: formatNumber(scaleValue(numberOr(inventory.finishedBatteries, 59))), delta: '+12.1% vs yesterday', positive: true, icon: <Factory className="h-5 w-5 text-blue-600" />, bg: '#eff6ff' },
-    { label: 'Racks Produced', value: formatNumber(scaleValue(numberOr(orders.total, 4))), delta: '+5.3% vs yesterday', positive: true, icon: <PackageCheck className="h-5 w-5 text-violet-600" />, bg: '#f5f3ff' },
-    { label: 'Cells in Inventory', value: formatNumber(scaleValue(numberOr(inventory.availableCells, 12450))), delta: '-3.2% vs yesterday', positive: false, icon: <Boxes className="h-5 w-5 text-amber-600" />, bg: '#fff7ed' },
-    { label: 'Quality Pass Rate', value: `${passRate.toFixed(1)}%`, delta: '-0.8% vs yesterday', positive: false, icon: <ShieldCheck className="h-5 w-5 text-emerald-600" />, bg: '#f0fdf4' },
-    { label: 'Scrap Rate', value: `${scrapRate.toFixed(1)}%`, delta: '+0.2% vs yesterday', positive: false, icon: <AlertTriangle className="h-5 w-5 text-rose-600" />, bg: '#fef2f2' },
+    { label: 'Capacity Produced', value: `${formatNumber(scaleValue(capacityProduced))} kWh`, delta: 'Live database value', positive: true, icon: <Zap className="h-5 w-5 text-emerald-600" />, bg: '#f0fdf4' },
+    { label: 'Batteries Produced', value: formatNumber(scaleValue(numberOr(inventory.finishedBatteries))), delta: 'Live database value', positive: true, icon: <Factory className="h-5 w-5 text-blue-600" />, bg: '#eff6ff' },
+    { label: 'Racks Produced', value: formatNumber(rackTotal), delta: 'Live database value', positive: true, icon: <PackageCheck className="h-5 w-5 text-violet-600" />, bg: '#f5f3ff' },
+    { label: 'Cells in Inventory', value: formatNumber(scaleValue(numberOr(inventory.availableCells))), delta: 'Live database value', positive: true, icon: <Boxes className="h-5 w-5 text-amber-600" />, bg: '#fff7ed' },
+    { label: 'Quality Pass Rate', value: `${passRate.toFixed(1)}%`, delta: 'Live database value', positive: true, icon: <ShieldCheck className="h-5 w-5 text-emerald-600" />, bg: '#f0fdf4' },
+    { label: 'Scrap Rate', value: `${scrapRate.toFixed(1)}%`, delta: 'Live database value', positive: true, icon: <AlertTriangle className="h-5 w-5 text-rose-600" />, bg: '#fef2f2' },
   ];
 
-  const trendByDay = useMemo(() => {
-    const labels = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-    const produced = [8, 12, 14, 13, 18, 20, 17];
-    const active = [5, 9, 8, 12, 14, 11, 15];
-    return labels.map((label, index) => ({ label, produced: produced[index], active: active[index] }));
-  }, []);
+  const exportReport = () => {
+    setExporting(true);
+    try {
+      const reportDate = new Date().toISOString().slice(0, 10);
+      const rangeLabel = activeRange === 'Custom Range'
+        ? `${customStartDate} to ${customEndDate}`
+        : activeRange;
+      const workbook = XLSX.utils.book_new();
+
+      const appendSheet = (name: string, rows: Record<string, unknown>[]) => {
+        const sheet = XLSX.utils.json_to_sheet(rows);
+        sheet['!cols'] = Object.keys(rows[0] || {}).map((key) => ({ wch: Math.max(14, Math.min(32, key.length + 4)) }));
+        XLSX.utils.book_append_sheet(workbook, sheet, name);
+      };
+
+      appendSheet('Report Info', [
+        { Field: 'Report date', Value: reportDate },
+        { Field: 'Reporting range', Value: rangeLabel },
+        { Field: 'Cell filter', Value: selectedCellStatus },
+        { Field: 'Pack filter', Value: selectedPackType },
+        { Field: 'Rack filter', Value: selectedRackType },
+        { Field: 'Module configuration', Value: selectedModuleConfig },
+      ]);
+
+      appendSheet('Executive KPIs', kpiCards.map((card) => ({
+        KPI: card.label,
+        Value: card.value,
+        Source: 'Power2Go MES live dashboard',
+      })));
+
+      appendSheet('Inventory', [
+        { Metric: 'Total cells', Value: numberOr(inventory.totalCells) },
+        { Metric: 'Available cells', Value: numberOr(inventory.availableCells) },
+        { Metric: 'Cells in stock', Value: numberOr(inventory.inStockCells) },
+        { Metric: 'Floor stock cells', Value: numberOr(inventory.floorStockCells) },
+        { Metric: 'Cells in modules', Value: numberOr(inventory.inModuleCells) },
+        { Metric: 'Cells in packs', Value: numberOr(inventory.inPackCells) },
+        { Metric: 'Cells in racks', Value: numberOr(inventory.inRackCells) },
+        { Metric: 'Sold cells', Value: numberOr(inventory.soldCells) },
+        { Metric: 'Scrap cells', Value: numberOr(inventory.scrapCells ?? inventory.quarantinedCells) },
+      ]);
+
+      appendSheet('Battery Packs', batteryData.map((row) => ({ Status: row.label, Quantity: row.value })));
+      appendSheet('Modules', moduleData.map((row) => ({ Status: row.status, '8S': row['8S'], '12S': row['12S'] })));
+      appendSheet('Racks', rackData.map((row) => ({ Status: row.label, Quantity: row.value })));
+      appendSheet('Machines', machines.map((machine: any) => ({
+        Name: machine.name || machine.id || 'Unnamed machine',
+        Type: machine.type || '',
+        Status: machine.status || 'UNKNOWN',
+        'IP address': machine.ip_address || machine.ipAddress || '',
+      })));
+
+      XLSX.writeFile(workbook, `power2go-ceo-report-${reportDate}.xlsx`);
+      addNotification('success', 'Report exported', 'The CEO monitoring report has been downloaded.');
+    } catch (error: any) {
+      addNotification('error', 'Export failed', error?.message || 'Unable to generate the CEO monitoring report.');
+    } finally {
+      setExporting(false);
+    }
+  };
 
   if (loadError) {
     return (
@@ -312,7 +236,18 @@ export const CEOMonitoringView: React.FC = () => {
             <p className="mt-1 text-sm text-slate-500">Real-time overview of production, inventory, sales and traceability</p>
           </div>
           <div className="flex flex-col items-end gap-2">
-            <div className="flex items-center gap-1 rounded-lg border border-slate-200 bg-white p-1 shadow-sm">
+            <div className="flex flex-wrap items-center justify-end gap-2">
+              <button
+                type="button"
+                onClick={exportReport}
+                disabled={exporting}
+                className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-700 shadow-sm transition-colors hover:border-emerald-200 hover:bg-emerald-50 hover:text-emerald-700 disabled:cursor-wait disabled:opacity-60"
+                title="Download the current CEO monitoring report as an Excel workbook"
+              >
+                <Download className="h-3.5 w-3.5" />
+                {exporting ? 'Exporting...' : 'Export Report'}
+              </button>
+              <div className="flex items-center gap-1 rounded-lg border border-slate-200 bg-white p-1 shadow-sm">
               {['Today', 'This Week', 'This Month', 'Custom Range'].map((tab) => (
                 <button
                   key={tab}
@@ -327,6 +262,7 @@ export const CEOMonitoringView: React.FC = () => {
                   {tab}
                 </button>
               ))}
+              </div>
             </div>
             {activeRange === 'Custom Range' && (
               <div className="flex flex-wrap items-center justify-end gap-2 text-xs text-slate-500">
@@ -456,7 +392,7 @@ export const CEOMonitoringView: React.FC = () => {
                   <div className="text-[11px] text-slate-400">Production &amp; status breakdown</div>
                 </div>
               </div>
-              <div className="text-[18px] font-extrabold text-slate-900">{formatNumber(3874)}</div>
+              <div className="text-[18px] font-extrabold text-slate-900">{formatNumber(moduleTotal)}</div>
             </div>
 
             <div className="mb-3 flex gap-2 text-[10px]">
@@ -503,7 +439,7 @@ export const CEOMonitoringView: React.FC = () => {
                   <div className="text-[11px] text-slate-400">Status by model</div>
                 </div>
               </div>
-              <div className="text-[18px] font-extrabold text-slate-900">{formatNumber(143)}</div>
+              <div className="text-[18px] font-extrabold text-slate-900">{formatNumber(batteryTotal)}</div>
             </div>
 
             <div className="mb-3 flex gap-2 text-[10px]">
@@ -573,7 +509,7 @@ export const CEOMonitoringView: React.FC = () => {
                   <div className="text-[11px] text-slate-400">Deployment &amp; status overview</div>
                 </div>
               </div>
-              <div className="text-[18px] font-extrabold text-slate-900">{formatNumber(22)}</div>
+              <div className="text-[18px] font-extrabold text-slate-900">{formatNumber(rackTotal)}</div>
             </div>
 
             <div className="mb-3 flex gap-2 text-[10px]">

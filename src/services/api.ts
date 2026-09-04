@@ -648,21 +648,36 @@ async getUsers(): Promise<User[]> {
       pallet_number: row.pallet_number || row.pallet || null,
       box_number: row.box_number || row.box || null,
     }));
-    const { data: result, error } = await rawSupabase.rpc('import_supplier_cells_bulk', {
-      p_filename: data.filename,
-      p_supplier_name: supplierName,
-      p_rows: rpcRows,
-    });
-    if (error) throw error;
-    const mapped = toAppValue(result || {}) as any;
+    const chunkSize = 250;
+    const results: any[] = [];
+    for (let start = 0; start < rpcRows.length; start += chunkSize) {
+      const { data: result, error } = await rawSupabase.rpc('import_supplier_cells_bulk', {
+        p_filename: data.filename,
+        p_supplier_name: supplierName,
+        p_rows: rpcRows.slice(start, start + chunkSize),
+      });
+      if (error) throw error;
+      results.push(toAppValue(result || {}) as any);
+    }
+    const mapped = results.reduce((summary, result) => ({
+      total: summary.total + Number(result.total || 0),
+      imported: summary.imported + Number(result.imported || result.importedCount || 0),
+      duplicates: summary.duplicates + Number(result.duplicates || 0),
+    }), { total: 0, imported: 0, duplicates: 0 });
     return {
       summary: {
-        ...(mapped.summary || {}),
+        id: results[0]?.importId || `imp-${Date.now()}`,
+        filename: data.filename,
+        supplierId: '',
+        supplierName,
         totalRows: mapped.total || data.rows.length,
-        validRows: mapped.imported ?? mapped.importedCount ?? 0,
-        importedAt: mapped.summary?.importedAt || new Date().toISOString(),
+        validRows: mapped.imported,
+        duplicateRows: mapped.duplicates,
+        invalidRows: 0,
+        importedAt: new Date().toISOString(),
+        importedBy: data.userId || '',
       },
-      importedCount: Number(mapped.importedCount ?? mapped.imported ?? 0),
+      importedCount: mapped.imported,
     };
   },
 
@@ -763,6 +778,12 @@ async getUsers(): Promise<User[]> {
     const timestampSuffix = Math.random().toString(36).substring(2, 8).toUpperCase();
     const now = new Date();
     const yymm = `${String(now.getFullYear()).slice(2)}${String(now.getMonth() + 1).padStart(2, '0')}`;
+    const insertInBatches = async (table: string, rows: any[], batchSize = 500) => {
+      for (let start = 0; start < rows.length; start += batchSize) {
+        const { error } = await supabase.from(table).insert(rows.slice(start, start + batchSize));
+        if (error) throw error;
+      }
+    };
 
     try {
       const productTemplate = params.batchPlan.template;
@@ -816,15 +837,19 @@ async getUsers(): Promise<User[]> {
         };
       });
 
-      const { data: batteriesData, error: batteriesError } = await supabase
-        .from('batteries')
-        .insert(batteryInserts)
-        .select();
-
-      if (batteriesError) {
-        console.error('Batteries creation failed:', batteriesError);
-        throw new Error(`Failed to create batteries: ${batteriesError.message}`);
+      const batteriesData: any[] = [];
+      for (let start = 0; start < batteryInserts.length; start += 500) {
+        const { data, error } = await supabase
+          .from('batteries')
+          .insert(batteryInserts.slice(start, start + 500))
+          .select();
+        if (error) {
+          console.error('Batteries creation failed:', error);
+          throw new Error(`Failed to create batteries: ${error.message}`);
+        }
+        batteriesData.push(...(data || []));
       }
+
 
       const moduleInserts: any[] = [];
       const moduleCellInserts: any[] = [];
@@ -962,10 +987,11 @@ async getUsers(): Promise<User[]> {
       });
 
       if (moduleInserts.length > 0) {
-        const { error: modulesError } = await supabase.from('modules').insert(moduleInserts);
-        if (modulesError) {
-          console.error('Modules creation failed:', modulesError);
-          throw new Error(`Failed to create modules: ${modulesError.message}`);
+        try {
+          await insertInBatches('modules', moduleInserts);
+        } catch (error: any) {
+          console.error('Modules creation failed:', error);
+          throw new Error(`Failed to create modules: ${error.message}`);
         }
       }
 
@@ -974,22 +1000,24 @@ async getUsers(): Promise<User[]> {
           `📦 Inserting ${moduleCellInserts.length} module-cell assignments across ${moduleInserts.length} modules. ` +
           `Expected: ${moduleInserts.length} modules × ${cellsPerModule} cells = ${moduleInserts.length * cellsPerModule}`
         );
-        const { error: moduleCellError, data: moduleCellData } = await supabase.from('module_cells').insert(moduleCellInserts);
-        if (moduleCellError) {
-          console.error('❌ Module cell assignment failed:', moduleCellError);
+        try {
+          await insertInBatches('module_cells', moduleCellInserts);
+        } catch (error: any) {
+          console.error('❌ Module cell assignment failed:', error);
           console.error('First 5 inserts attempted:', moduleCellInserts.slice(0, 5));
-          throw new Error(`Failed to assign cells to modules: ${moduleCellError.message}`);
+          throw new Error(`Failed to assign cells to modules: ${error.message}`);
         }
         console.log(
-          `✅ Successfully inserted ${moduleCellData?.length || moduleCellInserts.length} module-cell assignments`
+          `✅ Successfully inserted ${moduleCellInserts.length} module-cell assignments`
         );
       }
 
       if (moduleTestsInserts.length > 0) {
-        const { error: moduleTestsError } = await supabase.from('module_tests').insert(moduleTestsInserts);
-        if (moduleTestsError) {
-          console.error('Module testing failed:', moduleTestsError);
-          throw new Error(`Failed to record module tests: ${moduleTestsError.message}`);
+        try {
+          await insertInBatches('module_tests', moduleTestsInserts);
+        } catch (error: any) {
+          console.error('Module testing failed:', error);
+          throw new Error(`Failed to record module tests: ${error.message}`);
         }
       }
 
@@ -1020,27 +1048,17 @@ async getUsers(): Promise<User[]> {
       }
 
       if (batteriesData && batteriesData.length > 0) {
+        const batteryTests = [];
+        const bmuAssignments: Array<{ id: string; reserved_for_battery_id: string; status: string; updated_at: string }> = [];
         for (let i = 0; i < Math.min(batteriesData.length, params.batchPlan.batteries.length); i++) {
           const battery = batteriesData[i];
           const plan = params.batchPlan.batteries[i];
 
           if (plan.bmu?.id) {
-            const { error: bmuError } = await supabase
-              .from('bmu_units')
-              .update({
-                reserved_for_battery_id: battery.id,
-                status: 'PASSED',
-                updated_at: now.toISOString(),
-              })
-              .eq('id', plan.bmu.id);
-
-            // BUG-04 fix: throw on BMU update failure — silently continuing causes double-assignment
-            if (bmuError) {
-              throw new Error(`Failed to assign BMU '${plan.bmu.id}' to battery '${battery.id}': ${bmuError.message}`);
-            }
+            bmuAssignments.push({ id: plan.bmu.id, reserved_for_battery_id: battery.id, status: 'PASSED', updated_at: now.toISOString() });
           }
 
-          const { error: batteryTestError } = await supabase.from('battery_tests').insert({
+          batteryTests.push({
             id: `btest-${battery.id}`,
             battery_id: battery.id,
             test_type: 'EOL',
@@ -1056,29 +1074,26 @@ async getUsers(): Promise<User[]> {
             tested_by: params.userId || 'SYSTEM',
             tested_at: now.toISOString(),
           });
-
-          if (batteryTestError) {
-            console.error(`Final EOL test for battery ${battery.id} failed:`, batteryTestError);
-          }
-
-          const { error: releaseError } = await (rawSupabase as any).rpc('release_battery_transaction', { p_battery_id: battery.id });
-          if (releaseError) {
-            console.warn(`Upload release check for ${battery.id} raised a non-fatal validation warning:`, releaseError.message || releaseError);
-            const { error: directReleaseError } = await supabase
-              .from('batteries')
-              .update({
-                status: 'RELEASED',
-                current_step: 'RELEASED',
-                progress_percent: 100,
-                updated_at: now.toISOString(),
-              })
-              .eq('id', battery.id);
-
-            if (directReleaseError) {
-              console.error(`Direct release update for ${battery.id} failed:`, directReleaseError);
-            }
-          }
         }
+        for (const assignment of bmuAssignments) {
+          const { id, ...values } = assignment;
+          const { error } = await supabase.from('bmu_units').update(values).eq('id', id);
+          if (error) throw new Error(`Failed to assign BMU '${id}': ${error.message}`);
+        }
+        if (batteryTests.length > 0) await insertInBatches('battery_tests', batteryTests);
+      }
+
+      const { error: orderCompletionError } = await supabase
+        .from('production_orders')
+        .update({
+          quantity_completed: params.batchPlan.batteries.length,
+          quantity_in_process: 0,
+          status: 'COMPLETED',
+          updated_at: now.toISOString(),
+        })
+        .eq('id', productionOrderId);
+      if (orderCompletionError) {
+        throw new Error(`Failed to complete production order: ${orderCompletionError.message}`);
       }
 
       return {

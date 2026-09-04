@@ -1,6 +1,7 @@
-import type { CellItem, ModuleItem } from '../types';
-
-export const sortCellsForWorkflow = (cells: CellItem[], modules: ModuleItem[]) => {
+export const sortCellsForWorkflow = <T extends { id: string; assignedToModuleId?: string | null; moduleSlotIndex?: number | null }>(
+  cells: T[],
+  modules: { id: string; moduleIndex?: number | null }[],
+) => {
   const moduleOrder = new Map((modules || []).map((module) => [module.id, module.moduleIndex ?? 0]));
 
   return [...cells].sort((a, b) => {

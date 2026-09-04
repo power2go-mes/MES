@@ -91,17 +91,13 @@ declare
 begin
     select role_id into user_role_id from public.profiles where id = auth.uid() and status = 'ACTIVE';
     if user_role_id is null then return false; end if;
-    
-    -- Verify role still exists (role might have been deleted)
     select exists(select 1 from public.roles where id = user_role_id) into role_exists;
     if not role_exists then return false; end if;
-    
     if exists (
-        select 1 from public.role_permissions 
-        where role_id = user_role_id 
+        select 1 from public.role_permissions
+        where role_id = user_role_id
         and (permission_id = required_permission or permission_id = 'ALL')
     ) then return true; end if;
-
     return false;
 end;
 $$ language plpgsql security definer;
@@ -120,11 +116,8 @@ returns text as $$
 declare
         result_email text;
 begin
-        select email into result_email
-        from public.profiles
-        where lower(username) = lower(trim(p_username))
-            and status = 'ACTIVE'
-        limit 1;
+        select email into result_email from public.profiles
+        where lower(username) = lower(trim(p_username)) and status = 'ACTIVE' limit 1;
         return result_email;
 end;
 $$ language plpgsql security definer set search_path = public;
@@ -142,28 +135,15 @@ begin
         when (new.raw_user_meta_data->>'role_id') in ('role-admin', 'role-operator') then new.raw_user_meta_data->>'role_id'
         else 'role-operator'
     end;
-
     insert into public.profiles (id, full_name, email, username, role_id, status)
-    values (
-        new.id,
-        coalesce(new.raw_user_meta_data->>'full_name', new.raw_user_meta_data->>'name', split_part(new.email, '@', 1)),
-        new.email,
-        coalesce(new.raw_user_meta_data->>'username', split_part(new.email, '@', 1)),
-        assigned_role,
-        'ACTIVE'
-    )
-    on conflict (id) do update set
-        email = excluded.email,
-        role_id = case when excluded.role_id = 'role-admin' then 'role-admin' else public.profiles.role_id end,
-        updated_at = now();
+    values (new.id, coalesce(new.raw_user_meta_data->>'full_name', new.raw_user_meta_data->>'name', split_part(new.email, '@', 1)), new.email, coalesce(new.raw_user_meta_data->>'username', split_part(new.email, '@', 1)), assigned_role, 'ACTIVE')
+    on conflict (id) do update set email = excluded.email, role_id = case when excluded.role_id = 'role-admin' then 'role-admin' else public.profiles.role_id end, updated_at = now();
     return new;
 end;
 $$ language plpgsql security definer set search_path = public;
 
 drop trigger if exists on_auth_user_created on auth.users;
-create trigger on_auth_user_created
-    after insert on auth.users
-    for each row execute function public.handle_new_auth_user();
+create trigger on_auth_user_created after insert on auth.users for each row execute function public.handle_new_auth_user();
 -- ================================================================
 -- 3. MASTER DATA
 -- ================================================================
@@ -388,6 +368,13 @@ create table if not exists public.cells (
     created_at timestamptz not null default now(),
     updated_at timestamptz not null default now()
 );
+
+alter table public.cells add column if not exists lifecycle_status text default 'IN_STOCK';
+do $$ begin
+    alter table public.cells add constraint cells_lifecycle_status_check
+        check (lifecycle_status in ('IN_STOCK','FLOOR_STOCK','IN_MODULE','IN_PACK','IN_RACK','SOLD','SCRAP'));
+exception when duplicate_object then null;
+end $$;
 
 -- Relational linkage of cells into modules (No JSON arrays)
 create table if not exists public.module_cells (
@@ -627,7 +614,7 @@ begin
     end if;
 
     -- 2. Create Import Record
-    v_import_id := 'imp-' || extract(epoch from now())::bigint::text;
+    v_import_id := 'imp-' || gen_random_uuid()::text;
     v_total := jsonb_array_length(p_rows);
     insert into public.supplier_imports (id, supplier_id, filename, total_rows, imported_rows, duplicate_rows, status, imported_by)
     values (v_import_id, v_supplier_id, p_filename, v_total, 0, 0, 'PENDING', auth.uid());
@@ -649,10 +636,10 @@ begin
 
             insert into public.cells (
                 id, internal_serial, supplier_barcode, qr_code, supplier_id, import_id,
-                batch_number, pallet_number, box_number, supplier_ocv_v, supplier_ir_mohm, status
+                batch_number, pallet_number, box_number, supplier_ocv_v, supplier_ir_mohm, status, lifecycle_status
             ) values (
                 v_cell_id, v_internal, v_row.supplier_barcode, v_qr_code, v_supplier_id, v_import_id,
-                v_row.batch_number, v_row.pallet_number, v_row.box_number, v_row.ocv, v_row.ir, 'IMPORTED'
+                v_row.batch_number, v_row.pallet_number, v_row.box_number, v_row.ocv, v_row.ir, 'IMPORTED', 'IN_STOCK'
             );
             
             -- GENEALOGY EVENT: Record cell import
@@ -691,24 +678,28 @@ begin
     select jsonb_build_object(
         'inventory', jsonb_build_object(
             'totalCells', (select count(*) from public.cells),
-            'usedCells', (select count(distinct cell_id) from public.module_cells),
-            'availableCells', (
-                (select count(*) from public.cells)
-                - (select count(distinct cell_id) from public.module_cells)
-            ),
-            'reservedCells', (select count(*) from public.cells where reserved_for_order_id is not null),
+            'usedCells', (select count(*) from public.cells where status <> 'IMPORTED' or reserved_for_order_id is not null or reserved_for_battery_id is not null),
+            'availableCells', (select count(*) from public.cells where status in ('AVAILABLE','IMPORTED','ACKNOWLEDGED','OCV_TESTED','GRADED') and reserved_for_order_id is null and reserved_for_battery_id is null),
+            'reservedCells', (select count(*) from public.cells where status = 'RESERVED' or reserved_for_order_id is not null),
+            'inProcessCells', (select count(*) from public.cells where status in ('IN_PROCESS','VALIDATING','TESTING','SCANNED','PASSED')),
+            'assembledCells', (select count(*) from public.cells where status = 'ASSEMBLED' or exists (select 1 from public.module_cells mc where mc.cell_id = cells.id)),
             'quarantinedCells', (select count(*) from public.cells where status = 'QUARANTINED'),
-            'finishedBatteries', (select count(*) from public.batteries where status in ('FINISHED', 'RELEASED', 'DISPATCHED')),
-            'inProcessBatteries', (select count(*) from public.batteries where status in ('ASSEMBLY', 'TESTING', 'QC', 'CREATED'))
-            ,'availableBms', (select count(*) from public.bms_units where status = 'AVAILABLE')
-            ,'availableBmu', (select count(*) from public.bmu_units where status = 'AVAILABLE')
-            ,'totalBms', (select count(*) from public.bms_units)
-            ,'totalBmu', (select count(*) from public.bmu_units)
+            'finishedBatteries', (select count(*) from public.batteries where status in ('FINISHED','RELEASED','DISPATCHED')),
+            'inProcessBatteries', (select count(*) from public.batteries where status in ('IN_PROCESS','ASSEMBLY','TESTING','QC','CREATED')),
+            'availableBms', (select count(*) from public.bms_units where status = 'AVAILABLE' and reserved_for_battery_id is null),
+            'availableBmu', (select count(*) from public.bmu_units where status = 'AVAILABLE' and reserved_for_battery_id is null),
+            'totalBms', (select count(*) from public.bms_units),
+            'totalBmu', (select count(*) from public.bmu_units)
+        ),
+        'quality', jsonb_build_object(
+            'quarantinedCount', (select count(*) from public.quarantine_records where status = 'OPEN'),
+            'firstPassYieldPercent', coalesce(round(100.0 * (select count(*) from public.battery_tests where passed = true)::numeric / nullif((select count(*) from public.battery_tests), 0), 1), 0)
         ),
         'orders', jsonb_build_object(
             'total', (select count(*) from public.production_orders),
             'inProcess', (select count(*) from public.production_orders where status = 'IN_PROCESS'),
-            'completed', (select count(*) from public.production_orders where status = 'COMPLETED')
+            'completed', (select count(*) from public.production_orders where status = 'COMPLETED'),
+            'planned', (select count(*) from public.production_orders where status = 'PLANNED')
         ),
         'recentBatteries', coalesce((select jsonb_agg(jsonb_build_object(
             'id', recent.id,
@@ -726,6 +717,15 @@ begin
             order by b.created_at desc
             limit 20
         ) recent), '[]'::jsonb)
+        , 'batteryBuildTrend', coalesce((select jsonb_agg(jsonb_build_object('label', day_label, 'value', amount) order by day_label)
+            from (select to_char(created_at, 'YYYY-MM-DD') as day_label, count(*) as amount from public.batteries where status in ('FINISHED','RELEASED','DISPATCHED') group by 1 order by 1 desc limit 7) trend), '[]'::jsonb)
+        , 'finishedPackTrend', coalesce((select jsonb_agg(jsonb_build_object('label', day_label, 'value', amount) order by day_label)
+            from (select to_char(created_at, 'YYYY-MM-DD') as day_label, count(*) as amount from public.batteries where status in ('FINISHED','RELEASED','DISPATCHED') group by 1 order by 1 desc limit 7) trend), '[]'::jsonb)
+        , 'machines', coalesce((select jsonb_agg(jsonb_build_object('id', id, 'name', name, 'status', status) order by name) from public.machine_configurations), '[]'::jsonb)
+        , 'bmsTelemetry', jsonb_build_object(
+            'total', (select count(*) from public.bms_units),
+            'tested', (select count(*) from public.bms_units where test_result_json is not null)
+        )
     ) into v_res;
     return v_res;
 end;
@@ -1483,7 +1483,9 @@ begin
     set status = case when v_passed then 'TESTING'::battery_status else 'QUARANTINED'::battery_status end,
         current_step = 'FINAL_QC',
         progress_percent = 95,
-        step_results_json = jsonb_set(step_results_json, '{FINAL_TESTING}', jsonb_build_object(
+        step_results_json = jsonb_set(
+            case when jsonb_typeof(step_results_json) = 'object' then step_results_json else '{}'::jsonb end,
+            '{FINAL_TESTING}', jsonb_build_object(
             'stepName', 'Pack High-Pot & Dyn Load Test',
             'status', case when v_passed then 'PASSED' else 'FAILED' end,
             'mode', coalesce(p_result->>'mode', 'MANUAL'),
@@ -1949,24 +1951,29 @@ create or replace function public.cancel_production_order_transaction(
 ) returns void as $$
 begin
     perform public.require_permission('MANAGE_ORDERS');
+    if not exists (select 1 from public.production_orders where id = p_order_id and status = 'IN_PROCESS') then
+        raise exception 'Only an existing IN_PROCESS production order can be cancelled';
+    end if;
+
+    -- Release only unassigned order reservations. Never delete batteries,
+    -- modules, or module-cell genealogy belonging to this order.
+    update public.cells
+    set status = case when lifecycle_status = 'FLOOR_STOCK' then 'AVAILABLE' else 'IMPORTED' end,
+        lifecycle_status = 'IN_STOCK',
+        reserved_for_order_id = null,
+        reserved_for_battery_id = null,
+        updated_at = now()
+    where reserved_for_order_id = p_order_id
+      and reserved_for_battery_id is null
+      and not exists (select 1 from public.module_cells mc where mc.cell_id = cells.id);
+
     update public.production_orders
     set status = 'CANCELLED',
         updated_at = now()
     where id = p_order_id;
 
-    update public.cells
-    set status = 'AVAILABLE',
-        reserved_for_order_id = null,
-        reserved_for_battery_id = null,
-        updated_at = now()
-    where reserved_for_order_id = p_order_id;
-
-    delete from public.module_cells where module_id in (
-        select id from public.modules where production_order_id = p_order_id
-    );
-
     insert into public.audit_logs (entity_type, entity_id, action, actor, result, details)
-    values ('ORDER', p_order_id, 'CANCEL_PO', coalesce(auth.uid()::text, 'SYSTEM'), 'SUCCESS', 'Cancelled order. Reason: ' || p_reason);
+    values ('ORDER', p_order_id, 'CANCEL_PO', coalesce(auth.uid()::text, 'SYSTEM'), 'SUCCESS', 'Cancelled order: ' || coalesce(p_reason, 'No reason provided'));
 end;
 $$ language plpgsql security definer;
 
@@ -2260,7 +2267,6 @@ create index if not exists idx_audit_logs_timestamp on public.audit_logs(timesta
 -- 15. DOCUMENTED CELL/PACK/RACK LIFECYCLE
 -- ================================================================
 
-alter table public.cells add column if not exists lifecycle_status text;
 update public.cells set lifecycle_status = case
     when status in ('IMPORTED', 'ACKNOWLEDGED') then 'IN_STOCK'
     when status in ('AVAILABLE', 'RESERVED') then 'FLOOR_STOCK'
@@ -2268,8 +2274,6 @@ update public.cells set lifecycle_status = case
     when status in ('QUARANTINED', 'REJECTED') then 'SCRAP'
     else 'IN_STOCK'
 end where lifecycle_status is null;
-alter table public.cells alter column lifecycle_status set default 'IN_STOCK';
-do $$ begin alter table public.cells add constraint cells_lifecycle_status_check check (lifecycle_status in ('IN_STOCK','FLOOR_STOCK','IN_MODULE','IN_PACK','IN_RACK','SOLD','SCRAP')); exception when duplicate_object then null; end $$;
 
 alter table public.modules add column if not exists module_type text;
 alter table public.modules add column if not exists lifecycle_status text default 'IN_MODULE';
@@ -2396,8 +2400,7 @@ begin
     if nullif(trim(new.pallet_number), '') is not null then
         insert into public.pallets (id, pallet_number, qr_code, supplier_id, import_id, actual_cell_count)
         values ('pallet-' || md5(trim(new.pallet_number)), trim(new.pallet_number), 'PALLET-' || upper(md5(trim(new.pallet_number))), new.supplier_id, new.import_id, 1)
-        on conflict (pallet_number) do update set actual_cell_count = (select count(*) from public.cells where pallet_number = excluded.pallet_number), updated_at = now();
-        update public.pallets set actual_cell_count = (select count(*) from public.cells where pallet_number = new.pallet_number), updated_at = now() where pallet_number = trim(new.pallet_number);
+        on conflict (pallet_number) do update set actual_cell_count = public.pallets.actual_cell_count + 1, updated_at = now();
     end if;
     return new;
 end $$;
@@ -2432,6 +2435,123 @@ update public.bms_units set reserved_for_battery_id = null, status = 'AVAILABLE'
 where reserved_for_battery_id is not null and reserved_for_battery_id not in (select id from public.batteries);
 update public.cells c set status = 'AVAILABLE', lifecycle_status = 'FLOOR_STOCK', reserved_for_battery_id = null, reserved_for_order_id = null, updated_at = now()
 where c.id in (select mc.cell_id from public.module_cells mc left join public.modules m on m.id = mc.module_id left join public.batteries b on b.id = m.battery_id where m.id is null or b.id is null);
+
+-- Reconcile bulk imports created before bulk orders were finalized correctly.
+update public.production_orders o
+set quantity_completed = (select count(*) from public.batteries b where b.production_order_id = o.id),
+        quantity_in_process = 0,
+        status = 'COMPLETED',
+        updated_at = now()
+where o.status = 'IN_PROCESS'
+    and o.order_number like 'PO-BULK-%'
+    and exists (select 1 from public.batteries b where b.production_order_id = o.id)
+    and not exists (
+            select 1 from public.batteries b
+            where b.production_order_id = o.id
+                and b.status not in ('FINISHED','RELEASED','DISPATCHED','WAREHOUSE')
+    );
+
+-- Final dashboard summary definition. This is the single source of truth for CEO metrics.
+create or replace function public.get_dashboard_summary()
+returns jsonb language sql security definer set search_path = public as $$
+with cell_counts as (
+    select
+        count(*)::int as total,
+        count(*) filter (where lifecycle_status in ('IN_STOCK','FLOOR_STOCK') and reserved_for_order_id is null and reserved_for_battery_id is null)::int as available,
+        count(*) filter (where lifecycle_status = 'IN_STOCK')::int as in_stock,
+        count(*) filter (where lifecycle_status = 'FLOOR_STOCK')::int as floor_stock,
+        count(*) filter (where lifecycle_status = 'IN_MODULE' or exists (select 1 from public.module_cells mc where mc.cell_id = cells.id))::int as assembled,
+        count(*) filter (where lifecycle_status = 'IN_PACK')::int as in_pack,
+        count(*) filter (where lifecycle_status = 'IN_RACK')::int as in_rack,
+        count(*) filter (where lifecycle_status = 'SOLD')::int as sold,
+        count(*) filter (where lifecycle_status = 'SCRAP' or status in ('QUARANTINED','REJECTED'))::int as quarantined,
+        count(*) filter (where status = 'RESERVED' or reserved_for_order_id is not null or reserved_for_battery_id is not null)::int as reserved,
+        count(*) filter (where status in ('IN_PROCESS','VALIDATING','TESTING','SCANNED','PASSED'))::int as in_process
+    from public.cells
+), battery_counts as (
+    select
+        count(*) filter (where status in ('FINISHED','RELEASED','DISPATCHED'))::int as finished,
+        count(*) filter (where status in ('CREATED','ASSEMBLY','TESTING','QC','IN_PROCESS'))::int as in_process
+    from public.batteries
+), order_counts as (
+    select count(*)::int as total,
+        count(*) filter (where status = 'IN_PROCESS')::int as in_process,
+        count(*) filter (where status = 'COMPLETED')::int as completed,
+        count(*) filter (where status = 'PLANNED')::int as planned
+    from public.production_orders
+), machine_counts as (
+    select count(*)::int as total, count(*) filter (where status in ('ONLINE','BUSY'))::int as online
+    from public.machine_configurations
+), quality_counts as (
+    select count(*) filter (where passed = true)::int as passed, count(*)::int as total from public.battery_tests
+), summary as (
+    select c.total, c.available, c.in_stock, c.floor_stock, c.assembled, c.in_pack, c.in_rack, c.sold, c.quarantined, c.reserved, c.in_process,
+        b.finished, b.in_process as batteries_in_process,
+        o.total as orders_total, o.in_process as orders_in_process, o.completed as orders_completed, o.planned as orders_planned,
+        m.total as machines_total, m.online as machines_online,
+        q.passed as quality_passed, q.total as quality_total
+    from cell_counts c, battery_counts b, order_counts o, machine_counts m, quality_counts q
+)
+select jsonb_build_object(
+    'inventory', jsonb_build_object(
+        'totalCells', total, 'availableCells', available, 'inStockCells', in_stock, 'floorStockCells', floor_stock, 'inModuleCells', assembled, 'inPackCells', in_pack, 'inRackCells', in_rack, 'soldCells', sold, 'scrapCells', quarantined, 'usedCells', total - available,
+        'reservedCells', reserved, 'inProcessCells', in_process, 'assembledCells', assembled,
+        'quarantinedCells', quarantined, 'finishedBatteries', finished, 'inProcessBatteries', batteries_in_process,
+        'availableBms', (select count(*) from public.bms_units where status = 'AVAILABLE' and reserved_for_battery_id is null),
+        'availableBmu', (select count(*) from public.bmu_units where status = 'AVAILABLE' and reserved_for_battery_id is null),
+        'totalBms', (select count(*) from public.bms_units), 'totalBmu', (select count(*) from public.bmu_units)
+    ),
+    'quality', jsonb_build_object('firstPassYieldPercent', coalesce(round(100.0 * quality_passed / nullif(quality_total, 0), 1), 0), 'quarantinedCount', (select count(*)::int from public.quarantine_records where status = 'OPEN')),
+    'orders', jsonb_build_object('total', orders_total, 'inProcess', orders_in_process, 'completed', orders_completed, 'planned', orders_planned),
+    'kpis', jsonb_build_object('totalCellsInInventory', total, 'availableCells', available, 'usedCells', total - available, 'reservedCells', reserved, 'inProcessCells', in_process, 'assembledCells', assembled, 'quarantinedCells', quarantined, 'totalBatteriesCompleted', finished, 'batteriesInProduction', batteries_in_process, 'activeOrders', orders_in_process, 'firstPassYield', coalesce(round(100.0 * quality_passed / nullif(quality_total, 0), 1), 0), 'onlineMachines', machines_online, 'totalMachines', machines_total),
+    'machines', coalesce((select jsonb_agg(to_jsonb(m) - 'created_at' - 'updated_at' order by m.name) from public.machine_configurations m), '[]'::jsonb),
+    'cellBuckets', jsonb_build_array(jsonb_build_object('label','In Stock','value',in_stock), jsonb_build_object('label','Floor Stock','value',floor_stock), jsonb_build_object('label','In Module','value',assembled), jsonb_build_object('label','In Pack','value',in_pack), jsonb_build_object('label','In Rack','value',in_rack), jsonb_build_object('label','Sold','value',sold), jsonb_build_object('label','Scrap','value',quarantined)),
+    'moduleStatusBuckets', coalesce((select jsonb_agg(jsonb_build_object('label', status, 'value', amount) order by status) from (select status, count(*)::int as amount from public.modules group by status) module_counts), '[]'::jsonb),
+    'batteryStatusBuckets', coalesce((select jsonb_agg(jsonb_build_object('label', status, 'value', amount) order by status) from (select status, count(*)::int as amount from public.batteries group by status) battery_counts), '[]'::jsonb),
+    'rackStatusBuckets', coalesce((select jsonb_agg(jsonb_build_object('label', status, 'value', amount) order by status) from (select status, count(*)::int as amount from public.racks group by status) rack_counts), '[]'::jsonb),
+    'recentBatteries', coalesce((select jsonb_agg(jsonb_build_object('id',b.id,'serialNumber',b.serial_number,'productName',p.name,'currentStep',b.current_step,'progressPercent',b.progress_percent,'status',b.status) order by b.created_at desc) from public.batteries b join public.product_templates p on p.id = b.product_id limit 20), '[]'::jsonb),
+    'recentOrders', coalesce((select jsonb_agg(to_jsonb(o) order by o.created_at desc) from public.production_orders o limit 20), '[]'::jsonb),
+    'recentAuditLogs', coalesce((select jsonb_agg(to_jsonb(a) order by a.timestamp desc) from public.audit_logs a limit 20), '[]'::jsonb),
+    'batteryBuildTrend', coalesce((select jsonb_agg(jsonb_build_object('label',day_label,'value',amount) order by day_label) from (select to_char(created_at,'YYYY-MM-DD') as day_label,count(*) as amount from public.batteries where status in ('FINISHED','RELEASED','DISPATCHED') group by 1 order by 1 desc limit 7) trend), '[]'::jsonb),
+    'finishedPackTrend', coalesce((select jsonb_agg(jsonb_build_object('label',day_label,'value',amount) order by day_label) from (select to_char(created_at,'YYYY-MM-DD') as day_label,count(*) as amount from public.batteries where status in ('FINISHED','RELEASED','DISPATCHED') group by 1 order by 1 desc limit 7) trend), '[]'::jsonb),
+    'quarantineOpenCount', (select count(*)::int from public.quarantine_records where status = 'OPEN')
+) from summary;
+$$;
+grant execute on function public.get_dashboard_summary() to anon, authenticated;
+
+-- One-time operational data reset. This preserves users, roles, permissions,
+-- suppliers, products, and machine configuration.
+create or replace function public.reset_operational_data()
+returns void language plpgsql security definer set search_path = public as $$
+begin
+    truncate table
+        public.module_cells,
+        public.module_tests,
+        public.cell_tests,
+        public.controller_tests,
+        public.battery_tests,
+        public.release_records,
+        public.dispatches,
+        public.warehouse_movements,
+        public.quarantine_records,
+        public.lifecycle_events,
+        public.genealogy_records,
+        public.audit_logs,
+        public.supplier_import_rows,
+        public.qr_registry,
+        public.modules,
+        public.batteries,
+        public.cells,
+        public.production_orders,
+        public.supplier_imports,
+        public.rack_packs,
+        public.racks,
+        public.bms_units,
+        public.bmu_units,
+        public.pallets
+    restart identity;
+end;
+$$;
 
 -- ================================================================
 -- END OF AUTHORITATIVE SCHEMA

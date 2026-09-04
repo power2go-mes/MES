@@ -35,6 +35,16 @@ interface ParsedRow {
   errors: string[];
 }
 
+interface ParsedBatteryRow {
+  index: number;
+  batterySerialNumber: string;
+  bmuSerialNumber?: string;
+  cellQrCodes?: string[];
+  cellCount?: number;
+  isValid: boolean;
+  errors: string[];
+}
+
 export const SupplierImportView: React.FC = () => {
   const { addNotification, triggerRefresh, refreshKey } = useApp();
   const { currentUser } = useAuth();
@@ -51,7 +61,7 @@ export const SupplierImportView: React.FC = () => {
 
   // Battery Batch Import State
   const [batteryImportFileName, setBatteryImportFileName] = useState('');
-  const [batteryParsedRows, setBatteryParsedRows] = useState<Array<{ index: number; batterySerialNumber: string; bmuSerialNumber?: string; isValid: boolean; errors: string[] }>>([]);
+  const [batteryParsedRows, setBatteryParsedRows] = useState<ParsedBatteryRow[]>([]);
   const [batteryPreviewMode, setBatteryPreviewMode] = useState(false);
   const [batteryImportResult, setBatteryImportResult] = useState<any>(null);
 

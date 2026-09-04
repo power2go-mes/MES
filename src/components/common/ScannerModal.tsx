@@ -126,11 +126,15 @@ export const ScannerModal: React.FC<ScannerModalProps> = ({
       const stream = await navigator.mediaDevices.getUserMedia(constraints);
       streamRef.current = stream;
       const videoTrack = stream.getVideoTracks()[0];
-      const capabilities = videoTrack?.getCapabilities?.();
+      const capabilities = videoTrack?.getCapabilities?.() as (MediaTrackCapabilities & {
+        focusMode?: string[];
+        zoom?: { min: number; max: number };
+        torch?: boolean;
+      }) | undefined;
       setTorchSupported(Boolean(capabilities && 'torch' in capabilities && capabilities.torch));
       setTorchOn(false);
       if (videoTrack && capabilities) {
-        const advanced: MediaTrackConstraintSet[] = [];
+        const advanced: Array<MediaTrackConstraintSet & Record<string, unknown>> = [];
         if ('focusMode' in capabilities && capabilities.focusMode?.includes('continuous')) {
           advanced.push({ focusMode: 'continuous' });
         }
@@ -138,7 +142,7 @@ export const ScannerModal: React.FC<ScannerModalProps> = ({
           const zoom = capabilities.zoom;
           advanced.push({ zoom: Math.min(zoom.max, Math.max(zoom.min, 2)) });
         }
-        if (advanced.length > 0) await videoTrack.applyConstraints({ advanced });
+        if (advanced.length > 0) await videoTrack.applyConstraints({ advanced: advanced as MediaTrackConstraintSet[] });
       }
 
       if (videoRef.current) {
@@ -239,7 +243,7 @@ export const ScannerModal: React.FC<ScannerModalProps> = ({
 
     const nextTorchState = !torchOn;
     try {
-      await track.applyConstraints({ advanced: [{ torch: nextTorchState }] });
+      await track.applyConstraints({ advanced: [{ torch: nextTorchState } as MediaTrackConstraintSet] });
       setTorchOn(nextTorchState);
     } catch (err) {
       console.warn('Unable to toggle camera flash', err);

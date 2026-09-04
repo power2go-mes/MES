@@ -65,6 +65,15 @@
 .animate-slide-up { animation: slide-up 0.2s ease-out; }
 .animate-fade-in  { animation: fade-in  0.15s ease-out; }
 
+.dashboard-grid {
+  background-image: linear-gradient(rgba(255,255,255,.13) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,.13) 1px, transparent 1px);
+  background-size: 28px 28px;
+  mask-image: linear-gradient(90deg, black, transparent 78%);
+}
+
+.chart-bar { animation: chart-rise .6s ease-out both; transform-origin: bottom; }
+@keyframes chart-rise { from { opacity: 0; transform: scaleY(0); } to { opacity: 1; transform: scaleY(1); } }
+
 /* Keep the operational shell usable on narrow touch screens. */
 html, body, #root { min-width: 0; min-height: 100%; }
 

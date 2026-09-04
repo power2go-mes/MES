@@ -1,663 +1,121 @@
-import React, { useState, useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useApp } from '../../context/AppContext';
 import { api } from '../../services/api';
 import {
-  Layers,
-  Zap,
-  CheckCircle2,
-  AlertTriangle,
-  Boxes,
-  CalendarCheck,
-  Truck,
-  Activity,
-  ArrowRight,
-  TrendingUp,
-  Cpu,
-  Clock,
-  Sparkles,
-  ChevronRight,
-  ShieldCheck,
-  Pencil,
-  Trash2,
+  Activity, AlertTriangle, ArrowUpRight, Boxes, CalendarCheck, ChevronRight,
+  Cpu, Factory, Layers, Pencil, RefreshCw, ShieldCheck, Sparkles, Trash2,
+  Truck, Zap,
 } from 'lucide-react';
+
+const navActions = [
+  { label: 'Receive cells', view: 'supplier', icon: Truck },
+  { label: 'Plan production', view: 'planning', icon: CalendarCheck },
+  { label: 'Open production', view: 'production', icon: Factory },
+  { label: 'View inventory', view: 'inventory', icon: Boxes },
+];
+
+const pipeline = [
+  ['01', 'Receiving', 'supplier'], ['02', 'Cell testing', 'production'],
+  ['03', 'Cell matching', 'production'], ['04', 'Module build', 'production'],
+  ['05', 'Pack assembly', 'production'], ['06', 'Final release', 'production'],
+] as const;
 
 export const DashboardView: React.FC = () => {
   const { setActiveView, setActiveBatteryId, refreshKey } = useApp();
   const [stats, setStats] = useState<any | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [range, setRange] = useState<'7D' | '30D'>('7D');
+
+  const loadStats = async () => {
+    setLoading(true);
+    setLoadError(null);
+    try { setStats(await api.getDashboardStats()); }
+    catch (error: any) { setLoadError(error?.message || 'Unable to load dashboard telemetry.'); }
+    finally { setLoading(false); }
+  };
 
   useEffect(() => {
     let cancelled = false;
     const refresh = async () => {
       try {
-        const res = await api.getDashboardStats();
-        if (!cancelled) {
-          setStats(res);
-          setLoadError(null);
-        }
-      } catch (err: any) {
-        if (!cancelled) setLoadError(err?.message || 'Unable to load dashboard telemetry.');
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
+        const result = await api.getDashboardStats();
+        if (!cancelled) { setStats(result); setLoadError(null); }
+      } catch (error: any) {
+        if (!cancelled) setLoadError(error?.message || 'Unable to load dashboard telemetry.');
+      } finally { if (!cancelled) setLoading(false); }
     };
     setLoading(true);
     void refresh();
-    const refreshWhenVisible = () => {
-      if (!document.hidden) void refresh();
-    };
-    const interval = window.setInterval(refreshWhenVisible, 60000);
-    document.addEventListener('visibilitychange', refreshWhenVisible);
-    return () => {
-      cancelled = true;
-      window.clearInterval(interval);
-      document.removeEventListener('visibilitychange', refreshWhenVisible);
-    };
+    const timer = window.setInterval(() => { if (!document.hidden) void refresh(); }, 60000);
+    return () => { cancelled = true; window.clearInterval(timer); };
   }, [refreshKey]);
 
-  const loadStats = async () => {
-    setLoading(true);
-    setLoadError(null);
-    try {
-      const res = await api.getDashboardStats();
-      setStats(res);
-    } catch (err: any) {
-      setLoadError(err?.message || 'Unable to load dashboard telemetry.');
-    } finally {
-      setLoading(false);
-    }
-  };
+  if (loadError) return <div className="flex-1 grid place-items-center p-8"><div className="max-w-md rounded-2xl border border-slate-200 bg-white p-8 text-center shadow-sm">
+    <AlertTriangle className="mx-auto mb-3 h-8 w-8 text-slate-700" /><h2 className="text-base font-black text-slate-900">Dashboard unavailable</h2>
+    <p className="mt-2 text-xs text-slate-500">{loadError}</p><button type="button" onClick={() => void loadStats()} className="mt-5 rounded-xl bg-emerald-600 px-4 py-2.5 text-xs font-bold text-white">Retry</button>
+  </div></div>;
 
-  const handleDeleteWipBattery = async (battery: any) => {
-    if (!window.confirm(`Delete battery ${battery.serialNumber}? Its reserved cells and controllers will return to inventory.`)) return;
-    try {
-      await api.deleteBattery(battery.id);
-      await loadStats();
-    } catch (err: any) {
-      setLoadError(err?.message || 'Unable to delete battery.');
-    }
-  };
-
-  const handleEditWipBattery = (battery: any) => {
-    setActiveBatteryId(battery.id);
-    setActiveView('workflow-pack');
-  };
-
-  if (loadError) {
-    return (
-      <div className="flex-1 p-8 flex items-center justify-center">
-        <div className="max-w-md rounded-2xl border border-slate-200 bg-white p-8 text-center shadow-xs">
-          <AlertTriangle className="mx-auto mb-3 h-8 w-8 text-slate-700" />
-          <h2 className="text-base font-black text-slate-900">Dashboard unavailable</h2>
-          <p className="mt-2 text-xs text-slate-500">{loadError}</p>
-          <button type="button" onClick={() => void loadStats()} className="mt-5 rounded-xl bg-emerald-600 px-4 py-2.5 text-xs font-bold text-white hover:bg-emerald-500">Retry</button>
-        </div>
-      </div>
-    );
-  }
-
-  if (loading || !stats) {
-    return (
-      <div className="flex-1 p-8 flex items-center justify-center">
-        <div className="text-center space-y-3">
-          <Activity className="w-8 h-8 text-emerald-600 animate-spin mx-auto" />
-          <p className="text-xs font-bold text-slate-600 uppercase tracking-wider font-mono">Loading Real-time MES Telemetry...</p>
-        </div>
-      </div>
-    );
-  }
+  if (loading || !stats) return <div className="flex-1 grid place-items-center p-8"><div className="text-center"><Activity className="mx-auto h-8 w-8 animate-spin text-emerald-600" /><p className="mt-3 text-[11px] font-black uppercase tracking-[0.18em] text-slate-500">Loading line telemetry</p></div></div>;
 
   const inventory = stats.inventory || {};
-  const controllerInventory = stats.controllerInventory || {
-    availableBms: Number(inventory.availableBms || 0),
-    availableBmu: Number(inventory.availableBmu || 0),
-    totalBms: Number(inventory.totalBms || 0),
-    totalBmu: Number(inventory.totalBmu || 0),
-  };
-  const finishedPackTrend = Array.isArray(stats.finishedPackTrend) ? stats.finishedPackTrend : [];
-  const activeBatchTrend = Array.isArray(stats.activeBatchTrend) ? stats.activeBatchTrend : [];
-  const batteryBuildTrend = Array.isArray(stats.batteryBuildTrend) ? stats.batteryBuildTrend : [];
-  const finishedTrendMax = Math.max(1, ...finishedPackTrend.map((item: any) => Number(item.value) || 0));
-  const batteryBuildMax = Math.max(1, ...batteryBuildTrend.map((item: any) => Number(item.value) || 0));
-  const activeTrendMax = Math.max(1, ...activeBatchTrend.map((item: any) => Number(item.value) || 0));
+  const quality = stats.quality || {};
+  const controller = stats.controllerInventory || {};
+  const trend = (range === '30D' ? stats.batteryBuildTrend : stats.finishedPackTrend) || [];
+  const maxTrend = Math.max(1, ...trend.map((item: any) => Number(item.value) || 0));
+  const available = Number(inventory.availableCells || 0);
   const totalCells = Math.max(1, Number(inventory.totalCells || 0));
-  const usedCells = Number(inventory.usedCells ?? Math.max(0, Number(inventory.totalCells || 0) - Number(inventory.availableCells || 0)));
-  const productionBars = [
-    { label: 'Available', actual: Number(inventory.availableCells || 0), target: Number(inventory.totalCells || 0) },
-    { label: 'Reserved', actual: Number(inventory.reservedCells || 0), target: Number(inventory.reservedCells || 0) },
-    { label: 'In Process', actual: Number(inventory.inProcessCells || 0), target: Number(inventory.inProcessCells || 0) },
-    { label: 'Assembled', actual: Number(inventory.assembledCells || 0), target: Number(inventory.assembledCells || 0) },
-    { label: 'Scrap', actual: Number(inventory.quarantinedCells || 0), target: Number(inventory.quarantinedCells || 0) },
+  const yieldRate = Number(quality.firstPassYieldPercent || 0);
+  const statusRows = [
+    { label: 'In Stock', value: Number(inventory.inStockCells || 0), color: '#36a852' },
+    { label: 'Floor Stock', value: Number(inventory.floorStockCells || 0), color: '#2a9bd2' },
+    { label: 'In Module', value: Number(inventory.inModuleCells || 0), color: '#1b1b1b' },
+    { label: 'In Pack', value: Number(inventory.inPackCells || 0), color: '#e8a323' },
+    { label: 'In Rack', value: Number(inventory.inRackCells || 0), color: '#0ea5e9' },
+    { label: 'Sold', value: Number(inventory.soldCells || 0), color: '#059669' },
+    { label: 'Scrap', value: Number(inventory.scrapCells || 0), color: '#b7b7b7' },
   ];
-  const statusTotal = Math.max(1, productionBars.reduce((sum, bar) => sum + bar.actual, 0));
-  const statusSegments = productionBars.map((bar, index) => ({
-    ...bar,
-    color: ['#3aaa35', '#f59e0b', '#2699dc', '#5c45d8', '#aaaaaa'][index],
-    percentage: (bar.actual / statusTotal) * 100,
-  }));
-  let statusOffset = 0;
-  const donutGradient = statusSegments.map(segment => {
-    const start = statusOffset;
-    statusOffset += segment.percentage;
-    return `${segment.color} ${start}% ${statusOffset}%`;
-  }).join(', ');
+  const statusTotal = Math.max(1, statusRows.reduce((sum, row) => sum + row.value, 0));
+  let donutOffset = 0;
+  const donut = statusRows.map(row => { const start = donutOffset; donutOffset += row.value / statusTotal * 100; return `${row.color} ${start}% ${donutOffset}%`; }).join(', ');
+  const recentBatteries = (stats.recentBatteries || []).slice(0, 5);
+  const machines = Array.isArray(stats.machines) ? stats.machines : [];
+  const onlineMachines = machines.filter((machine: any) => machine.status === 'ONLINE' || machine.status === 'BUSY').length;
 
-  return (
-    <div className="flex-1 p-6 space-y-6 overflow-y-auto max-w-7xl mx-auto">
-      {/* Top Geometric Banner */}
-      <div className="bg-white rounded-2xl shadow-xs border border-slate-200 p-6 flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div className="space-y-1.5">
-          <div className="flex items-center space-x-2">
-            <span className="px-2 py-0.5 text-[10px] font-black uppercase tracking-widest bg-emerald-50 border border-emerald-100 text-emerald-700 rounded">
-              Line 01 Active
-            </span>
-            <span className="text-xs font-mono text-slate-400">Station ID: LINE-01-MES</span>
-          </div>
-          <h1 className="text-xl sm:text-2xl font-black text-slate-900 tracking-tight">
-            Manufacturing Execution & ERP Control
-          </h1>
-          <p className="text-xs text-slate-500">
-            Real-time battery pack assembly orchestration with zero-redundant automated telemetry.
-          </p>
-        </div>
+  const deleteBattery = async (battery: any) => {
+    if (!window.confirm(`Delete battery ${battery.serialNumber}? Its reserved cells and controllers will return to inventory.`)) return;
+    try { await api.deleteBattery(battery.id); await loadStats(); }
+    catch (error: any) { setLoadError(error?.message || 'Unable to delete battery.'); }
+  };
 
-        <button
-          onClick={() => {
-            setActiveBatteryId(null);
-            setActiveView('planning');
-          }}
-          className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl flex items-center space-x-2 shadow-xs transition-all shrink-0"
-        >
-          <Layers className="w-4 h-4" />
-          <span>Launch 2D Visual Battery Builder</span>
-        </button>
-      </div>
+  return <div className="dashboard-view flex-1 overflow-y-auto bg-slate-100 px-4 py-5 sm:px-6 lg:px-8"><div className="mx-auto max-w-[1500px] space-y-5">
+    <section className="dashboard-hero relative overflow-hidden rounded-2xl border border-slate-200 bg-white px-5 py-5 shadow-sm sm:px-7 sm:py-6"><div className="dashboard-grid absolute inset-0 opacity-10" />
+      <div className="relative flex flex-col justify-between gap-5 lg:flex-row lg:items-center"><div className="max-w-2xl"><div className="mb-3 flex flex-wrap items-center gap-2 text-[10px] font-black uppercase tracking-[0.16em]"><span className="rounded-full bg-emerald-50 px-3 py-1 text-emerald-700">Line 01 online</span><span className="text-slate-400">Power2Go MES / Control room</span></div><h1 className="text-2xl font-black tracking-tight text-slate-900 sm:text-3xl">Good morning, Administrator.</h1><p className="mt-2 max-w-xl text-xs leading-5 text-slate-500">Here is the current pulse of your battery manufacturing line.</p></div>
+        <div className="flex flex-wrap gap-2"><button type="button" onClick={() => void loadStats()} className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-3 text-xs font-bold text-slate-700 hover:border-emerald-500"><RefreshCw className="h-4 w-4 text-emerald-600" /> Refresh</button><button type="button" onClick={() => { setActiveBatteryId(null); setActiveView('planning'); }} className="flex items-center gap-2 rounded-xl bg-emerald-600 px-4 py-3 text-xs font-bold text-white hover:bg-emerald-700"><Sparkles className="h-4 w-4" /> Start a batch</button></div>
+      </div><div className="relative mt-6 grid grid-cols-2 gap-3 border-t border-slate-100 pt-4 sm:grid-cols-4"><HeroMetric label="Line state" value="RUNNING" accent="text-emerald-600" /><HeroMetric label="Cells tracked" value={Number(inventory.totalCells || 0).toLocaleString()} accent="text-slate-900" /><HeroMetric label="Packs released" value={Number(inventory.finishedBatteries || 0).toLocaleString()} accent="text-slate-900" /><HeroMetric label="Open batches" value={Number(stats.orders?.inProcess || 0).toLocaleString()} accent="text-slate-900" /></div>
+    </section>
 
-      {/* KPI Stats Grid */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs space-y-3">
-          <div className="flex justify-between items-center">
-            <span className="text-[10px] font-black uppercase tracking-widest text-slate-400">Available Cells</span>
-            <Boxes className="w-4 h-4 text-emerald-600" />
-          </div>
-          <div className="flex items-end justify-between">
-            <span className="text-3xl font-black font-mono text-slate-900">
-              {stats?.inventory?.availableCells ?? stats?.kpis?.availableCells ?? 0}
-            </span>
-            <span className="text-[10px] font-bold text-slate-500">{stats?.inventory?.totalCells ?? stats?.kpis?.totalCellsInInventory ?? 0} total</span>
-          </div>
-          <div className="h-2 rounded-full bg-slate-100 overflow-hidden">
-            <div className="h-full rounded-full bg-gradient-to-r from-emerald-500 to-green-600" style={{ width: `${Math.min(100, ((stats?.inventory?.availableCells ?? stats?.kpis?.availableCells ?? 0) / Math.max(1, stats?.inventory?.totalCells ?? stats?.kpis?.totalCellsInInventory ?? 1)) * 100)}%` }} />
-          </div>
-          <p className="text-[11px] text-slate-500">{usedCells} cells used or allocated</p>
-        </div>
+    <section className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">{navActions.map(({ label, view, icon: Icon }) => <button key={label} type="button" onClick={() => setActiveView(view as any)} className="group flex items-center justify-between rounded-2xl border border-slate-200 bg-white p-4 text-left shadow-sm transition hover:-translate-y-0.5 hover:border-emerald-500 hover:shadow-md"><span className="flex items-center gap-3"><span className="grid h-10 w-10 place-items-center rounded-xl bg-emerald-50 text-emerald-600"><Icon className="h-5 w-5" /></span><span className="text-sm font-bold text-slate-800">{label}</span></span><ArrowUpRight className="h-4 w-4 text-slate-300 transition group-hover:text-emerald-600" /></button>)}</section>
 
-        <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs space-y-3">
-          <div className="flex justify-between items-center">
-            <span className="text-[10px] font-black uppercase tracking-widest text-slate-400">First-Pass Yield</span>
-            <TrendingUp className="w-4 h-4 text-emerald-600" />
-          </div>
-          <div className="flex items-end justify-between">
-            <span className="text-3xl font-black font-mono text-emerald-600">
-              {Number(stats?.inventory?.finishedBatteries || 0) > 0 || Number(stats?.quality?.quarantinedCount || 0) > 0
-                ? `${stats?.quality?.firstPassYieldPercent ?? 0}%`
-                : '—'}
-            </span>
-            <span className="text-[10px] font-bold text-slate-500">Target 99%</span>
-          </div>
-          <div className="h-2 rounded-full bg-slate-100 overflow-hidden">
-            <div className="h-full rounded-full bg-gradient-to-r from-emerald-400 to-teal-500" style={{ width: `${Math.min(100, Number(stats?.quality?.firstPassYieldPercent ?? 0))}%` }} />
-          </div>
-          <p className="text-[11px] text-slate-500">{stats?.quality?.quarantinedCount ?? stats?.quarantineOpenCount ?? 0} items currently in scrap review</p>
-        </div>
+    <section className="grid grid-cols-1 gap-5 xl:grid-cols-[1.65fr,1fr]"><Panel eyebrow="Output rhythm" title="Released packs" action={<div className="flex rounded-lg bg-slate-100 p-1">{(['7D', '30D'] as const).map(item => <button key={item} type="button" onClick={() => setRange(item)} className={`rounded-md px-3 py-1.5 text-[10px] font-black ${range === item ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-400'}`}>{item}</button>)}</div>}>
+      <div className="mt-6 flex h-56 items-end gap-2 border-b border-slate-100 px-1 sm:gap-3">{trend.length === 0 ? <div className="grid w-full place-items-center text-xs text-slate-400">No production trend data yet</div> : trend.map((item: any, index: number) => <div key={`${item.label}-${index}`} className="group flex h-full flex-1 flex-col items-center justify-end gap-2"><span className="text-[10px] font-bold text-slate-500 opacity-0 transition group-hover:opacity-100">{item.value}</span><div className="chart-bar w-full max-w-12 rounded-t-lg bg-emerald-500" style={{ height: `${Math.max(5, ((Number(item.value) || 0) / maxTrend) * 78)}%` }} title={`${item.label}: ${item.value}`} /><span className="text-[9px] text-slate-400">{String(item.label || '').slice(-5)}</span></div>)}</div>
+      <div className="mt-5 flex items-center justify-between"><span className="text-xs font-bold text-slate-500">{range === '7D' ? 'Latest release window' : 'Monthly build output'}</span><button type="button" onClick={() => setActiveView('reports')} className="flex items-center gap-1 text-xs font-bold text-emerald-600">Open reports <ChevronRight className="h-3.5 w-3.5" /></button></div>
+    </Panel><Panel eyebrow="Inventory composition" title="Where the cells are" action={<Boxes className="h-5 w-5 text-emerald-600" />}><div className="mt-5 flex items-center gap-6"><div className="relative grid h-36 w-36 shrink-0 place-items-center rounded-full" style={{ background: `conic-gradient(${donut})` }}><div className="grid h-24 w-24 place-items-center rounded-full bg-white text-center"><strong className="text-2xl font-black text-slate-900">{available.toLocaleString()}</strong><span className="text-[9px] font-bold uppercase tracking-wider text-slate-400">available</span></div></div><div className="min-w-0 flex-1 space-y-3">{statusRows.map(row => <div key={row.label} className="flex items-center justify-between gap-2 text-xs"><span className="flex items-center gap-2 font-semibold text-slate-600"><i className="h-2 w-2 rounded-full" style={{ background: row.color }} />{row.label}</span><b className="font-mono text-slate-900">{row.value.toLocaleString()}</b></div>)}</div></div><div className="mt-6 h-2 overflow-hidden rounded-full bg-slate-100"><div className="h-full rounded-full bg-emerald-500" style={{ width: `${Math.min(100, available / totalCells * 100)}%` }} /></div><p className="mt-2 text-[11px] text-slate-400">{Math.round(available / totalCells * 100)}% of total cell inventory is ready for allocation.</p></Panel></section>
 
-        <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs space-y-3">
-          <div className="flex justify-between items-center">
-            <span className="text-[10px] font-black uppercase tracking-widest text-slate-400">Finished Packs</span>
-            <Zap className="w-4 h-4 text-emerald-600" />
-          </div>
-          <div className="flex items-end justify-between">
-            <span className="text-3xl font-black font-mono text-slate-900">
-              {stats?.inventory?.finishedBatteries ?? stats?.kpis?.totalBatteriesCompleted ?? 0}
-            </span>
-            <span className="text-[10px] font-bold text-emerald-600">Released</span>
-          </div>
-          <div className="flex items-end gap-1 h-9" aria-label="Finished pack trend">
-            {finishedPackTrend.map((item: any) => (
-              <div key={item.label} className="flex-1 rounded-t-md bg-gradient-to-t from-emerald-500 to-emerald-300" title={`${item.label}: ${item.value}`} style={{ height: `${Math.max(4, (Number(item.value) / finishedTrendMax) * 100)}%` }} />
-            ))}
-          </div>
-          <p className="text-[11px] text-slate-500">{finishedPackTrend.length} released pack records in the latest trend window</p>
-        </div>
+    <section className="grid grid-cols-1 gap-5 lg:grid-cols-3"><Panel eyebrow="Quality gate" title="First-pass yield" action={<ShieldCheck className="h-5 w-5 text-emerald-600" />}><div className="mt-5 flex items-end justify-between"><span className="text-5xl font-black tracking-tight text-slate-900">{yieldRate ? `${yieldRate}%` : '—'}</span><span className="mb-1 rounded-full bg-emerald-50 px-2.5 py-1 text-[10px] font-black text-emerald-700">Target 99%</span></div><div className="mt-6 h-3 rounded-full bg-slate-100"><div className="h-full rounded-full bg-emerald-500" style={{ width: `${Math.min(100, yieldRate)}%` }} /></div><p className="mt-3 text-xs text-slate-500">{Number(quality.quarantinedCount || inventory.quarantinedCells || 0).toLocaleString()} items require quality review.</p></Panel>
+      <Panel eyebrow="Component readiness" title="Controllers on hand" action={<Cpu className="h-5 w-5 text-emerald-600" />}><div className="mt-5 grid grid-cols-2 gap-3">{[['BMS', controller.availableBms, controller.totalBms], ['BMU', controller.availableBmu, controller.totalBmu]].map(([label, value, total]) => <div key={String(label)} className="rounded-xl bg-slate-50 p-4"><span className="text-xs font-black text-slate-500">{label}</span><strong className="mt-2 block text-2xl font-black text-slate-900">{Number(value || 0).toLocaleString()}</strong><span className="text-[10px] text-slate-400">of {Number(total || 0).toLocaleString()} available</span></div>)}</div></Panel>
+      <Panel eyebrow="Line routing" title="Six production gates" action={<Zap className="h-5 w-5 text-emerald-600" />}><div className="mt-4 grid grid-cols-2 gap-2">{pipeline.map(([number, label, view]) => <button key={number} type="button" onClick={() => setActiveView(view as any)} className="flex items-center gap-2 rounded-lg border border-slate-100 p-2.5 text-left hover:border-emerald-400 hover:bg-emerald-50"><span className="font-mono text-[10px] font-black text-emerald-600">{number}</span><span className="text-[11px] font-bold text-slate-600">{label}</span></button>)}</div></Panel></section>
 
-        <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs space-y-3">
-          <div className="flex justify-between items-center">
-            <span className="text-[10px] font-black uppercase tracking-widest text-slate-400">Active Batches</span>
-            <CalendarCheck className="w-4 h-4 text-emerald-600" />
-          </div>
-          <div className="flex items-end justify-between">
-            <span className="text-3xl font-black font-mono text-slate-900">
-              {stats?.orders?.inProcess ?? stats?.kpis?.activeOrders ?? 0}
-            </span>
-            <span className="text-[10px] font-bold text-slate-500">{stats?.orders?.completed ?? 0} done</span>
-          </div>
-          <div className="flex items-end gap-1 h-9" aria-label="Active batch trend">
-            {activeBatchTrend.map((item: any) => (
-              <div key={item.label} className="flex-1 rounded-t-md bg-gradient-to-t from-slate-500 to-slate-300" title={`${item.label}: ${item.value} in process`} style={{ height: `${Math.max(4, (Number(item.value) / activeTrendMax) * 100)}%` }} />
-            ))}
-          </div>
-          <p className="text-[11px] text-slate-500">{stats?.orders?.total ?? 0} total scheduled batches</p>
-        </div>
-      </div>
-
-      <div className="bg-white rounded-2xl border border-slate-200 shadow-xs p-5">
-        <div className="flex items-center justify-between mb-5">
-          <div>
-            <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Controller stock</p>
-            <h2 className="text-base font-bold text-slate-900">BMS and BMU remaining</h2>
-          </div>
-          <Cpu className="w-5 h-5 text-emerald-600" />
-        </div>
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
-          {[
-            { label: 'BMS', available: controllerInventory.availableBms, total: controllerInventory.totalBms, color: 'bg-emerald-500' },
-            { label: 'BMU', available: controllerInventory.availableBmu, total: controllerInventory.totalBmu, color: 'bg-cyan-500' },
-          ].map(item => {
-            const percentage = item.total > 0 ? Math.min(100, (item.available / item.total) * 100) : 0;
-            return (
-              <div key={item.label} className="space-y-2">
-                <div className="flex justify-between text-xs font-bold text-slate-700">
-                  <span>{item.label}</span>
-                  <span className="font-mono">{item.available} available / {item.total} total</span>
-                </div>
-                <div className="h-3 rounded-full bg-slate-100 overflow-hidden">
-                  <div className={`h-full ${item.color} rounded-full transition-all`} style={{ width: `${percentage}%` }} />
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      </div>
-
-      <div className="grid grid-cols-1 xl:grid-cols-[1.5fr,1fr] gap-4">
-        <div className="bg-white rounded-2xl border border-slate-200 shadow-xs p-5">
-          <div className="flex items-center justify-between mb-4">
-            <div>
-              <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Production Trend</p>
-              <h3 className="text-base font-bold text-slate-900">Inventory movement</h3>
-            </div>
-            <span className="text-[10px] font-bold text-emerald-600 bg-emerald-50 px-2 py-1 rounded-full border border-emerald-100">Live data</span>
-          </div>
-          <div className="flex items-end justify-between gap-3 h-44 pt-4">
-            {productionBars.map((bar, idx) => (
-              <div key={bar.label} className="flex h-full flex-1 items-end justify-center gap-1">
-                <div className="w-1/3 rounded-t-md bg-emerald-500" style={{ height: `${Math.max(5, (bar.actual / totalCells) * 100)}%` }} title={`${bar.label}: ${bar.actual}`} />
-                <span className="sr-only">{bar.label}</span>
-              </div>
-            ))}
-          </div>
-          <div className="mt-3 flex flex-wrap gap-4 text-[10px] font-bold text-slate-500">
-            <span className="flex items-center gap-1.5"><i className="h-2 w-2 rounded-full bg-emerald-500" />Live count</span>
-            {productionBars.map(bar => <span key={bar.label}>{bar.label}: {bar.actual}</span>)}
-          </div>
-        </div>
-
-        <div className="bg-white rounded-2xl border border-slate-200 shadow-xs p-5">
-          <div className="flex items-center justify-between mb-4">
-            <div>
-              <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Capacity mix</p>
-              <h3 className="text-base font-bold text-slate-900">Inventory status</h3>
-            </div>
-          </div>
-          <div className="flex items-center gap-5">
-            <div className="relative h-32 w-32 shrink-0 rounded-full" style={{ background: `conic-gradient(${donutGradient})` }}>
-              <div className="absolute inset-5 rounded-full bg-white border border-slate-100" />
-            </div>
-            <div className="min-w-0 flex-1 space-y-2">
-              {statusSegments.map(segment => (
-                <div key={segment.label} className="flex items-center justify-between gap-2 text-[10px] font-bold text-slate-600">
-                  <span className="flex min-w-0 items-center gap-1.5"><i className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: segment.color }} />{segment.label}</span>
-                  <span className="font-mono">{segment.actual}</span>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
-        <div className="bg-white rounded-2xl border border-slate-200 shadow-xs p-5">
-          <div className="flex items-center justify-between mb-4">
-            <div>
-              <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Build output</p>
-              <h3 className="text-base font-bold text-slate-900">Batteries built</h3>
-            </div>
-            <span className="text-[10px] font-bold text-emerald-600">{Number(inventory.finishedBatteries || 0)} total</span>
-          </div>
-          {batteryBuildTrend.length === 0 ? (
-            <div className="h-32 flex items-center justify-center rounded-xl border border-dashed border-slate-200 text-[11px] text-slate-400">No completed battery records</div>
-          ) : (
-            <div className="h-32 flex items-end gap-2 border-b border-slate-100 px-2" aria-label="Batteries built by day">
-              {batteryBuildTrend.map((item: any) => (
-                <div key={item.label} className="flex h-full flex-1 flex-col items-center justify-end gap-1">
-                  <span className="text-[10px] font-mono font-bold text-slate-600">{item.value}</span>
-                  <div className="w-full max-w-12 rounded-t-md bg-emerald-500" title={`${item.label}: ${item.value} batteries built`} style={{ height: `${Math.max(6, (Number(item.value) / batteryBuildMax) * 82)}%` }} />
-                  <span className="text-[9px] text-slate-400">{item.label === 'Unknown' ? item.label : item.label.slice(5)}</span>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-
-        <div className="bg-white rounded-2xl border border-slate-200 shadow-xs p-5">
-          <div className="flex items-center justify-between mb-4">
-            <div>
-              <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Stock remaining</p>
-              <h3 className="text-base font-bold text-slate-900">Inventory by status</h3>
-            </div>
-            <span className="text-[10px] font-bold text-slate-500">{Number(inventory.totalCells || 0)} cells tracked</span>
-          </div>
-          <div className="space-y-3">
-            {statusSegments.map(segment => (
-              <div key={segment.label} className="grid grid-cols-[82px,1fr,42px] items-center gap-2 text-[10px]">
-                <span className="font-bold text-slate-600">{segment.label}</span>
-                <div className="h-2 rounded-full bg-slate-100 overflow-hidden">
-                  <div className="h-full rounded-full" style={{ width: `${Math.min(100, (segment.actual / Math.max(1, Number(inventory.totalCells || 0))) * 100)}%`, backgroundColor: segment.color }} />
-                </div>
-                <span className="text-right font-mono font-bold text-slate-700">{segment.actual}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-      </div>
-
-      {/* Authoritative Manufacturing Pipeline Map */}
-      <div className="bg-white rounded-2xl shadow-xs border border-slate-200 p-6 space-y-4">
-        <div>
-          <span className="text-[10px] uppercase tracking-widest font-black text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-100">
-            Authoritative MES Standard Operating Procedure
-          </span>
-          <h2 className="text-base font-bold text-slate-900 mt-1.5">Battery Manufacturing Pipeline Map</h2>
-          <p className="text-xs text-slate-500">
-            Standard sequential flow of the Power2Go battery production line. Actions must complete in order to pass quality gates.
-          </p>
-        </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-4 lg:grid-cols-5 gap-4">
-          
-          {/* Phase 1: Planning */}
-          <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl space-y-3">
-            <h3 className="text-[10px] font-black uppercase tracking-widest text-slate-400">01. INGEST & ORDER</h3>
-            <div className="space-y-2">
-              <div className="bg-white p-2.5 rounded-lg border border-slate-200 text-xs flex items-center space-x-2 shadow-2xs">
-                <Truck className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
-                <span className="font-semibold">Supplier Ingest</span>
-              </div>
-              <div className="text-center text-slate-300 font-bold text-xs py-0.5">↓</div>
-              <div className="bg-white p-2.5 rounded-lg border border-slate-200 text-xs flex items-center space-x-2 shadow-2xs">
-                <Boxes className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
-                <span className="font-semibold">Cell Inventory</span>
-              </div>
-              <div className="text-center text-slate-300 font-bold text-xs py-0.5">↓</div>
-              <div className="bg-white p-2.5 rounded-lg border border-slate-200 text-xs flex items-center space-x-2 shadow-2xs">
-                <CalendarCheck className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
-                <span className="font-semibold">Production Order</span>
-              </div>
-            </div>
-          </div>
-
-          {/* Phase 2: Component Assignment */}
-          <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl space-y-3">
-            <h3 className="text-[10px] font-black uppercase tracking-widest text-slate-400">02. 2D BUILDER</h3>
-            <div className="space-y-2">
-              <div className="bg-white p-2.5 rounded-lg border border-slate-200 text-xs flex flex-col space-y-1.5 shadow-2xs">
-                <div className="flex items-center space-x-2">
-                  <Layers className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
-                  <span className="font-bold">2D Builder Setup</span>
-                </div>
-                <div className="pl-5 border-l-2 border-dashed border-slate-200 space-y-1 mt-1">
-                  <p className="text-[10px] font-semibold text-slate-600">• Scan Cell Barcodes</p>
-                  <p className="text-[10px] font-semibold text-slate-600">• Scan BMS/BMU QR</p>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* Phase 3: Cell Processing */}
-          <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl space-y-3">
-            <h3 className="text-[10px] font-black uppercase tracking-widest text-slate-400">03. CELL WORKFLOW</h3>
-            <div className="space-y-2">
-              <div className="bg-white p-2.5 rounded-lg border border-slate-200 text-xs flex flex-col space-y-1.5 shadow-2xs">
-                <div className="flex items-center space-x-2">
-                  <Cpu className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
-                  <span className="font-bold">Cell Workflow Gates</span>
-                </div>
-                <div className="grid grid-cols-2 gap-1 pt-1">
-                  <span className="text-[9px] font-bold bg-slate-50 border border-slate-100 rounded text-center py-0.5 text-slate-600">Acknowledgment</span>
-                  <span className="text-[9px] font-bold bg-slate-50 border border-slate-100 rounded text-center py-0.5 text-slate-600">OCV Checking</span>
-                  <span className="text-[9px] font-bold bg-slate-50 border border-slate-100 rounded text-center py-0.5 text-slate-600">IR Probing</span>
-                  <span className="text-[9px] font-bold bg-slate-50 border border-slate-100 rounded text-center py-0.5 text-slate-600">Grading Engine</span>
-                </div>
-                <p className="text-[9px] text-slate-400 italic text-center border-t border-slate-100 pt-1 mt-1">
-                  Includes Damage Log
-                </p>
-              </div>
-              <div className="text-center text-slate-300 font-bold text-xs py-0.5">↓</div>
-              <div className="bg-white p-2 text-center rounded-lg border border-slate-200 text-xs font-bold text-emerald-700 bg-emerald-50/50 shadow-2xs">
-                Cell Matching Module
-              </div>
-            </div>
-          </div>
-
-          {/* Phase 4: Module Assembly */}
-          <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl space-y-3">
-            <h3 className="text-[10px] font-black uppercase tracking-widest text-slate-400">04. MODULE WORKFLOW</h3>
-            <div className="space-y-2">
-              <div className="bg-white p-2.5 rounded-lg border border-slate-200 text-xs flex flex-col space-y-1.5 shadow-2xs">
-                <div className="flex items-center space-x-2">
-                  <Zap className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
-                  <span className="font-bold">Module Assembly</span>
-                </div>
-                <div className="pl-5 border-l-2 border-dashed border-slate-200 space-y-1 mt-1 text-[10px] text-slate-600 font-semibold">
-                  <p>1. Assembly Fixture</p>
-                  <p>2. Laser Welding</p>
-                  <p>3. QC Physical Check</p>
-                  <p>4. QC Voltage Measurement</p>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* Phase 5: Pack & Release */}
-          <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl space-y-3 md:col-span-4 lg:col-span-1">
-            <h3 className="text-[10px] font-black uppercase tracking-widest text-slate-400">05. PACK & RELEASE</h3>
-            <div className="space-y-2">
-              <div className="bg-white p-2.5 rounded-lg border border-slate-200 text-xs flex flex-col space-y-1 shadow-2xs">
-                <span className="font-bold text-slate-800">Pack Workflow</span>
-                <span className="text-[9px] text-slate-500">• Assembly & BMS Check</span>
-                <span className="text-[9px] text-slate-500">• Pack IR Electrical Test</span>
-                <span className="text-[9px] text-slate-500">• Final QC Sign-off</span>
-              </div>
-              <div className="text-center text-slate-300 font-bold text-xs py-0.5">↓</div>
-              <div className="bg-slate-900 text-white p-2.5 text-center rounded-lg text-xs font-black shadow-2xs flex items-center justify-center space-x-1">
-                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
-                <span>QR GENEALOGY RELEASE</span>
-              </div>
-            </div>
-          </div>
-
-        </div>
-      </div>
-
-      {/* Live WIP Batteries & Active Manufacturing Flow */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Left 2 Cols: Live WIP Battery Units */}
-        <div className="lg:col-span-2 bg-white rounded-2xl shadow-xs border border-slate-200 p-6 space-y-4">
-          <div className="flex justify-between items-center">
-            <div>
-              <span className="text-[10px] uppercase tracking-widest font-black text-slate-400">Work In Progress</span>
-              <h2 className="text-base font-bold text-slate-900">Live WIP Battery Packs ({Number(inventory.inProcessBatteries || 0)} in process)</h2>
-            </div>
-            <button
-              onClick={() => setActiveView('production')}
-              className="text-xs font-bold text-emerald-600 hover:text-emerald-700 flex items-center space-x-1 uppercase tracking-wider"
-            >
-              <span>View All</span>
-              <ArrowRight className="w-3.5 h-3.5" />
-            </button>
-          </div>
-
-          <div className="space-y-3">
-            {(stats?.recentBatteries || []).length === 0 ? (
-              <div className="p-8 text-center bg-slate-50/50 rounded-xl border border-dashed border-slate-200 space-y-3">
-                <p className="text-xs font-semibold text-slate-700">No active WIP battery packs on the floor</p>
-                <p className="text-[11px] text-slate-500 max-w-sm mx-auto">
-                  Receive supplier cell manifests and launch a production order to begin automated line orchestration.
-                </p>
-                <div className="pt-2 flex justify-center gap-2">
-                  <button
-                    onClick={() => setActiveView('supplier')}
-                    className="px-3 py-1.5 bg-white hover:bg-slate-50 text-emerald-600 border border-emerald-200 text-xs font-bold rounded-xl transition-colors shadow-2xs"
-                  >
-                    + Import Cells
-                  </button>
-                  <button
-                    onClick={() => setActiveView('planning')}
-                    className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-xl transition-colors shadow-2xs"
-                  >
-                    + New Order
-                  </button>
-                </div>
-              </div>
-            ) : (
-              stats.recentBatteries.map((b: any) => (
-                <div
-                  key={b.id}
-                  onClick={() => {
-                    setActiveBatteryId(b.id);
-                    setActiveView('production');
-                  }}
-                  className="p-4 rounded-xl border border-slate-200 bg-slate-50/50 hover:bg-slate-100/80 cursor-pointer transition-all flex flex-col sm:flex-row sm:items-center justify-between gap-3 group"
-                >
-                  <div className="space-y-1">
-                    <div className="flex items-center space-x-2">
-                      <span className="font-mono font-bold text-xs text-slate-900 group-hover:text-emerald-600 transition-colors">
-                        {b.serialNumber}
-                      </span>
-                      <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-slate-200 text-slate-700">
-                        {b.productName}
-                      </span>
-                    </div>
-                    <p className="text-[11px] text-slate-500">
-                      Station: <strong className="text-slate-700 font-semibold">{String(b.currentStep || 'NOT STARTED').replace(/_/g, ' ')}</strong>
-                    </p>
-                  </div>
-
-                  <div className="flex items-center space-x-4">
-                    <div className="text-right">
-                      <span className="text-xs font-mono font-bold text-slate-800">{b.progressPercent == null ? '—' : `${b.progressPercent}%`}</span>
-                      <div className="w-28 bg-slate-200 rounded-full h-1.5 overflow-hidden mt-1">
-                        <div
-                          className="bg-emerald-600 h-1.5 rounded-full"
-                          style={{ width: `${Math.max(0, Math.min(100, Number(b.progressPercent) || 0))}%` }}
-                        ></div>
-                      </div>
-                    </div>
-
-                    <span
-                      className={`px-2.5 py-1 rounded text-[10px] font-bold uppercase font-mono ${
-                        b.status === 'FINISHED'
-                          ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
-                          : 'bg-emerald-50 text-emerald-700 border border-emerald-200'
-                      }`}
-                    >
-                      {b.status}
-                    </span>
-                    <button type="button" onClick={event => { event.stopPropagation(); handleEditWipBattery(b); }} className="text-slate-500 hover:text-emerald-600" title="Edit battery" aria-label={`Edit ${b.serialNumber}`}><Pencil className="w-4 h-4" /></button>
-                    <button type="button" onClick={event => { event.stopPropagation(); void handleDeleteWipBattery(b); }} className="text-slate-500 hover:text-red-600" title="Delete battery" aria-label={`Delete ${b.serialNumber}`}><Trash2 className="w-4 h-4" /></button>
-                  </div>
-                </div>
-              ))
-            )}
-          </div>
-        </div>
-
-        {/* Right 1 Col: Production Flow Quick Jump & Machine Health */}
-        <div className="bg-white rounded-2xl shadow-xs border border-slate-200 p-6 space-y-4">
-          <div>
-            <span className="text-[10px] uppercase tracking-widest font-black text-slate-400">Lean Routing</span>
-            <h2 className="text-base font-bold text-slate-900">12-Step Manufacturing Pipeline</h2>
-          </div>
-
-          <div className="space-y-1.5 text-xs max-h-[440px] overflow-y-auto pr-1">
-            {[
-              { num: '01', name: 'Supplier Manifest Ingestion', view: 'supplier' },
-              { num: '02', name: 'Cell Inventory & Storage', view: 'inventory' },
-              { num: '03', name: 'Production Order & Reservation', view: 'planning' },
-              { num: '04', name: 'Cell Identification (Scan)', view: 'production' },
-              { num: '05', name: 'Cell Testing (Auto / Inherit)', view: 'production' },
-              { num: '06', name: 'Auto Grading Engine', view: 'production' },
-              { num: '07', name: 'Intelligent Cell Matching', view: 'production' },
-              { num: '08', name: 'Module Fixture & Laser Welding', view: 'production' },
-              { num: '09', name: 'Module QC Inspection', view: 'production' },
-              { num: '10', name: 'Pack Assembly & BMS Testing', view: 'production' },
-              { num: '11', name: 'Final Hi-Pot & 100A Dyn Load', view: 'production' },
-              { num: '12', name: 'Final Release & Compliance QR', view: 'production' },
-            ].map(step => (
-              <button
-                key={step.num}
-                onClick={() => setActiveView(step.view as any)}
-                className="w-full flex items-center justify-between p-2.5 rounded-xl hover:bg-slate-50 text-left border border-slate-100 transition-colors group"
-              >
-                <div className="flex items-center space-x-2.5">
-                  <span className="font-mono text-[10px] font-bold text-emerald-600 bg-emerald-50 px-1.5 py-0.2 rounded border border-emerald-100 group-hover:bg-emerald-600 group-hover:text-white transition-colors">
-                    {step.num}
-                  </span>
-                  <span className="font-semibold text-slate-700 text-xs">{step.name}</span>
-                </div>
-                <ChevronRight className="w-3.5 h-3.5 text-slate-400 group-hover:text-emerald-600 transition-colors" />
-              </button>
-            ))}
-          </div>
-        </div>
-      
-      {/* Workflow Diagram */}
-      <div className="bg-slate-900 rounded-2xl border border-slate-800 shadow-xl overflow-hidden mt-8 text-white p-6">
-        <h2 className="text-sm font-bold uppercase tracking-wider mb-6 text-emerald-400">Power2Go Authoritative Manufacturing Flow</h2>
-        <div className="font-mono text-[10px] sm:text-xs whitespace-pre bg-black/50 p-6 rounded-xl border border-slate-800 overflow-x-auto text-slate-300">
-{`===========================================================
-CORE HIERARCHY
-===========================================================
-
-SUPPLIER EXCEL DATA
-        ↓
-2D BATTERY BUILDER
-      ├── CELL SCAN
-      └── BMS/BMU SCAN
-        ↓
-CELL WORKFLOW (Cell-by-Cell)
-      ├── IR & OCV
-      ├── GRADING (Good/Damaged)
-      └── DAMAGE HISTORY (if required)
-        ↓
-MODULE WORKFLOW (Module-by-Module)
-      ├── LASER WELDING
-      ├── QC PHYSICAL
-      └── QC VOLTAGE
-        ↓
-BATTERY PACK WORKFLOW (Global)
-      ├── PACK ASSEMBLY
-      ├── PACK IR
-      └── FINAL QC
-        ↓
-RELEASE
-        ↓
-QR + INVENTORY + GENEALOGY`}
-        </div>
-      </div>
-
-    </div>
-    </div>
-  );
+    <section className="grid grid-cols-1 gap-5 xl:grid-cols-[1.5fr,1fr]"><Panel eyebrow="Needs attention" title={`Live WIP / ${Number(inventory.inProcessBatteries || 0)} in process`} action={<button type="button" onClick={() => setActiveView('production')} className="text-xs font-bold text-emerald-600">View all <ArrowUpRight className="inline h-3.5 w-3.5" /></button>}><div className="mt-4 space-y-2">{recentBatteries.length === 0 ? <div className="rounded-xl border border-dashed border-slate-200 p-8 text-center"><Layers className="mx-auto h-7 w-7 text-slate-300" /><p className="mt-2 text-xs font-bold text-slate-600">No active packs on the floor</p><button type="button" onClick={() => setActiveView('planning')} className="mt-3 rounded-lg bg-emerald-600 px-3 py-2 text-[11px] font-bold text-white">Create production order</button></div> : recentBatteries.map((battery: any) => <div key={battery.id} className="flex items-center justify-between gap-3 rounded-xl border border-slate-100 p-3 hover:bg-slate-50"><button type="button" onClick={() => { setActiveBatteryId(battery.id); setActiveView('production'); }} className="min-w-0 flex-1 text-left"><span className="block truncate font-mono text-xs font-black text-slate-900">{battery.serialNumber}</span><span className="mt-1 block text-[11px] text-slate-500">{String(battery.currentStep || 'NOT STARTED').replace(/_/g, ' ')}</span></button><div className="w-24"><div className="text-right text-[10px] font-black text-slate-600">{battery.progressPercent ?? 0}%</div><div className="mt-1 h-1.5 rounded-full bg-slate-100"><div className="h-full rounded-full bg-emerald-500" style={{ width: `${Math.min(100, Number(battery.progressPercent) || 0)}%` }} /></div></div><button type="button" onClick={() => { setActiveBatteryId(battery.id); setActiveView('workflow-pack'); }} className="rounded-lg p-2 text-slate-400 hover:bg-emerald-50 hover:text-emerald-600" title="Edit battery"><Pencil className="h-4 w-4" /></button><button type="button" onClick={() => void deleteBattery(battery)} className="rounded-lg p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-900" title="Delete battery"><Trash2 className="h-4 w-4" /></button></div>)}</div></Panel>
+      <Panel eyebrow="Operational health" title="At a glance" action={<Activity className="h-5 w-5 text-emerald-600" />}><div className="mt-4 divide-y divide-slate-100">{[['Machine gateway', `${onlineMachines} / ${machines.length} online`, onlineMachines > 0], ['Quality review', `${Number(quality.quarantinedCount || 0)} open`, false], ['Scheduled batches', `${Number(stats.orders?.total || 0)} total`, false], ['Completed batches', `${Number(stats.orders?.completed || 0)} total`, false]].map(([label, value, online]) => <div key={String(label)} className="flex items-center justify-between py-3"><span className="flex items-center gap-2 text-xs font-semibold text-slate-500"><i className={`h-2 w-2 rounded-full ${online ? 'bg-emerald-500' : 'bg-slate-300'}`} />{label}</span><b className={`text-xs font-black ${online ? 'text-emerald-600' : 'text-slate-900'}`}>{value}</b></div>)}</div><button type="button" onClick={() => setActiveView('machines')} className="mt-3 flex w-full items-center justify-between rounded-xl bg-slate-50 px-4 py-3 text-xs font-bold text-slate-700 hover:bg-emerald-50 hover:text-emerald-700">Open machine gateway <ArrowUpRight className="h-4 w-4" /></button></Panel>
+    </section>
+  </div></div>;
 };
+
+function HeroMetric({ label, value, accent = 'text-white' }: { label: string; value: string; accent?: string }) {
+  return <div><p className="text-[9px] font-black uppercase tracking-[0.16em] text-slate-400">{label}</p><p className={`mt-1 text-sm font-black ${accent}`}>{value}</p></div>;
+}
+
+function Panel({ eyebrow, title, action, children }: { eyebrow: string; title: string; action?: React.ReactNode; children: React.ReactNode }) {
+  return <article className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6"><div className="flex items-start justify-between gap-4"><div><p className="text-[10px] font-black uppercase tracking-[0.16em] text-slate-400">{eyebrow}</p><h2 className="mt-1 text-base font-black tracking-tight text-slate-900">{title}</h2></div>{action}</div>{children}</article>;
+}

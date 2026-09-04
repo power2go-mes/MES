@@ -204,6 +204,8 @@ export const InventoryView: React.FC = () => {
   const getStatusBadge = (status: string) => {
     switch (status) {
       case 'AVAILABLE':
+      case 'IN_STOCK':
+      case 'FLOOR_STOCK':
         return 'bg-emerald-50 text-emerald-700 border-emerald-200';
       case 'RESERVED':
         return 'bg-slate-50 text-slate-700 border-slate-200';
@@ -570,8 +572,8 @@ export const InventoryView: React.FC = () => {
                       {cell.palletNumber.slice(-8)} / {cell.boxNumber.slice(-8)}
                     </td>
                     <td className="px-5 py-3.5 font-sans">
-                      <span className={`px-2.5 py-0.5 rounded-md text-[10px] font-bold border uppercase tracking-wider ${getStatusBadge(cell.status)}`}>
-                        {cell.status}
+                      <span className={`px-2.5 py-0.5 rounded-md text-[10px] font-bold border uppercase tracking-wider ${getStatusBadge(cell.lifecycleStatus || cell.status)}`}>
+                        {cell.lifecycleStatus || cell.status}
                       </span>
                     </td>
                     <td className="px-5 py-3.5 text-right space-x-1 font-sans">

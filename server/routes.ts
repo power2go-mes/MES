@@ -417,7 +417,7 @@ apiRouter.get('/users', requirePermission('security.users'), requireAdministrato
   res.json(db.users.map(({ passwordHash, otpHash, ...safe }) => safe));
 });
 
-apiRouter.post('/users', requirePermission('security.users'), requireAdministrator, async (req, res) => {
+apiRouter.post('/users', requirePermission('security.users'), requireAdministrator, async (req: any, res) => {
   const { name, username, email, password, roleId, status, badgeId } = req.body;
   if (!name || !username || !email || !password) return res.status(400).json({ error: 'Name, username, email, and password are required' });
 
@@ -463,7 +463,7 @@ apiRouter.post('/users', requirePermission('security.users'), requireAdministrat
   res.json(newUser);
 });
 
-apiRouter.put('/users/:id', requirePermission('security.users'), requireAdministrator, async (req, res) => {
+apiRouter.put('/users/:id', requirePermission('security.users'), requireAdministrator, async (req: any, res) => {
   const { id } = req.params;
   const { name, username, email, roleId, status, badgeId } = req.body;
   const user = db.users.find(u => u.id === id);
@@ -506,7 +506,7 @@ apiRouter.put('/users/:id', requirePermission('security.users'), requireAdminist
   res.json(user);
 });
 
-apiRouter.delete('/users/:id', requirePermission('security.users'), requireAdministrator, async (req: any, res) => {
+apiRouter.delete('/users/:id', requirePermission('security.users'), requireAdministrator, async (req: any, res: any) => {
   const { id } = req.params;
   if (id === req.userId) return res.status(400).json({ error: 'You cannot delete your own account.' });
 
