@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Power2Go Battery MES Block Diagram</title>
+<style>
+@page { size: A4 landscape; margin: 10mm; }
+* { box-sizing: border-box; }
+body { margin: 0; background: #eef3f1; color: #17202a; font-family: "Segoe UI", Arial, sans-serif; }
+.page { page-break-after: always; min-height: 180mm; padding: 3mm; }
+.page:last-child { page-break-after: auto; }
+h1 { margin: 0 0 4px; font-size: 25px; letter-spacing: .3px; }
+h2 { margin: 0 0 8px; font-size: 18px; }
+h3 { margin: 0 0 5px; font-size: 11px; text-transform: uppercase; letter-spacing: 1px; color: #4b6259; }
+p, li { font-size: 9px; line-height: 1.35; }
+.subtitle { margin: 0 0 12px; color: #5d7169; font-size: 11px; }
+.diagram { border: 1px solid #a9bbb3; background: #fbfcfb; padding: 12px; }
+.layer { border: 2px solid #9eb3aa; padding: 9px; margin-bottom: 10px; background: #f5f8f6; }
+.layer-title { display: flex; justify-content: space-between; align-items: center; margin-bottom: 7px; }
+.layer-title b { font-size: 11px; color: #385249; }
+.layer-title span { font-size: 8px; color: #71837b; }
+.blocks { display: grid; gap: 7px; }
+.cols5 { grid-template-columns: repeat(5, 1fr); }
+.cols4 { grid-template-columns: repeat(4, 1fr); }
+.cols3 { grid-template-columns: repeat(3, 1fr); }
+.cols2 { grid-template-columns: repeat(2, 1fr); }
+.block { border: 1px solid #99afa5; background: white; padding: 8px; min-height: 60px; position: relative; }
+.block strong { display: block; font-size: 10px; margin-bottom: 4px; }
+.block small { display: block; color: #52655d; font-size: 8px; line-height: 1.35; }
+.block.ui { border-top: 4px solid #17835f; }
+.block.service { border-top: 4px solid #327aa4; }
+.block.data { border-top: 4px solid #92662b; }
+.block.external { border-top: 4px solid #765c94; }
+.arrow { text-align: center; color: #17835f; font-size: 18px; height: 18px; line-height: 18px; font-weight: 700; }
+.flow { display: grid; grid-template-columns: repeat(9, 1fr); gap: 4px; align-items: center; }
+.flow .block { min-height: 56px; padding: 6px; }
+.flow .block strong { font-size: 8px; }
+.flow .block small { font-size: 7px; }
+.flow .arrow { font-size: 13px; }
+.legend { display:flex; gap: 14px; margin-top: 7px; font-size: 8px; color:#51655b; }
+.legend i { display:inline-block; width:10px; height:10px; vertical-align:-2px; margin-right:3px; border:1px solid #8fa69b; }
+.note { border-left: 4px solid #d18a24; background:#fff7e7; padding:8px 10px; margin-top:9px; }
+.note b { font-size: 10px; }
+.number { float:left; border-radius:50%; width:17px; height:17px; background:#17202a; color:white; text-align:center; line-height:17px; font-size:9px; margin-right:5px; }
+.footer { display:flex; justify-content:space-between; color:#71817a; font-size:8px; margin-top:6px; }
+</style>
+</head>
+<body>
+<section class="page">
+<h1>Power2Go Battery MES: System Block Diagram</h1>
+<p class="subtitle">End-to-end architecture and control flow for battery manufacturing, warehouse, quality, traceability, and release.</p>
+<div class="diagram">
+<div class="layer"><div class="layer-title"><b>1. People and physical inputs</b><span>Who starts or supervises work</span></div><div class="blocks cols5"><div class="block external"><strong>Warehouse</strong><small>Receives cells, BMS, BMU, modules and finished packs.</small></div><div class="block external"><strong>Operator</strong><small>Scans serials, fills measurements and advances workflow.</small></div><div class="block external"><strong>QC inspector</strong><small>Reviews defects, test results and release decisions.</small></div><div class="block external"><strong>Supervisor</strong><small>Controls bypass authorization and exception handling.</small></div><div class="block external"><strong>Admin / Engineering</strong><small>Manages users, roles, products, machines and policies.</small></div></div></div>
+<div class="arrow">↓ authenticated session</div>
+<div class="layer"><div class="layer-title"><b>2. Access and application shell</b><span>React application boundary</span></div><div class="blocks cols4"><div class="block ui"><strong>Login + OTP</strong><small>Identity, session, profile and sign-out.</small></div><div class="block ui"><strong>Header</strong><small>Universal scan/search, notifications, line status, profile.</small></div><div class="block ui"><strong>Sidebar navigation</strong><small>Dashboard, production, warehouse, quality, reports, security.</small></div><div class="block service"><strong>App context</strong><small>Active view, active battery/order, refresh signals, notifications.</small></div></div></div>
+<div class="arrow">↓ route selection and shared state</div>
+<div class="layer"><div class="layer-title"><b>3. User-facing MES modules</b><span>Operational screens</span></div><div class="blocks cols5"><div class="block ui"><strong>Dashboard</strong><small>KPI tiles, line health and manufacturing pipeline.</small></div><div class="block ui"><strong>Planning</strong><small>Product template, quantity, material reservation, order creation.</small></div><div class="block ui"><strong>2D Battery Builder</strong><small>Battery twin, cell slots, BMS/BMU slots, scan assignment.</small></div><div class="block ui"><strong>Cell / Module / Pack QA</strong><small>OCV/IR, grading, damage, welding, pack tests and final QC.</small></div><div class="block ui"><strong>Warehouse</strong><small>Cells, BMS, BMU, modules and batteries with QR/CRUD/trace.</small></div></div><div class="blocks cols4" style="margin-top:7px"><div class="block ui"><strong>Traceability</strong><small>Universal search and genealogy tree from supplier to release.</small></div><div class="block ui"><strong>Quarantine</strong><small>Isolate, rework, release-approved or scrap.</small></div><div class="block ui"><strong>Reports + Audit</strong><small>FPY, telemetry, defects, event history and CSV export.</small></div><div class="block ui"><strong>Machines + Products + Security</strong><small>IoT status, product configuration, users, roles and permissions.</small></div></div></div>
+</div>
+<div class="legend"><span><i style="background:#e7f4ee;border-top:3px solid #17835f"></i>UI</span><span><i style="background:#e9f3fa;border-top:3px solid #327aa4"></i>Service/state</span><span><i style="background:#fff6e4;border-top:3px solid #92662b"></i>Data</span><span><i style="background:#f3edf8;border-top:3px solid #765c94"></i>External actor/input</span></div>
+<div class="footer"><span>Power2Go Battery MES block diagram</span><span>1 / 4</span></div>
+</section>
+<section class="page">
+<h2>Production and Quality Control Path</h2><p class="subtitle">The main manufacturing path is a controlled sequence. Each stage produces records used by the next stage.</p>
+<div class="diagram">
+<div class="layer"><div class="layer-title"><b>Production sequence</b><span>Order to released pack</span></div><div class="flow"><div class="block ui"><strong>1. Supplier ingest</strong><small>Validate manifest and create cell inventory.</small></div><div class="arrow">→</div><div class="block ui"><strong>2. Create order</strong><small>Select product and quantity; check material.</small></div><div class="arrow">→</div><div class="block ui"><strong>3. Reserve cells</strong><small>Link reserved cells to order and battery.</small></div><div class="arrow">→</div><div class="block ui"><strong>4. Build twin</strong><small>Assign cells, BMS and BMU by scan.</small></div><div class="arrow">→</div><div class="block ui"><strong>5. Cell QA</strong><small>OCV/IR, grade and damage history.</small></div></div><div class="flow" style="margin-top:8px"><div class="block ui"><strong>6. Match modules</strong><small>Balance cells into module slots.</small></div><div class="arrow">→</div><div class="block ui"><strong>7. Weld + module QC</strong><small>Laser weld, busbar, voltage, insulation.</small></div><div class="arrow">→</div><div class="block ui"><strong>8. Pack assembly</strong><small>Enclosure, harness and controllers.</small></div><div class="arrow">→</div><div class="block ui"><strong>9. Final test</strong><small>Pack IR, Hi-Pot, dynamic load, telemetry.</small></div><div class="arrow">→</div><div class="block ui"><strong>10. Final QC</strong><small>Release or quarantine; create QR passport.</small></div></div></div>
+<div class="arrow">↓ every write carries identity, timestamp, status, and audit event</div>
+<div class="layer"><div class="layer-title"><b>Workflow state and quality gates</b><span>Controls progression</span></div><div class="blocks cols4"><div class="block service"><strong>Battery state machine</strong><small>CELL_IDENTIFICATION → CELL_TESTING → GRADING → DAMAGE_HISTORY → MODULE_ASSEMBLY → LASER_WELDING → MODULE_QC → BATTERY_ASSEMBLY → BMS_INTEGRATION → FINAL_TESTING → FINAL_QC → COMPLETED.</small></div><div class="block service"><strong>Prerequisite checks</strong><small>Required cells, required BMS/BMU, module count, test result, QC result, and no open quarantine.</small></div><div class="block service"><strong>Exception path</strong><small>Failure sends item to quarantine. Supervisor bypass requires a reason and audit record.</small></div><div class="block service"><strong>Release decision</strong><small>Only a passed final QC should set FINISHED, create release QR, and update order completion.</small></div></div></div>
+<div class="note"><span class="number">1</span><b>Important control boundary:</b> the state machine must be enforced in the server/RPC layer, not only by button visibility. A failed write should roll back the whole stage transaction.</div>
+<div class="layer"><div class="layer-title"><b>Machine-assisted operations</b><span>Physical equipment feedback</span></div><div class="blocks cols4"><div class="block external"><strong>OCV / IR tester</strong><small>Cell electrical measurements.</small></div><div class="block external"><strong>Laser welder</strong><small>Power, time, pull-force cycle.</small></div><div class="block external"><strong>BMS / CAN tester</strong><small>Telemetry, sensors, frame health.</small></div><div class="block external"><strong>Final dynamic tester</strong><small>Pack-level load and Hi-Pot.</small></div></div></div>
+</div><div class="footer"><span>Primary flow: controlled manufacturing sequence</span><span>2 / 4</span></div>
+</section>
+<section class="page">
+<h2>Inventory, QR Passport, and Traceability</h2><p class="subtitle">The warehouse and genealogy views connect physical serial numbers to a released battery record.</p>
+<div class="diagram">
+<div class="layer"><div class="layer-title"><b>Warehouse inventory domain</b><span>Separate stock views, shared status model</span></div><div class="blocks cols5"><div class="block data"><strong>Cell inventory</strong><small>Supplier barcode, internal serial, measurements, grade, pallet/box, allocation.</small></div><div class="block data"><strong>BMS inventory</strong><small>Serial, model, supplier, firmware, hardware, protocol, test and status.</small></div><div class="block data"><strong>BMU inventory</strong><small>Serial, model, manufacturer, protocol, test and status.</small></div><div class="block data"><strong>Module inventory</strong><small>Serial, cells, matching score, welding, QC, parent battery.</small></div><div class="block data"><strong>Battery inventory</strong><small>Pack serial, product, modules, BMS, BMU, step, progress, release.</small></div></div></div>
+<div class="arrow">↓ scan / QR / universal identifier</div>
+<div class="layer"><div class="layer-title"><b>Battery QR passport</b><span>Generated when final QC passes</span></div><div class="blocks cols4"><div class="block ui"><strong>Battery label</strong><small>Pack serial, product, release date/status, stable payload.</small></div><div class="block ui"><strong>BMS label</strong><small>BMS serial, model, protocol, parent battery context.</small></div><div class="block ui"><strong>BMU label</strong><small>BMU serial, model, protocol, parent battery context.</small></div><div class="block ui"><strong>Module labels</strong><small>Module serial, module position, parent battery context.</small></div></div></div>
+<div class="arrow">↓ identifier lookup</div>
+<div class="layer"><div class="layer-title"><b>Universal genealogy tree</b><span>Bidirectional traceability</span></div><div class="blocks cols3"><div class="block service"><strong>Forward trace</strong><small>Supplier batch → cell → module → battery → BMS/BMU → final QC → release → dispatch.</small></div><div class="block service"><strong>Reverse trace</strong><small>Scan cell, module, BMS or BMU to find its parent battery, tests, operators and audit events.</small></div><div class="block service"><strong>Detail panel</strong><small>Serial, status, measurement values, timestamps, machine identity, disposition and notes.</small></div></div></div>
+<div class="layer"><div class="layer-title"><b>Quarantine and disposition</b><span>Safety barrier</span></div><div class="blocks cols4"><div class="block service"><strong>Detect defect</strong><small>Manual or automated failure creates open quarantine.</small></div><div class="block service"><strong>Isolate</strong><small>Set component status QUARANTINED and prevent allocation.</small></div><div class="block service"><strong>Disposition</strong><small>Release approved, rework, or scrap with signed notes.</small></div><div class="block service"><strong>Audit</strong><small>Record actor, reason, old/new state, time, and resolution.</small></div></div></div>
+<div class="note"><span class="number">2</span><b>Integrity rule:</b> BMS and BMU must link symmetrically to both their own inventory records and the battery record. Quarantine must support both controller types.</div>
+</div><div class="footer"><span>Physical identity is the organizing principle</span><span>3 / 4</span></div>
+</section>
+<section class="page">
+<h2>Services, Data, Security, and Audit Boundaries</h2><p class="subtitle">The lower layers are responsible for consistency, permissions, persistence, integrations, and evidence.</p>
+<div class="diagram">
+<div class="layer"><div class="layer-title"><b>Frontend service boundary</b><span>src/services/api.ts</span></div><div class="blocks cols4"><div class="block service"><strong>API facade</strong><small>Typed methods for users, products, orders, inventory, workflows, QR and traceability.</small></div><div class="block service"><strong>Column mapping</strong><small>Converts app camelCase fields to database snake_case fields and back.</small></div><div class="block service"><strong>Session token</strong><small>Attaches current authenticated Supabase session to protected requests.</small></div><div class="block service"><strong>Refresh / notifications</strong><small>Signals views to reload and reports errors to the operator.</small></div></div></div>
+<div class="arrow">↓ authenticated, validated mutation</div>
+<div class="layer"><div class="layer-title"><b>Backend control boundary</b><span>server/routes.ts + state machine</span></div><div class="blocks cols4"><div class="block service"><strong>Authentication</strong><small>Login, OTP, sessions, cookies, profile mapping, account state.</small></div><div class="block service"><strong>Authorization</strong><small>Role and permission checks for every read/write/mutation.</small></div><div class="block service"><strong>Domain invariants</strong><small>No duplicate allocation, no release with missing gates, no mutation of quarantined items.</small></div><div class="block service"><strong>Transaction boundary</strong><small>Order, assignment, workflow and release writes commit atomically or roll back.</small></div></div></div>
+<div class="arrow">↓ durable state and external evidence</div>
+<div class="layer"><div class="layer-title"><b>Persistence and integration systems</b><span>Source of truth and external equipment</span></div><div class="blocks cols4"><div class="block data"><strong>Supabase Postgres</strong><small>Users/profiles, roles, products, cells, BMS, BMU, modules, batteries, orders, quarantine, audit logs.</small></div><div class="block data"><strong>RLS and database policies</strong><small>Authenticated reads; role-aware writes; protected sensitive records.</small></div><div class="block data"><strong>Audit event store</strong><small>Immutable-like event history for scans, tests, bypass, quarantine, disposition, release and admin actions.</small></div><div class="block external"><strong>Machine gateway</strong><small>Modbus TCP, SECS/GEM, CAN 2.0B, OPC-UA adapters and telemetry.</small></div></div></div>
+<div class="arrow">↓ reporting and compliance views</div>
+<div class="layer"><div class="layer-title"><b>Evidence outputs</b><span>What management and quality teams consume</span></div><div class="blocks cols5"><div class="block ui"><strong>Dashboard KPIs</strong><small>Inventory, active orders, finished packs, FPY.</small></div><div class="block ui"><strong>Quality analytics</strong><small>OCV distribution, weld quality, BMS telemetry, Pareto.</small></div><div class="block ui"><strong>Audit export</strong><small>CSV with actor, action, entity, reason, values.</small></div><div class="block ui"><strong>QR passport</strong><small>Printable component and pack labels.</small></div><div class="block ui"><strong>Trace report</strong><small>Genealogy and test history.</small></div></div></div>
+<div class="note"><span class="number">3</span><b>Recommended architecture decision:</b> choose one authoritative write path. The current direct-Supabase facade and local Express route implementation should share contracts and tests, or one should become read-only/deprecated.</div>
+</div><div class="footer"><span>Security and integrity are backend responsibilities</span><span>4 / 4</span></div>
+</section>
+</body>
+</html>

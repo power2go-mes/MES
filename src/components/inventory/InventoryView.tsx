@@ -1,0 +1,1144 @@
+import React, { useState, useEffect } from 'react';
+import { useApp } from '../../context/AppContext';
+import { api } from '../../services/api';
+import { CellItem, BMSItem, BMUItem, ModuleItem, BatteryUnit } from '../../types';
+import { QRCodeModal } from '../common/QRCodeModal';
+import { ScannerModal } from '../common/ScannerModal';
+import { BatteryReportModal } from '../common/BatteryReportModal';
+import {
+  Boxes,
+  Layers,
+  Cpu,
+  Search,
+  Filter,
+  QrCode,
+  CheckCircle2,
+  AlertTriangle,
+  Clock,
+  ChevronRight,
+  Eye,
+  Plus,
+  Pencil,
+  Trash2,
+  Download,
+} from 'lucide-react';
+
+type Tab = 'CELLS' | 'BMS' | 'BMU' | 'MODULES' | 'BATTERIES';
+
+export const InventoryView: React.FC = () => {
+  const { setActiveView, setActiveBatteryId, setQuickSearchQuery, refreshKey, addNotification, triggerRefresh, inventoryTab, setInventoryTab } = useApp();
+  const activeTab = inventoryTab;
+  const setActiveTab = setInventoryTab;
+  const [search, setSearch] = useState('');
+  const [statusFilter, setStatusFilter] = useState<string>('');
+  const [cellsView, setCellsView] = useState<'ALL' | 'USED'>('ALL');
+
+  const [cells, setCells] = useState<CellItem[]>([]);
+  const [allCells, setAllCells] = useState<CellItem[]>([]);
+  const [cellBuckets, setCellBuckets] = useState<Array<{ cellId: string; bucket: 'AVAILABLE' | 'RESERVED' | 'IN_PROCESS' | 'DAMAGE' }>>([]);
+  const [allCellsCount, setAllCellsCount] = useState(0);
+  const [usedCellsCount, setUsedCellsCount] = useState(0);
+  const [cellDisplayLimit, setCellDisplayLimit] = useState(50);
+  const [bmsUnits, setBmsUnits] = useState<BMSItem[]>([]);
+  const [bmuUnits, setBmuUnits] = useState<BMUItem[]>([]);
+  const [modules, setModules] = useState<ModuleItem[]>([]);
+  const [batteries, setBatteries] = useState<BatteryUnit[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [selectedIds, setSelectedIds] = useState<Record<Tab, string[]>>({
+    CELLS: [],
+    BMS: [],
+    BMU: [],
+    MODULES: [],
+    BATTERIES: [],
+  });
+
+  // BMS Ingestion Modal
+  const [showBmsModal, setShowBmsModal] = useState(false);
+  const [bmsCount, setBmsCount] = useState(10);
+  const [bmsModel, setBmsModel] = useState('PACE-51.2V-100A-CAN');
+  const [bmsManufacturer, setBmsManufacturer] = useState('');
+  const [bmsBatchNumber, setBmsBatchNumber] = useState('');
+  const [bmsSerials, setBmsSerials] = useState('');
+  const [ingestingBms, setIngestingBms] = useState(false);
+  const [showBmuModal, setShowBmuModal] = useState(false);
+  const [bmuCount, setBmuCount] = useState(10);
+  const [bmuModel, setBmuModel] = useState('Power2Go BMU-X1');
+  const [bmuManufacturer, setBmuManufacturer] = useState('Power2Go');
+  const [bmuBatchNumber, setBmuBatchNumber] = useState('');
+  const [bmuSerials, setBmuSerials] = useState('');
+  const [serialScanner, setSerialScanner] = useState<'BMS' | 'BMU' | null>(null);
+  const [ingestingBmu, setIngestingBmu] = useState(false);
+
+  // Detail Modal & QR Modal
+  const [selectedItem, setSelectedItem] = useState<any | null>(null);
+  const [qrModalOpen, setQrModalOpen] = useState(false);
+  const [qrData, setQrData] = useState<any | null>(null);
+  const [reportBattery, setReportBattery] = useState<BatteryUnit | null>(null);
+
+  useEffect(() => {
+    setCellDisplayLimit(50);
+    const timer = window.setTimeout(() => {
+      void loadInventory();
+    }, 350);
+    return () => window.clearTimeout(timer);
+  }, [activeTab, search, statusFilter, cellsView, refreshKey]);
+
+  const loadInventory = async () => {
+    setLoading(true);
+    try {
+      if (activeTab === 'CELLS') {
+        const serverStatus = ['AVAILABLE', 'RESERVED', 'IN_PROCESS', 'QUARANTINED', 'FAILED'].includes(statusFilter)
+          ? statusFilter
+          : undefined;
+        const [res, counts] = await Promise.all([
+          api.getCells({
+            search: search || undefined,
+            status: serverStatus,
+            usedOnly: cellsView === 'USED' ? true : undefined,
+            limit: 50,
+          }),
+          !search && !statusFilter
+            ? api.getCellCounts()
+            : Promise.resolve({ total: allCellsCount, used: usedCellsCount, available: 0, quarantined: 0 }),
+        ]);
+        setCells(res);
+        setAllCellsCount(counts.total);
+        setUsedCellsCount(counts.used);
+        if (!search && !statusFilter) {
+          setAllCells(cellsView === 'USED' ? res : []);
+        }
+
+        if (cellsView === 'USED') {
+          try {
+            const [loadedModules, loadedBatteries, buckets] = await Promise.all([
+              api.getModules(),
+              api.getBatteries(),
+              api.getCellInventoryBuckets(),
+            ]);
+            setModules(loadedModules);
+            setBatteries(loadedBatteries);
+            setCellBuckets(buckets);
+          } catch (error) {
+            console.error('Failed to load used-cell relationships', error);
+            setCellBuckets([]);
+          }
+        }
+      } else if (activeTab === 'BMS') {
+        const res = await api.getBmsUnits();
+        setBmsUnits(res);
+      } else if (activeTab === 'BMU') {
+        const res = await api.getBmuUnits();
+        setBmuUnits(res);
+      } else if (activeTab === 'MODULES') {
+        const res = await api.getModules();
+        setModules(res);
+      } else if (activeTab === 'BATTERIES') {
+        const res = await api.getBatteries();
+        setBatteries(res);
+      }
+    } catch (err) {
+      console.error('Failed to load inventory', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const normalizeSerialList = (input: string): string[] => {
+    const seen = new Set<string>();
+    return input
+      .split(/[\n,;]+/)
+      .map(value => value.trim())
+      .filter(Boolean)
+      .filter(value => {
+        const key = value.toUpperCase();
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
+  };
+
+  const handleIngestBmu = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIngestingBmu(true);
+    try {
+      const serialNumbers = normalizeSerialList(bmuSerials);
+      if (serialNumbers.length === 0) {
+        throw new Error('Enter at least one BMU serial or leave the field empty to auto-generate values.');
+      }
+      const finalCount = serialNumbers.length;
+      setBmuCount(finalCount);
+      const res = await api.createBmuBatch({ count: finalCount, model: bmuModel, manufacturer: bmuManufacturer, batchNumber: bmuBatchNumber, serialNumbers });
+      addNotification('success', 'BMU Batch Received', `Successfully ingested ${res.count} ${bmuModel} controllers`);
+      setShowBmuModal(false);
+      triggerRefresh();
+      loadInventory();
+    } catch (err: any) {
+      addNotification('error', 'Ingestion Failed', err.message);
+    } finally {
+      setIngestingBmu(false);
+    }
+  };
+
+  const handleIngestBms = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIngestingBms(true);
+    try {
+      const serialNumbers = normalizeSerialList(bmsSerials);
+      if (serialNumbers.length === 0) {
+        throw new Error('Enter at least one BMS serial or leave the field empty to auto-generate values.');
+      }
+      const finalCount = serialNumbers.length;
+      setBmsCount(finalCount);
+      const res = await api.createBmsBatch({ count: finalCount, model: bmsModel, supplier: bmsManufacturer || 'Unknown Supplier', manufacturer: bmsManufacturer, batchNumber: bmsBatchNumber, serialNumbers });
+      addNotification('success', 'BMS Batch Received', `Successfully ingested ${res.count} ${bmsModel} controllers`);
+      setShowBmsModal(false);
+      triggerRefresh();
+      loadInventory();
+    } catch (err: any) {
+      addNotification('error', 'Ingestion Failed', err.message);
+    } finally {
+      setIngestingBms(false);
+    }
+  };
+
+  const getStatusBadge = (status: string) => {
+    switch (status) {
+      case 'AVAILABLE':
+        return 'bg-emerald-50 text-emerald-700 border-emerald-200';
+      case 'RESERVED':
+        return 'bg-slate-50 text-slate-700 border-slate-200';
+      case 'ASSEMBLED':
+      case 'IN_PROCESS':
+        return 'bg-emerald-50 text-emerald-700 border-emerald-200';
+      case 'FINISHED':
+        return 'bg-emerald-50 text-emerald-800 border-emerald-300 font-bold';
+      case 'QUARANTINED':
+      case 'FAILED':
+        return 'bg-slate-100 text-black border-slate-300';
+      default:
+        return 'bg-slate-100 text-slate-700 border-slate-200';
+    }
+  };
+
+  const filteredCells = cells.filter(c => {
+    const internalSerial = (c.internalSerial || '').toLowerCase();
+    const supplierBarcode = (c.supplierBarcode || '').toLowerCase();
+    const supplierName = (c.supplierName || '').toLowerCase();
+    const matchesSearch =
+      !search ||
+      internalSerial.includes(search.toLowerCase()) ||
+      supplierBarcode.includes(search.toLowerCase()) ||
+      supplierName.includes(search.toLowerCase());
+    const matchesStatus = !statusFilter ||
+      (statusFilter === 'DAMAGE'
+        ? ['QUARANTINED', 'FAILED'].includes(c.status) || ['DAMAGED', 'FAILED'].includes(c.productionGrade || c.supplierGrade || '') || Boolean(c.quarantineReason)
+        : statusFilter === 'IN_PROCESS'
+          ? ['IN_PROCESS', 'VALIDATING', 'TESTING', 'SCANNED', 'PASSED', 'ASSEMBLED'].includes(c.status)
+          : statusFilter === 'NON_AVAILABLE'
+            ? !['AVAILABLE', 'OCV_TESTED', 'GRADED'].includes(c.status) || Boolean(c.reservedForOrderId || c.reservedForBatteryId)
+            : c.status === statusFilter);
+    return matchesSearch && matchesStatus;
+  });
+
+  const filteredBms = bmsUnits.filter(b => {
+    const matchesSearch = !search || b.serialNumber.toLowerCase().includes(search.toLowerCase()) || b.model.toLowerCase().includes(search.toLowerCase());
+    const matchesStatus = !statusFilter || b.status === statusFilter;
+    return matchesSearch && matchesStatus;
+  });
+
+  const filteredBmus = bmuUnits.filter(b => {
+    const matchesSearch = !search || b.serialNumber.toLowerCase().includes(search.toLowerCase()) || b.model.toLowerCase().includes(search.toLowerCase());
+    const matchesStatus = !statusFilter || b.status === statusFilter;
+    return matchesSearch && matchesStatus;
+  });
+
+  const filteredModules = modules.filter(m => {
+    const matchesSearch = !search || m.serialNumber.toLowerCase().includes(search.toLowerCase());
+    const matchesStatus = !statusFilter || m.status === statusFilter;
+    return matchesSearch && matchesStatus;
+  });
+
+  const filteredBatteries = batteries.filter(b => {
+    const matchesSearch = !search || b.serialNumber.toLowerCase().includes(search.toLowerCase()) || b.productName.toLowerCase().includes(search.toLowerCase());
+    const matchesStatus = !statusFilter || b.status === statusFilter;
+    return matchesSearch && matchesStatus;
+  });
+
+  const displayedCells = filteredCells.slice(0, cellDisplayLimit);
+
+  const getTabItems = (tab: Tab): Array<{ id: string }> => {
+    if (tab === 'CELLS') return filteredCells;
+    if (tab === 'BMS') return filteredBms;
+    if (tab === 'BMU') return filteredBmus;
+    if (tab === 'MODULES') return filteredModules;
+    return filteredBatteries;
+  };
+
+  const toggleSelectItem = (tab: Tab, id: string) => {
+    setSelectedIds(prev => {
+      const current = prev[tab] ?? [];
+      const next = current.includes(id) ? current.filter(item => item !== id) : [...current, id];
+      return { ...prev, [tab]: next };
+    });
+  };
+
+  const toggleSelectAll = (tab: Tab, items: Array<{ id: string }>) => {
+    if (!items.length) return;
+
+    setSelectedIds(prev => {
+      const current = prev[tab] ?? [];
+      const ids = items.map(item => item.id);
+      const allSelected = ids.every(id => current.includes(id));
+      const next = allSelected ? current.filter(id => !ids.includes(id)) : Array.from(new Set([...current, ...ids]));
+      return { ...prev, [tab]: next };
+    });
+  };
+
+  const activeTabSelectedCount = selectedIds[activeTab]?.length ?? 0;
+
+  const handleDeleteSelected = async () => {
+    const ids = selectedIds[activeTab] ?? [];
+    if (ids.length === 0) return;
+
+    const itemLabel = activeTab.slice(0, -1).toLowerCase();
+    if (!window.confirm(`Delete ${ids.length} selected ${itemLabel}${ids.length > 1 ? 's' : ''}?`)) return;
+
+    try {
+      if (activeTab === 'CELLS') {
+        await Promise.all(ids.map(id => api.deleteCell(id)));
+      } else if (activeTab === 'BMS') {
+        await Promise.all(ids.map(id => api.deleteBms(id)));
+      } else if (activeTab === 'BMU') {
+        await Promise.all(ids.map(id => api.deleteBmu(id)));
+      } else if (activeTab === 'MODULES') {
+        await Promise.all(ids.map(id => api.deleteModule(id)));
+      } else if (activeTab === 'BATTERIES') {
+        await Promise.all(ids.map(id => api.deleteBattery(id)));
+      }
+
+      setSelectedIds(prev => ({ ...prev, [activeTab]: [] }));
+      triggerRefresh();
+      addNotification('success', 'Delete Complete', `Deleted ${ids.length} selected items.`);
+    } catch (err: any) {
+      addNotification('error', 'Delete Failed', err.message || 'Unable to remove selected inventory item(s).');
+    }
+  };
+
+  return (
+    <div className="flex-1 p-6 space-y-6 overflow-y-auto max-w-7xl mx-auto">
+      {/* Header */}
+      <div className="bg-white rounded-2xl shadow-xs border border-slate-200 p-6 flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div>
+          <div className="flex items-center space-x-3">
+            <span className="p-2.5 bg-emerald-50 border border-emerald-100 text-emerald-700 rounded-xl">
+              <Boxes className="w-5 h-5" />
+            </span>
+            <div>
+              <h1 className="text-lg sm:text-xl font-black text-slate-900 tracking-tight">
+                Manufacturing & Warehouse Inventory
+              </h1>
+              <p className="text-xs text-slate-500 mt-0.5">
+                Real-time material lifecycle tracking from raw cells to finished certified packs.
+              </p>
+        </div>
+      </div>
+      </div>
+        <div className="flex bg-slate-100/80 p-1.5 rounded-xl text-xs font-semibold border border-slate-200">
+          <button onClick={() => { setActiveTab('CELLS'); setStatusFilter(''); }} className={`px-3.5 py-1.5 rounded-lg transition-all ${activeTab === 'CELLS' ? 'bg-white text-slate-900 shadow-2xs font-bold' : 'text-slate-600 hover:text-slate-900'}`}>Cells ({cells.length})</button>
+          <button onClick={() => { setActiveTab('BMS'); setStatusFilter(''); }} className={`px-3.5 py-1.5 rounded-lg transition-all ${activeTab === 'BMS' ? 'bg-white text-slate-900 shadow-2xs font-bold' : 'text-slate-600 hover:text-slate-900'}`}>BMS ({bmsUnits.length})</button>
+          <button onClick={() => { setActiveTab('BMU'); setStatusFilter(''); }} className={`px-3.5 py-1.5 rounded-lg transition-all ${activeTab === 'BMU' ? 'bg-white text-slate-900 shadow-2xs font-bold' : 'text-slate-600 hover:text-slate-900'}`}>BMU ({bmuUnits.length})</button>
+          <button onClick={() => { setActiveTab('MODULES'); setStatusFilter(''); }} className={`px-3.5 py-1.5 rounded-lg transition-all ${activeTab === 'MODULES' ? 'bg-white text-slate-900 shadow-2xs font-bold' : 'text-slate-600 hover:text-slate-900'}`}>Modules ({modules.length})</button>
+          <button onClick={() => { setActiveTab('BATTERIES'); setStatusFilter(''); }} className={`px-3.5 py-1.5 rounded-lg transition-all ${activeTab === 'BATTERIES' ? 'bg-white text-slate-900 shadow-2xs font-bold' : 'text-slate-600 hover:text-slate-900'}`}>Batteries ({batteries.length})</button>
+        </div>
+      </div>
+
+      {/* Filter and Search Bar */}
+      <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs flex flex-col sm:flex-row gap-3 items-center justify-between">
+        <div className="relative flex-1 w-full">
+          <input
+            type="text"
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            placeholder={`Search ${activeTab.toLowerCase()} by serial, barcode, model...`}
+            className="w-full pl-9 pr-4 py-2.5 text-xs bg-slate-50/70 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500"
+          />
+          <Search className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
+        </div>
+
+        <div className="flex items-center space-x-2 w-full sm:w-auto">
+          <Filter className="w-4 h-4 text-slate-400" />
+          <select
+            value={statusFilter}
+            onChange={e => setStatusFilter(e.target.value)}
+            className="px-3.5 py-2.5 text-xs font-semibold bg-slate-50/70 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500"
+          >
+            <option value="">All Statuses</option>
+            {activeTab === 'CELLS' ? (
+              <>
+                <option value="AVAILABLE">AVAILABLE</option>
+                <option value="RESERVED">RESERVED</option>
+                <option value="IN_PROCESS">IN PROCESS</option>
+                <option value="NON_AVAILABLE">NON AVAILABLE</option>
+                <option value="DAMAGE">DAMAGED</option>
+              </>
+            ) : (
+              <>
+                <option value="AVAILABLE">AVAILABLE</option>
+                <option value="RESERVED">RESERVED</option>
+                <option value="IN_PROCESS">IN PROCESS</option>
+                <option value="VALIDATING">VALIDATING</option>
+                <option value="TESTING">TESTING</option>
+                <option value="SCANNED">SCANNED</option>
+                <option value="PASSED">PASSED</option>
+                <option value="ASSEMBLED">ASSEMBLED</option>
+                <option value="FINISHED">FINISHED</option>
+                <option value="QUARANTINED">SCRAP</option>
+                <option value="FAILED">FAILED</option>
+              </>
+            )}
+          </select>
+
+          <button
+            type="button"
+            onClick={() => toggleSelectAll(activeTab, getTabItems(activeTab))}
+            className="px-3.5 py-2.5 border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 text-xs font-bold rounded-xl transition-colors shrink-0"
+          >
+            {activeTabSelectedCount > 0 ? 'Clear all' : 'Select all'}
+          </button>
+          {activeTabSelectedCount > 0 && (
+            <>
+              <button
+                type="button"
+                onClick={() => void handleDeleteSelected()}
+                className="px-3.5 py-2.5 bg-red-600 hover:bg-red-500 text-white text-xs font-bold rounded-xl transition-colors shrink-0"
+              >
+                Delete selected
+              </button>
+              <span className="text-[11px] font-medium text-slate-500">{activeTabSelectedCount} selected</span>
+            </>
+          )}
+          {activeTab === 'BMS' && (
+            <button
+              onClick={() => setShowBmsModal(true)}
+              className="px-3.5 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-xl flex items-center space-x-1.5 shadow-xs transition-colors shrink-0"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              <span>Receive BMS Batch</span>
+            </button>
+          )}
+          {activeTab === 'BMU' && (
+            <button
+              onClick={() => setShowBmuModal(true)}
+              className="px-3.5 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-xl flex items-center space-x-1.5 shadow-xs transition-colors shrink-0"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              <span>Receive BMU Batch</span>
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* CELLS — Used / All toggle + summary tiles */}
+      {activeTab === 'CELLS' && (
+        <div className="space-y-4">
+          {/* Sub-tab toggle */}
+          <div className="flex items-center gap-3">
+            <div className="flex bg-slate-100 p-1 rounded-xl text-xs font-semibold border border-slate-200">
+              <button
+                onClick={() => { setCellsView('ALL'); setStatusFilter(''); }}
+                className={`px-4 py-1.5 rounded-lg transition-all ${
+                  cellsView === 'ALL' ? 'bg-white text-slate-900 shadow-sm font-bold' : 'text-slate-500 hover:text-slate-800'
+                }`}
+              >
+                All Cells ({allCellsCount})
+              </button>
+              <button
+                onClick={() => { setCellsView('USED'); setStatusFilter(''); }}
+                className={`px-4 py-1.5 rounded-lg transition-all flex items-center gap-1.5 ${
+                  cellsView === 'USED' ? 'bg-black text-white shadow-sm font-bold' : 'text-slate-500 hover:text-slate-800'
+                }`}
+              >
+                <span className="w-1.5 h-1.5 rounded-full bg-green-500 inline-block"></span>
+                Used Cells ({usedCellsCount})
+              </button>
+            </div>
+            {cellsView === 'USED' && (
+              <span className="text-xs text-slate-400 font-medium">Showing cells reserved for an order or assigned to production.</span>
+            )}
+          </div>
+
+          {/* Used cells breakdown tiles */}
+          {cellsView === 'USED' && (() => {
+            const inventoryCells = allCells.length > 0 ? allCells : cells;
+            const bucketByCellId = new Map(cellBuckets.map(bucket => [bucket.cellId, bucket.bucket]));
+            const hasBucketProjection = bucketByCellId.size === inventoryCells.length && inventoryCells.length > 0;
+            const batteryById = new Map(batteries.map(battery => [battery.id, battery]));
+            const moduleById = new Map(modules.map(module => [module.id, module]));
+            const getBattery = (cell: CellItem) => {
+              const module = cell.assignedToModuleId ? moduleById.get(cell.assignedToModuleId) : undefined;
+              return batteryById.get(cell.reservedForBatteryId || module?.batteryId || '');
+            };
+            const isDamage = (cell: CellItem) => (hasBucketProjection && bucketByCellId.get(cell.id) === 'DAMAGE') ||
+              ['QUARANTINED', 'FAILED'].includes(cell.status) ||
+              ['DAMAGED', 'FAILED'].includes(cell.productionGrade || cell.supplierGrade || '') ||
+              Boolean(cell.quarantineReason);
+            const isReleased = (cell: CellItem) => {
+              const battery = getBattery(cell);
+              return (hasBucketProjection && bucketByCellId.get(cell.id) === 'RESERVED') || ['FINISHED', 'RELEASED', 'DISPATCHED'].includes(battery?.status || '');
+            };
+            const isInProcess = (cell: CellItem) => {
+              const battery = getBattery(cell);
+              const module = cell.assignedToModuleId ? moduleById.get(cell.assignedToModuleId) : undefined;
+              return (hasBucketProjection && bucketByCellId.get(cell.id) === 'IN_PROCESS') || ['PLANNED', 'IN_PROCESS', 'ASSEMBLED', 'TESTING', 'FINAL_QC'].includes(battery?.status || '') ||
+                ['IN_PROCESS', 'ASSEMBLED'].includes(module?.status || '') ||
+                ['IN_PROCESS', 'VALIDATING', 'TESTING', 'SCANNED', 'PASSED'].includes(cell.status);
+            };
+            // Reservation is ownership, while status changes during testing and assembly.
+            // Count each physical cell once so reserved and assigned are not double-counted.
+            const isReserved = (cell: CellItem) => Boolean(cell.reservedForOrderId || cell.reservedForBatteryId);
+            const damage       = inventoryCells.filter(isDamage).length;
+            const reserved     = inventoryCells.filter(cell => !isDamage(cell) && isReserved(cell)).length;
+            const inProcess    = inventoryCells.filter(cell => !isDamage(cell) && isReserved(cell) && isInProcess(cell)).length;
+            const available     = inventoryCells.filter(cell => !isDamage(cell) && !isReserved(cell)).length;
+            const other        = Math.max(0, inventoryCells.length - damage - available - reserved);
+            return (
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                {[
+                  { label: 'Reserved / Assigned', value: reserved, color: 'border-l-4 border-l-slate-400' },
+                  { label: 'Used / In Process (Included)', value: inProcess, color: 'border-l-4 border-l-green-500' },
+                  { label: 'Damage', value: damage, color: 'border-l-4 border-l-red-500' },
+                  { label: 'Available', value: available, color: 'border-l-4 border-l-emerald-500' },
+                ].map(tile => (
+                  <div key={tile.label} className={`bg-white rounded-xl border border-slate-200 p-3 shadow-xs ${tile.color}`}>
+                    <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">{tile.label}</p>
+                    <p className="text-2xl font-black text-slate-900 mt-0.5">{tile.value}</p>
+                  </div>
+                ))}
+                {other > 0 && <div className="col-span-2 text-[11px] text-slate-400">{other} records need classification from their battery or module relationship.</div>}
+              </div>
+            );
+          })()}
+
+        <div className="bg-white rounded-2xl shadow-xs border border-slate-200 overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-xs font-mono">
+              <thead className="bg-slate-50 text-slate-500 font-semibold border-b border-slate-200 font-sans">
+                <tr>
+                  <th className="px-3 py-3 w-10">
+                    <input
+                      type="checkbox"
+                      checked={filteredCells.length > 0 && filteredCells.every(cell => selectedIds.CELLS.includes(cell.id))}
+                      onChange={() => toggleSelectAll('CELLS', filteredCells)}
+                      className="h-4 w-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500"
+                    />
+                  </th>
+                  <th className="px-5 py-3">Internal Serial</th>
+                  <th className="px-5 py-3">Supplier Barcode</th>
+                  <th className="px-5 py-3">Manufacturer</th>
+                  <th className="px-5 py-3">Capacity</th>
+                  <th className="px-5 py-3">OCV / IR</th>
+                  <th className="px-5 py-3">Grade</th>
+                  <th className="px-5 py-3">Pallet / Box</th>
+                  <th className="px-5 py-3">Status</th>
+                  <th className="px-5 py-3 text-right font-sans">QR / Trace</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {displayedCells.map(cell => (
+                  <tr key={cell.id} className="hover:bg-slate-50/70 transition-colors">
+                    <td className="px-3 py-3.5">
+                      <input
+                        type="checkbox"
+                        checked={selectedIds.CELLS.includes(cell.id)}
+                        onChange={() => toggleSelectItem('CELLS', cell.id)}
+                        className="h-4 w-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500"
+                      />
+                    </td>
+                    <td className="px-5 py-3.5 font-bold text-slate-900">{cell.internalSerial}</td>
+                    <td className="px-5 py-3.5 text-slate-500 text-[11px]">{cell.supplierBarcode}</td>
+                    <td className="px-5 py-3.5 text-slate-700 font-sans">{cell.supplierName}</td>
+                    <td className="px-5 py-3.5 font-bold text-emerald-700">{cell.supplierCapacityAh} Ah</td>
+                    <td className="px-5 py-3.5 text-slate-700">
+                      <span>{(cell.supplierOcvV ?? 0).toFixed(3)}V</span> • <span>{(cell.supplierIrMilliOhm ?? 0).toFixed(2)}mΩ</span>
+                    </td>
+                    <td className="px-5 py-3.5">
+                      <span className="px-2 py-0.5 rounded-md bg-slate-100 text-slate-800 font-bold text-[10px] border border-slate-200">
+                        {cell.supplierGrade}
+                      </span>
+                    </td>
+                    <td className="px-5 py-3.5 text-slate-400 text-[10px]">
+                      {cell.palletNumber.slice(-8)} / {cell.boxNumber.slice(-8)}
+                    </td>
+                    <td className="px-5 py-3.5 font-sans">
+                      <span className={`px-2.5 py-0.5 rounded-md text-[10px] font-bold border uppercase tracking-wider ${getStatusBadge(cell.status)}`}>
+                        {cell.status}
+                      </span>
+                    </td>
+                    <td className="px-5 py-3.5 text-right space-x-1 font-sans">
+                      <button
+                        onClick={() => {
+                          setQrData({
+                            title: `Cell QR: ${cell.internalSerial}`,
+                            qrPayload: cell.supplierBarcode,
+                            serial: cell.internalSerial,
+                            itemType: 'CELL',
+                            metadata: {
+                              SUPPLIER: cell.supplierName,
+                              CAPACITY: `${cell.supplierCapacityAh} Ah`,
+                              OCV: `${cell.supplierOcvV} V`,
+                              IR: `${cell.supplierIrMilliOhm} mΩ`,
+                              STATUS: cell.status,
+                            },
+                          });
+                          setQrModalOpen(true);
+                        }}
+                        className="p-1.5 text-slate-500 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors"
+                        title="Print QR"
+                      >
+                        <QrCode className="w-4 h-4" />
+                      </button>
+                      <button
+                        onClick={() => {
+                          setQuickSearchQuery(cell.internalSerial);
+                          setActiveView('traceability');
+                        }}
+                        className="p-1.5 text-slate-500 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors"
+                        title="Trace Genealogy"
+                      >
+                        <Eye className="w-4 h-4" />
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <div className="flex items-center justify-between gap-3 border-t border-slate-100 px-5 py-3 font-sans">
+            <span className="text-[11px] font-medium text-slate-400">
+              Showing {displayedCells.length} of {filteredCells.length} cells
+            </span>
+            {displayedCells.length < filteredCells.length && (
+              <button
+                type="button"
+                onClick={() => setCellDisplayLimit(limit => limit + 50)}
+                className="px-3.5 py-2 text-xs font-bold text-emerald-700 border border-emerald-200 rounded-lg hover:bg-emerald-50 transition-colors"
+              >
+                Show more
+              </button>
+            )}
+          </div>
+        </div>
+        </div>
+      )}
+
+      {/* BMS TABLE */}
+      {activeTab === 'BMS' && (
+        <div className="bg-white rounded-2xl shadow-xs border border-slate-200 overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-xs font-mono">
+              <thead className="bg-slate-50 text-slate-500 font-semibold border-b border-slate-200 font-sans">
+                <tr>
+                  <th className="px-3 py-3 w-10">
+                    <input
+                      type="checkbox"
+                      checked={filteredBms.length > 0 && filteredBms.every(item => selectedIds.BMS.includes(item.id))}
+                      onChange={() => toggleSelectAll('BMS', filteredBms)}
+                      className="h-4 w-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500"
+                    />
+                  </th>
+                  <th className="px-5 py-3">Serial Number</th>
+                  <th className="px-5 py-3">Model</th>
+                  <th className="px-5 py-3">Protocol</th>
+                  <th className="px-5 py-3">Firmware</th>
+                  <th className="px-5 py-3">Test Result</th>
+                  <th className="px-5 py-3">Status</th>
+                  <th className="px-5 py-3 text-right font-sans">QR / Trace</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {filteredBms.map(b => (
+                  <tr key={b.id} className="hover:bg-slate-50/70 transition-colors">
+                    <td className="px-3 py-3.5">
+                      <input
+                        type="checkbox"
+                        checked={selectedIds.BMS.includes(b.id)}
+                        onChange={() => toggleSelectItem('BMS', b.id)}
+                        className="h-4 w-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500"
+                      />
+                    </td>
+                    <td className="px-5 py-3.5 font-bold text-slate-900">{b.serialNumber}</td>
+                    <td className="px-5 py-3.5 text-slate-700 font-sans">{b.model}</td>
+                    <td className="px-5 py-3.5 font-bold text-emerald-700">{b.protocol}</td>
+                    <td className="px-5 py-3.5 text-slate-500">{b.firmwareVersion}</td>
+                    <td className="px-5 py-3.5 font-sans">
+                      {b.testResult?.status === 'PASSED' ? (
+                        <span className="text-emerald-700 font-bold text-[10px] flex items-center space-x-1">
+                          <CheckCircle2 className="w-3.5 h-3.5" />
+                          <span>PASSED (CAN OK)</span>
+                        </span>
+                      ) : (
+                        <span className="text-slate-400 text-[10px]">PENDING TEST</span>
+                      )}
+                    </td>
+                    <td className="px-5 py-3.5 font-sans">
+                      <span className={`px-2.5 py-0.5 rounded-md text-[10px] font-bold border uppercase tracking-wider ${getStatusBadge(b.status)}`}>
+                        {b.status}
+                      </span>
+                    </td>
+                    <td className="px-5 py-3.5 text-right font-sans space-x-1">
+                      <button
+                        onClick={() => {
+                          setQrData({
+                            title: `BMS Controller QR: ${b.serialNumber}`,
+                            qrPayload: `${b.serialNumber}|${b.model}|${b.protocol}`,
+                            serial: b.serialNumber,
+                            itemType: 'BMS',
+                            metadata: {
+                              MODEL: b.model,
+                              PROTOCOL: b.protocol,
+                              FIRMWARE: b.firmwareVersion,
+                              STATUS: b.status,
+                            },
+                          });
+                          setQrModalOpen(true);
+                        }}
+                        className="p-1.5 text-slate-500 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors"
+                      >
+                        <QrCode className="w-4 h-4" />
+                      </button>
+                      <button
+                        onClick={async () => {
+                          const status = window.prompt('BMS status', b.status);
+                          if (!status || status === b.status) return;
+                          try { await api.updateBms(b.id, { status }); triggerRefresh(); }
+                          catch (err: any) { addNotification('error', 'Update Failed', err.message); }
+                        }}
+                        className="p-1.5 text-slate-500 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors"
+                        title="Update BMS"
+                      >
+                        <Pencil className="w-4 h-4" />
+                      </button>
+                      <button
+                        onClick={async () => {
+                          if (!window.confirm(`Delete BMS ${b.serialNumber}?`)) return;
+                          try { await api.deleteBms(b.id); triggerRefresh(); }
+                          catch (err: any) { addNotification('error', 'Delete Failed', err.message); }
+                        }}
+                        className="p-1.5 text-slate-500 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                        title="Delete BMS"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* BMU TABLE */}
+      {activeTab === 'BMU' && (
+        <div className="bg-white rounded-2xl shadow-xs border border-slate-200 overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-xs font-mono">
+              <thead className="bg-slate-50 text-slate-500 font-semibold border-b border-slate-200 font-sans">
+                <tr>
+                  <th className="px-3 py-3 w-10">
+                    <input
+                      type="checkbox"
+                      checked={filteredBmus.length > 0 && filteredBmus.every(item => selectedIds.BMU.includes(item.id))}
+                      onChange={() => toggleSelectAll('BMU', filteredBmus)}
+                      className="h-4 w-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500"
+                    />
+                  </th>
+                  <th className="px-5 py-3">Serial Number</th>
+                  <th className="px-5 py-3">Model</th>
+                  <th className="px-5 py-3">Manufacturer</th>
+                  <th className="px-5 py-3">Protocol</th>
+                  <th className="px-5 py-3">Status</th>
+                  <th className="px-5 py-3 text-right font-sans">QR / Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {filteredBmus.map(b => (
+                  <tr key={b.id} className="hover:bg-slate-50/70 transition-colors">
+                    <td className="px-3 py-3.5">
+                      <input
+                        type="checkbox"
+                        checked={selectedIds.BMU.includes(b.id)}
+                        onChange={() => toggleSelectItem('BMU', b.id)}
+                        className="h-4 w-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500"
+                      />
+                    </td>
+                    <td className="px-5 py-3.5 font-bold text-slate-900">{b.serialNumber}</td>
+                    <td className="px-5 py-3.5 text-slate-700 font-sans">{b.model}</td>
+                    <td className="px-5 py-3.5 text-slate-600 font-sans">{b.manufacturer || 'N/A'}</td>
+                    <td className="px-5 py-3.5 font-bold text-emerald-700">{b.protocol || 'N/A'}</td>
+                    <td className="px-5 py-3.5 font-sans"><span className={`px-2.5 py-0.5 rounded-md text-[10px] font-bold border uppercase tracking-wider ${getStatusBadge(b.status)}`}>{b.status}</span></td>
+                    <td className="px-5 py-3.5 text-right font-sans space-x-1">
+                      <button onClick={() => { setQrData({ title: `BMU Controller QR: ${b.serialNumber}`, qrPayload: `${b.serialNumber}|${b.model}|${b.protocol || 'CAN'}`, serial: b.serialNumber, itemType: 'BMU', metadata: { MODEL: b.model, PROTOCOL: b.protocol || 'CAN', STATUS: b.status } }); setQrModalOpen(true); }} className="p-1.5 text-slate-500 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors" title="Print QR"><QrCode className="w-4 h-4" /></button>
+                      <button onClick={async () => { const status = window.prompt('BMU status', b.status); if (!status || status === b.status) return; try { await api.updateBmu(b.id, { status }); triggerRefresh(); } catch (err: any) { addNotification('error', 'Update Failed', err.message); } }} className="p-1.5 text-slate-500 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors" title="Update BMU"><Pencil className="w-4 h-4" /></button>
+                      <button onClick={async () => { if (!window.confirm(`Delete BMU ${b.serialNumber}?`)) return; try { await api.deleteBmu(b.id); triggerRefresh(); } catch (err: any) { addNotification('error', 'Delete Failed', err.message); } }} className="p-1.5 text-slate-500 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors" title="Delete BMU"><Trash2 className="w-4 h-4" /></button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* MODULES TABLE */}
+      {activeTab === 'MODULES' && (
+        <div className="bg-white rounded-2xl shadow-xs border border-slate-200 overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-xs font-mono">
+              <thead className="bg-slate-50 text-slate-500 font-semibold border-b border-slate-200 font-sans">
+                <tr>
+                  <th className="px-3 py-3 w-10">
+                    <input
+                      type="checkbox"
+                      checked={filteredModules.length > 0 && filteredModules.every(item => selectedIds.MODULES.includes(item.id))}
+                      onChange={() => toggleSelectAll('MODULES', filteredModules)}
+                      className="h-4 w-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500"
+                    />
+                  </th>
+                  <th className="px-5 py-3">Module Serial</th>
+                  <th className="px-5 py-3">Assigned Battery</th>
+                  <th className="px-5 py-3">Cells Count</th>
+                  <th className="px-5 py-3">Matching Score</th>
+                  <th className="px-5 py-3">Welding Status</th>
+                  <th className="px-5 py-3">QC Status</th>
+                  <th className="px-5 py-3">Status</th>
+                  <th className="px-5 py-3 text-right font-sans">QR / Trace</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {filteredModules.map(m => (
+                  <tr key={m.id} className="hover:bg-slate-50/70 transition-colors">
+                    <td className="px-3 py-3.5">
+                      <input
+                        type="checkbox"
+                        checked={selectedIds.MODULES.includes(m.id)}
+                        onChange={() => toggleSelectItem('MODULES', m.id)}
+                        className="h-4 w-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500"
+                      />
+                    </td>
+                    <td className="px-5 py-3.5 font-bold text-slate-900">{m.serialNumber}</td>
+                    <td className="px-5 py-3.5 text-slate-600">{m.batteryId || 'UNALLOCATED'}</td>
+                    <td className="px-5 py-3.5 font-bold text-slate-800">{m.cells?.length ?? 0} cells</td>
+                    <td className="px-5 py-3.5 text-emerald-600 font-bold">
+                      {m.matchingScore > 0 ? `${m.matchingScore}%` : 'N/A'}
+                    </td>
+                    <td className="px-5 py-3.5 font-sans">
+                      {m.weldingResult?.status === 'PASSED' ? (
+                        <span className="text-slate-700 font-bold text-[10px]">WELDED ✓</span>
+                      ) : (
+                        <span className="text-slate-400 text-[10px]">PENDING</span>
+                      )}
+                    </td>
+                    <td className="px-5 py-3.5 font-sans">
+                      {m.qcResult?.status === 'PASSED' || m.status === 'PASSED' ? (
+                        <span className="text-emerald-700 font-bold text-[10px]">PASSED ✓</span>
+                      ) : (
+                        <span className="text-slate-400 text-[10px]">PENDING</span>
+                      )}
+                    </td>
+                    <td className="px-5 py-3.5 font-sans">
+                      <span className={`px-2.5 py-0.5 rounded-md text-[10px] font-bold border uppercase tracking-wider ${getStatusBadge(m.status)}`}>
+                        {m.status}
+                      </span>
+                    </td>
+                    <td className="px-5 py-3.5 text-right font-sans">
+                      <button
+                        onClick={() => {
+                          setQrData({
+                            title: `Module QR Label: ${m.serialNumber}`,
+                            qrPayload: m.qrCode,
+                            serial: m.serialNumber,
+                            itemType: 'MODULE',
+                            metadata: {
+                              CELLS: m.cells.length,
+                              MATCH_SCORE: `${m.matchingScore}%`,
+                              STATUS: m.status,
+                            },
+                          });
+                          setQrModalOpen(true);
+                        }}
+                        className="p-1.5 text-slate-500 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors"
+                      >
+                        <QrCode className="w-4 h-4" />
+                      </button>
+                      <button
+                        onClick={async () => {
+                          const status = window.prompt('Module status', m.status);
+                          if (!status || status === m.status) return;
+                          try { await api.updateModule(m.id, { status }); triggerRefresh(); }
+                          catch (err: any) { addNotification('error', 'Update Failed', err.message); }
+                        }}
+                        className="p-1.5 text-slate-500 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors"
+                        title="Update module"
+                      >
+                        <Pencil className="w-4 h-4" />
+                      </button>
+                      <button
+                        onClick={async () => {
+                          if (!window.confirm(`Delete module ${m.serialNumber}?`)) return;
+                          try { await api.deleteModule(m.id); triggerRefresh(); }
+                          catch (err: any) { addNotification('error', 'Delete Failed', err.message); }
+                        }}
+                        className="p-1.5 text-slate-500 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                        title="Delete module"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* BATTERIES TABLE */}
+      {activeTab === 'BATTERIES' && (
+        <div className="bg-white rounded-2xl shadow-xs border border-slate-200 overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-xs font-mono">
+              <thead className="bg-slate-50 text-slate-500 font-semibold border-b border-slate-200 font-sans">
+                <tr>
+                  <th className="px-3 py-3 w-10">
+                    <input
+                      type="checkbox"
+                      checked={filteredBatteries.length > 0 && filteredBatteries.every(item => selectedIds.BATTERIES.includes(item.id))}
+                      onChange={() => toggleSelectAll('BATTERIES', filteredBatteries)}
+                      className="h-4 w-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500"
+                    />
+                  </th>
+                  <th className="px-5 py-3">Pack Serial</th>
+                  <th className="px-5 py-3">Product Name</th>
+                  <th className="px-5 py-3">Modules Count</th>
+                  <th className="px-5 py-3">BMS Serial</th>
+                  <th className="px-5 py-3">BMU Serial</th>
+                  <th className="px-5 py-3">Current Step</th>
+                  <th className="px-5 py-3">Progress</th>
+                  <th className="px-5 py-3">Status</th>
+                  <th className="px-5 py-3 text-right font-sans">QR / Trace</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {filteredBatteries.map(b => (
+                  <tr key={b.id} className="hover:bg-slate-50/70 transition-colors">
+                    <td className="px-3 py-3.5">
+                      <input
+                        type="checkbox"
+                        checked={selectedIds.BATTERIES.includes(b.id)}
+                        onChange={() => toggleSelectItem('BATTERIES', b.id)}
+                        className="h-4 w-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500"
+                      />
+                    </td>
+                    <td className="px-5 py-3.5 font-bold text-slate-900">{b.serialNumber}</td>
+                    <td className="px-5 py-3.5 text-slate-700 font-sans font-semibold">{b.productName}</td>
+                    <td className="px-5 py-3.5">{b.modules?.length ?? 0} Modules</td>
+                    <td className="px-5 py-3.5 text-emerald-700">{b.bms?.serialNumber || 'NONE'}</td>
+                    <td className="px-5 py-3.5 text-emerald-700">{b.bmu?.serialNumber || 'NONE'}</td>
+                    <td className="px-5 py-3.5 font-sans text-slate-700 font-medium">{b.currentStep.replace(/_/g, ' ')}</td>
+                    <td className="px-5 py-3.5 font-bold text-emerald-600">{b.progressPercent}%</td>
+                    <td className="px-5 py-3.5 font-sans">
+                      <span className={`px-2.5 py-0.5 rounded-md text-[10px] font-bold border uppercase tracking-wider ${getStatusBadge(b.status)}`}>
+                        {b.status}
+                      </span>
+                    </td>
+                    <td className="px-5 py-3.5 text-right space-x-1 font-sans">
+                      <button
+                        onClick={() => {
+                          setQrData({
+                            title: `Battery Pack Compliance QR: ${b.serialNumber}`,
+                            qrPayload: b.qrCode,
+                            serial: b.serialNumber,
+                            itemType: 'BATTERY',
+                            metadata: {
+                              PRODUCT: b.productName,
+                              MODULES: b.modules?.length ?? 0,
+                              BMS: b.bms?.serialNumber || 'N/A',
+                              STATUS: b.status,
+                            },
+                          });
+                          setQrModalOpen(true);
+                        }}
+                        className="p-1.5 text-slate-500 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors"
+                        title="Print QR"
+                      >
+                        <QrCode className="w-4 h-4" />
+                      </button>
+                      <button
+                        onClick={() => {
+                          setQuickSearchQuery(b.serialNumber);
+                          setActiveView('traceability');
+                        }}
+                        className="p-1.5 text-slate-500 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors"
+                        title="View Full Genealogy"
+                      >
+                        <Eye className="w-4 h-4" />
+                      </button>
+                      <button
+                        onClick={() => {
+                          setReportBattery(b);
+                        }}
+                        className="p-1.5 text-slate-500 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors"
+                        title="Export reports"
+                      >
+                        <Download className="w-4 h-4" />
+                      </button>
+                      <button
+                        onClick={() => {
+                          setActiveBatteryId(b.id);
+                          setActiveView('workflow-pack');
+                          addNotification('info', 'Battery Assembly Opened', `Opening auto battery pack assembly for ${b.serialNumber}.`);
+                        }}
+                        className="p-1.5 text-slate-500 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors"
+                        title="Open battery assembly"
+                      >
+                        <Pencil className="w-4 h-4" />
+                      </button>
+                      <button
+                        onClick={async () => {
+                          if (!window.confirm(`Delete battery ${b.serialNumber}? Its cells will return to available inventory, while linked modules, BMS/BMU records, and battery data will be permanently removed.`)) return;
+                          try { await api.deleteBattery(b.id); triggerRefresh(); }
+                          catch (err: any) { addNotification('error', 'Delete Failed', err.message); }
+                        }}
+                        className="p-1.5 text-slate-500 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                        title="Delete battery"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* QR Modal */}
+      {qrData && (
+        <QRCodeModal
+          isOpen={qrModalOpen}
+          onClose={() => setQrModalOpen(false)}
+          title={qrData.title}
+          qrPayload={qrData.qrPayload}
+          serialNumber={qrData.serial}
+          itemType={qrData.itemType}
+          metadata={qrData.metadata}
+        />
+      )}
+
+      <BatteryReportModal
+        isOpen={Boolean(reportBattery)}
+        onClose={() => setReportBattery(null)}
+        battery={reportBattery}
+      />
+
+      {/* Receive BMS Batch Modal */}
+      {showBmsModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-4 animate-fade-in">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-6 space-y-4 border border-slate-200">
+            <div className="flex items-center space-x-3">
+              <span className="p-2.5 bg-emerald-50 text-emerald-700 rounded-xl border border-emerald-100">
+                <Cpu className="w-5 h-5" />
+              </span>
+              <div>
+                <h3 className="text-base font-black text-slate-900">Receive BMS Inventory Batch</h3>
+                <p className="text-xs text-slate-500">Ingest certified Battery Management System units</p>
+              </div>
+            </div>
+
+            <form onSubmit={handleIngestBms} className="space-y-4 pt-2">
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">Batch Quantity (Units)</label>
+                <input
+                  type="number"
+                  min="1"
+                  value={bmsCount}
+                  onChange={e => setBmsCount(Math.max(1, parseInt(e.target.value) || 1))}
+                  className="w-full px-3.5 py-2.5 text-xs font-mono border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                  required
+                />
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <input value={bmsManufacturer} onChange={e => setBmsManufacturer(e.target.value)} placeholder="Manufacturer name" className="px-3.5 py-2.5 text-xs border border-slate-200 rounded-xl" required />
+                <input value={bmsBatchNumber} onChange={e => setBmsBatchNumber(e.target.value)} placeholder="Supplier batch number" className="px-3.5 py-2.5 text-xs border border-slate-200 rounded-xl" required />
+              </div>
+              <div className="space-y-2">
+                <label className="block text-xs font-bold text-slate-700">Bulk Paste Serial / Barcode Values</label>
+                <textarea
+                  value={bmsSerials}
+                  onChange={e => {
+                    const next = e.target.value;
+                    setBmsSerials(next);
+                    const parsed = next
+                      .split(/[\n,;]+/)
+                      .map(value => value.trim())
+                      .filter(Boolean)
+                      .filter((value, index, arr) => arr.findIndex(item => item.toUpperCase() === value.toUpperCase()) === index);
+                    if (parsed.length > 0) setBmsCount(parsed.length);
+                  }}
+                  rows={5}
+                  placeholder="Paste serials one per line or separated by commas"
+                  className="w-full min-h-28 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-mono text-slate-700 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500 resize-none"
+                />
+                <button type="button" onClick={() => setSerialScanner('BMS')} className="flex items-center gap-2 px-3 py-2 text-xs font-bold text-emerald-700 border border-emerald-200 rounded-lg"><QrCode className="w-4 h-4" /> Scan BMS Serial</button>
+              </div>
+
+              <div className="flex justify-end space-x-2 pt-2 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setShowBmsModal(false)}
+                  className="px-4 py-2 text-xs font-bold text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-xl transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={ingestingBms}
+                  className="px-5 py-2 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-500 disabled:bg-slate-300 rounded-xl shadow-xs transition-colors flex items-center space-x-1.5"
+                >
+                  <span>{ingestingBms ? 'Receiving...' : `Receive ${bmsCount} Units`}</span>
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {showBmuModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-4 animate-fade-in">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-6 space-y-4 border border-slate-200">
+            <div className="flex items-center space-x-3"><span className="p-2.5 bg-emerald-50 text-emerald-700 rounded-xl border border-emerald-100"><Cpu className="w-5 h-5" /></span><div><h3 className="text-base font-black text-slate-900">Receive BMU Inventory Batch</h3><p className="text-xs text-slate-500">Ingest certified Battery Management Unit controllers</p></div></div>
+            <form onSubmit={handleIngestBmu} className="space-y-4 pt-2">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3"><input value={bmuManufacturer} onChange={e => setBmuManufacturer(e.target.value)} placeholder="Manufacturer name" className="px-3.5 py-2.5 text-xs border border-slate-200 rounded-xl" required /><input value={bmuBatchNumber} onChange={e => setBmuBatchNumber(e.target.value)} placeholder="Supplier batch number" className="px-3.5 py-2.5 text-xs border border-slate-200 rounded-xl" required /></div>
+              <div className="space-y-2"><label className="block text-xs font-bold text-slate-700">Bulk Paste Serial / Barcode Values</label><textarea value={bmuSerials} onChange={e => { const next = e.target.value; setBmuSerials(next); const parsed = next.split(/[\n,;]+/).map(value => value.trim()).filter(Boolean); if (parsed.length > 0) setBmuCount(parsed.length); }} rows={5} placeholder="Paste serials one per line or separated by commas" className="w-full min-h-28 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-mono text-slate-700 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500 resize-none" /></div>
+              <div><label className="block text-xs font-bold text-slate-700 mb-1">Batch Quantity (Units)</label><input type="number" min="1" value={bmuCount} onChange={e => setBmuCount(Math.max(1, parseInt(e.target.value) || 1))} className="w-full px-3.5 py-2.5 text-xs font-mono border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500" required /></div>
+              <button type="button" onClick={() => setSerialScanner('BMU')} className="flex items-center gap-2 px-3 py-2 text-xs font-bold text-emerald-700 border border-emerald-200 rounded-lg"><QrCode className="w-4 h-4" /> Scan BMU Serial</button>
+              <div className="flex justify-end space-x-2 pt-2 border-t border-slate-100"><button type="button" onClick={() => setShowBmuModal(false)} className="px-4 py-2 text-xs font-bold text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-xl transition-colors">Cancel</button><button type="submit" disabled={ingestingBmu} className="px-5 py-2 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-500 disabled:bg-slate-300 rounded-xl shadow-xs transition-colors">{ingestingBmu ? 'Receiving...' : `Receive ${bmuCount} Units`}</button></div>
+            </form>
+          </div>
+        </div>
+      )}
+      <ScannerModal
+        isOpen={serialScanner !== null}
+        onClose={() => setSerialScanner(null)}
+        title={`Scan ${serialScanner || ''} Serial / Barcode`}
+        onScan={value => {
+          if (serialScanner === 'BMS') setBmsSerials(current => current ? `${current}\n${value}` : value);
+          if (serialScanner === 'BMU') setBmuSerials(current => current ? `${current}\n${value}` : value);
+          setSerialScanner(null);
+        }}
+      />
+    </div>
+  );
+};

@@ -1,0 +1,10 @@
+{
+  "name": "Power2Go Battery ERP & MES",
+  "description": "Automated Battery Manufacturing Execution System & ERP with one-time scanning, product-driven 2D battery builder, cell matching, laser welding & QC, full genealogy, and machine integration.",
+  "requestFramePermissions": [
+    "camera"
+  ],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

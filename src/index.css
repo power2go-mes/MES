@@ -1,0 +1,109 @@
+@import "tailwindcss";
+
+/* ── Montserrat font (loaded via index.html Google Fonts) ── */
+*, *::before, *::after {
+  font-family: 'Montserrat', sans-serif !important;
+}
+
+/* ── Power2Go Color System: White · Green · Black only ── */
+:root {
+  --p2g-black:   #111111;
+  --p2g-green:   #3aaa35;
+  --p2g-green-d: #2b8a27;
+  --p2g-green-l: #e6f5e6;
+  --p2g-white:   #ffffff;
+  --p2g-gray:    #f4f4f4;
+  --p2g-gray-2:  #e5e5e5;
+  --p2g-gray-3:  #aaaaaa;
+  --p2g-gray-4:  #555555;
+}
+
+/* Override Tailwind's slate/blue/etc with our palette */
+.bg-slate-900, .bg-slate-800, .bg-slate-950, .bg-gray-900 { background-color: var(--p2g-black) !important; }
+.bg-slate-50,  .bg-gray-50,  .bg-white               { background-color: var(--p2g-white) !important; }
+.bg-slate-100, .bg-gray-100                            { background-color: var(--p2g-gray)  !important; }
+.bg-slate-200, .bg-gray-200                            { background-color: var(--p2g-gray-2)!important; }
+
+.text-slate-900, .text-gray-900 { color: var(--p2g-black)  !important; }
+.text-slate-700, .text-gray-700 { color: var(--p2g-gray-4) !important; }
+.text-slate-400, .text-gray-400 { color: var(--p2g-gray-3) !important; }
+.text-white                     { color: var(--p2g-white)  !important; }
+
+.border-slate-200, .border-gray-200 { border-color: var(--p2g-gray-2) !important; }
+.border-slate-100, .border-gray-100 { border-color: var(--p2g-gray)   !important; }
+
+/* Green accent overrides */
+.bg-emerald-600, .bg-emerald-500  { background-color: var(--p2g-green)   !important; }
+.bg-emerald-50                    { background-color: var(--p2g-green-l)  !important; }
+.text-emerald-600, .text-emerald-700, .text-emerald-400 { color: var(--p2g-green) !important; }
+.border-emerald-500, .border-emerald-200, .border-emerald-100 { border-color: var(--p2g-green) !important; }
+.ring-emerald-500 { --tw-ring-color: var(--p2g-green) !important; }
+.hover\:bg-emerald-100:hover { background-color: var(--p2g-green-l) !important; }
+
+/* Red / amber / indigo → black/green replacements */
+.bg-red-950, .bg-red-900, .bg-red-800 { background-color: var(--p2g-black) !important; }
+.bg-amber-500 { background-color: var(--p2g-green) !important; }
+.bg-indigo-500 { background-color: var(--p2g-black) !important; }
+.bg-purple-500 { background-color: var(--p2g-gray-4) !important; }
+.text-red-400, .text-red-500, .text-red-600 { color: var(--p2g-black) !important; }
+.text-amber-500 { color: var(--p2g-green) !important; }
+
+/* Scrollbar */
+.custom-scrollbar::-webkit-scrollbar { width: 4px; }
+.custom-scrollbar::-webkit-scrollbar-track { background: var(--p2g-gray); }
+.custom-scrollbar::-webkit-scrollbar-thumb { background: var(--p2g-gray-2); border-radius: 9999px; }
+
+/* Animations */
+@keyframes slide-up {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0);   }
+}
+@keyframes fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+.animate-slide-up { animation: slide-up 0.2s ease-out; }
+.animate-fade-in  { animation: fade-in  0.15s ease-out; }
+
+/* Keep the operational shell usable on narrow touch screens. */
+html, body, #root { min-width: 0; min-height: 100%; }
+
+@media (max-width: 767px) {
+  .app-shell { min-width: 0; }
+
+  .app-sidebar {
+    position: fixed;
+    inset: 0 auto 0 0;
+    z-index: 50;
+    width: min(18rem, calc(100vw - 2.5rem));
+    transform: translateX(-105%);
+    transition: transform 180ms ease-out;
+    box-shadow: 12px 0 30px rgba(17, 17, 17, 0.12);
+  }
+
+  .app-sidebar.is-open { transform: translateX(0); }
+  .app-header { z-index: 30; }
+  .app-header > div { gap: 0.5rem; }
+  .app-header .ml-auto { gap: 0.25rem; }
+  .app-header .ml-auto > button:first-child { padding-inline: 0.5rem; }
+  .app-header [class*="w-80"] { width: min(20rem, calc(100vw - 2rem)); }
+
+  main { min-width: 0; }
+  main > div.flex-1 {
+    width: 100%;
+    min-width: 0;
+    padding: 1rem;
+  }
+
+  main > div.flex-1 > * { min-width: 0; }
+  main .overflow-x-auto { max-width: 100%; }
+  main input, main select, main textarea { max-width: 100%; }
+
+  /* Preserve readable columns for data-heavy views while scrolling the table itself. */
+  main .overflow-x-auto table { min-width: 42rem; }
+  main [class*="grid-cols-"] { min-width: 0; }
+  main [class*="grid-cols-5"], main [class*="grid-cols-4"] { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  main [class*="grid-cols-3"] { grid-template-columns: 1fr; }
+
+  .mobile-nav-backdrop { backdrop-filter: blur(2px); }
+}
