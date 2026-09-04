@@ -49,7 +49,11 @@ export function normalizeBatterySerial(value: string): string {
 }
 
 function normalizeBatteryIdentifier(value: string): string {
-  return String(value ?? '').trim().toLowerCase();
+  return String(value ?? '')
+    .trim()
+    .replace(/^'+/, '')
+    .replace(/\s+/g, '')
+    .toLowerCase();
 }
 
 function resolveExplicitBatteryAssignments(

@@ -128,6 +128,33 @@ test('exact battery row mapping keeps the uploaded BMU and cell group together',
   assert.deepEqual(plan.batteries[0].modules.map(module => module.cells.length), [12, 12]);
 });
 
+test('explicit cell references match Excel apostrophe and whitespace formatting', async () => {
+  const product = {
+    id: 'prod-1',
+    name: '7.5 kWh Battery',
+    sku: '7K5',
+    totalCells: 24,
+    numModules: 2,
+    cellsPerModule: 12,
+  };
+  const plan = await createBulkBatteryInitialization({
+    rows: [{
+      batterySerialNumber: 'BAT-1',
+      cellQrCodes: Array.from({ length: 24 }, (_, index) => `' CELL-${index + 1} `),
+    }],
+    products: [product],
+    availableBmUs: [],
+    availableCells: Array.from({ length: 24 }, (_, index) => ({
+      id: `cell-${index + 1}`,
+      internalSerial: `CELL-${index + 1}`,
+      status: 'IN_STOCK',
+    })),
+    userId: 'user-1',
+  });
+
+  assert.equal(plan.batteries[0].cells.length, 24);
+});
+
 test('module cell assignment deduplicates reused cell ids before insert', () => {
   const cellIds = ['cell-1', 'cell-2', 'cell-2', 'cell-3', '', 'cell-3'];
   const unique = dedupeModuleCellAssignments(cellIds);

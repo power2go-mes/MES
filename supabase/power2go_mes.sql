@@ -2458,8 +2458,8 @@ with cell_counts as (
     select
         count(*)::int as total,
         count(*) filter (where lifecycle_status in ('IN_STOCK','FLOOR_STOCK') and reserved_for_order_id is null and reserved_for_battery_id is null)::int as available,
-        count(*) filter (where lifecycle_status = 'IN_STOCK')::int as in_stock,
-        count(*) filter (where lifecycle_status = 'FLOOR_STOCK')::int as floor_stock,
+        count(*) filter (where lifecycle_status = 'IN_STOCK' and not exists (select 1 from public.module_cells mc where mc.cell_id = cells.id))::int as in_stock,
+        count(*) filter (where lifecycle_status = 'FLOOR_STOCK' and not exists (select 1 from public.module_cells mc where mc.cell_id = cells.id))::int as floor_stock,
         count(*) filter (where lifecycle_status = 'IN_MODULE' or exists (select 1 from public.module_cells mc where mc.cell_id = cells.id))::int as assembled,
         count(*) filter (where lifecycle_status = 'IN_PACK')::int as in_pack,
         count(*) filter (where lifecycle_status = 'IN_RACK')::int as in_rack,
@@ -2518,6 +2518,22 @@ select jsonb_build_object(
 ) from summary;
 $$;
 grant execute on function public.get_dashboard_summary() to anon, authenticated;
+
+-- Release cell reservations before a battery delete removes the foreign-key reference.
+create or replace function public.release_deleted_battery_cells()
+returns trigger language plpgsql security definer set search_path = public as $$
+begin
+    update public.cells
+    set status = 'AVAILABLE', lifecycle_status = 'IN_STOCK', updated_at = now()
+    where reserved_for_battery_id = old.id;
+    return old;
+end;
+$$;
+
+drop trigger if exists release_cells_before_battery_delete on public.batteries;
+create trigger release_cells_before_battery_delete
+before delete on public.batteries
+for each row execute function public.release_deleted_battery_cells();
 
 -- One-time operational data reset. This preserves users, roles, permissions,
 -- suppliers, products, and machine configuration.

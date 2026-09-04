@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import * as XLSX from 'xlsx';
+import { jsPDF } from 'jspdf';
 import { Activity, AlertTriangle, ArrowRight, Boxes, CheckCircle2, ChevronDown, Download, Factory, Gauge, Layers, PackageCheck, ShieldCheck, Truck, Zap } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
 import { api } from '../../services/api';
@@ -41,9 +41,9 @@ export const CEOMonitoringView: React.FC = () => {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [activeRange, setActiveRange] = useState<'Today' | 'This Week' | 'This Month' | 'Custom Range'>('Today');
   const [selectedCellStatus, setSelectedCellStatus] = useState<'All' | string>('All');
-  const [selectedPackType, setSelectedPackType] = useState<'All' | '5 kWh' | '7.5 kWh'>('All');
-  const [selectedRackType, setSelectedRackType] = useState<'All' | '25 kWh' | '75 kWh'>('All');
-  const [selectedModuleConfig, setSelectedModuleConfig] = useState<'Both' | '8S' | '12S'>('Both');
+  const [selectedPackType, setSelectedPackType] = useState('All');
+  const [selectedRackType, setSelectedRackType] = useState('All');
+  const [selectedModuleConfig, setSelectedModuleConfig] = useState('All');
   const [customStartDate, setCustomStartDate] = useState(defaultStartInputValue);
   const [customEndDate, setCustomEndDate] = useState(todayInputValue);
 
@@ -93,14 +93,7 @@ export const CEOMonitoringView: React.FC = () => {
   const customRangeDays = Number.isFinite(customStartTimestamp) && Number.isFinite(customEndTimestamp)
     ? Math.max(1, Math.round((customEndTimestamp - customStartTimestamp) / 86400000) + 1)
     : 1;
-  const rangeScale = {
-    Today: 1,
-    'This Week': 1.16,
-    'This Month': 1.35,
-    'Custom Range': clamp(0.7 + (customRangeDays / 7) * 0.52, 0.7, 1.5),
-  } as const;
-
-  const scaleValue = (value: number) => Math.max(0, Math.round(value * rangeScale[activeRange]));
+  const scaleValue = (value: number) => Math.max(0, Math.round(value));
 
   const cellsSeries = useMemo(() => {
     const rows = (source.cellBuckets || []).map((row: any) => ({ label: row.label, value: numberOr(row.value), color: statusColors[row.label] || '#64748b' }));
@@ -121,18 +114,21 @@ export const CEOMonitoringView: React.FC = () => {
   const onlineMachines = machines.filter((machine: any) => ['ONLINE', 'BUSY', 'RUNNING'].includes(String(machine?.status || '').toUpperCase())).length;
 
   const cellsTotal = scaleValue(numberOr(inventory.totalCells));
-  const moduleData = useMemo(() => (source.moduleStatusBuckets || []).map((row: any) => ({ status: String(row.label).replace(/_/g, ' '), '8S': numberOr(row.value), '12S': 0 })), [source.moduleStatusBuckets]);
-  const moduleTotal = (source.moduleStatusBuckets || []).reduce((sum: number, row: any) => sum + numberOr(row.value), 0);
+  const moduleData = useMemo(() => (source.moduleStatusBuckets || []).map((row: any) => ({ status: String(row.label).replace(/_/g, ' '), value: numberOr(row.value) })), [source.moduleStatusBuckets]);
+  const filteredModuleData = selectedModuleConfig === 'All' ? moduleData : moduleData.filter((row) => row.status === selectedModuleConfig);
+  const moduleTotal = filteredModuleData.reduce((sum, row) => sum + row.value, 0);
 
   const batteryData = useMemo(() => {
     return (source.batteryStatusBuckets || []).map((row: any) => ({ label: String(row.label).replace(/_/g, ' '), value: scaleValue(numberOr(row.value)), color: statusColors[String(row.label).replace(/_/g, ' ')] || '#64748b' }));
   }, [source.batteryStatusBuckets, activeRange]);
-  const batteryTotal = (source.batteryStatusBuckets || []).reduce((sum: number, row: any) => sum + numberOr(row.value), 0);
+  const filteredBatteryData = selectedPackType === 'All' ? batteryData : batteryData.filter((row) => row.label === selectedPackType);
+  const batteryTotal = filteredBatteryData.reduce((sum, row) => sum + row.value, 0);
 
   const rackData = useMemo(() => {
     return (source.rackStatusBuckets || []).map((row: any) => ({ label: String(row.label).replace(/_/g, ' '), value: scaleValue(numberOr(row.value)), color: statusColors[String(row.label).replace(/_/g, ' ')] || '#64748b' }));
   }, [source.rackStatusBuckets, activeRange]);
-  const rackTotal = (source.rackStatusBuckets || []).reduce((sum: number, row: any) => sum + numberOr(row.value), 0);
+  const filteredRackData = selectedRackType === 'All' ? rackData : rackData.filter((row) => row.label === selectedRackType);
+  const rackTotal = filteredRackData.reduce((sum, row) => sum + row.value, 0);
 
   const kpiCards = [
     { label: 'Capacity Produced', value: `${formatNumber(scaleValue(capacityProduced))} kWh`, delta: 'Live database value', positive: true, icon: <Zap className="h-5 w-5 text-emerald-600" />, bg: '#f0fdf4' },
@@ -150,52 +146,197 @@ export const CEOMonitoringView: React.FC = () => {
       const rangeLabel = activeRange === 'Custom Range'
         ? `${customStartDate} to ${customEndDate}`
         : activeRange;
-      const workbook = XLSX.utils.book_new();
-
-      const appendSheet = (name: string, rows: Record<string, unknown>[]) => {
-        const sheet = XLSX.utils.json_to_sheet(rows);
-        sheet['!cols'] = Object.keys(rows[0] || {}).map((key) => ({ wch: Math.max(14, Math.min(32, key.length + 4)) }));
-        XLSX.utils.book_append_sheet(workbook, sheet, name);
+      const statusRows = (statuses: string[], sourceRows: any[], colorMap: Record<string, string>) => {
+        const values = new Map((sourceRows || []).map((row: any) => [String(row.label).replace(/_/g, ' ').toUpperCase(), numberOr(row.value)]));
+        return statuses.map((status) => ({
+          label: status.replace(/_/g, ' '),
+          value: values.get(status.replace(/_/g, ' ').toUpperCase()) || 0,
+          color: colorMap[status.replace(/_/g, ' ')] || '#94a3b8',
+        }));
+      };
+      const cellReportRows = statusRows(
+        ['In Stock', 'Floor Stock', 'In Module', 'In Pack', 'In Rack', 'Sold', 'Scrap'],
+        source.cellBuckets,
+        statusColors,
+      );
+      const batteryReportRows = statusRows(
+        ['CREATED', 'ASSEMBLY', 'TESTING', 'QC', 'RELEASED', 'WAREHOUSE', 'DISPATCHED', 'FINISHED', 'IN_PROCESS', 'QUARANTINED'],
+        source.batteryStatusBuckets,
+        statusColors,
+      );
+      const moduleReportRows = statusRows(
+        ['CREATED', 'CELLS_ASSIGNED', 'ASSEMBLED', 'WELDED', 'QC', 'PASSED', 'FAILED', 'QUARANTINED'],
+        source.moduleStatusBuckets,
+        statusColors,
+      );
+      const rackReportRows = statusRows(
+        ['IN_STOCK', 'IN_RACK', 'SOLD', 'SCRAP'],
+        source.rackStatusBuckets,
+        statusColors,
+      );
+      const reportBatteryTotal = batteryReportRows.reduce((sum, row) => sum + row.value, 0);
+      const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
+      const pageWidth = doc.internal.pageSize.getWidth();
+      const pageHeight = doc.internal.pageSize.getHeight();
+      const margin = 12;
+      const green = [58, 170, 53] as const;
+      const ink = [17, 17, 17] as const;
+      const muted = [100, 116, 139] as const;
+      const light = [244, 245, 247] as const;
+      const hexRgb = (hex: string): [number, number, number] => {
+        const value = hex.replace('#', '');
+        return [parseInt(value.slice(0, 2), 16), parseInt(value.slice(2, 4), 16), parseInt(value.slice(4, 6), 16)];
+      };
+      const drawTitle = (title: string, subtitle: string) => {
+        doc.setFillColor(...ink);
+        doc.rect(0, 0, pageWidth, 25, 'F');
+        doc.setTextColor(255, 255, 255);
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(18);
+        doc.text(title, margin, 11);
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(8);
+        doc.text(subtitle, margin, 18);
+        doc.setTextColor(...ink);
+      };
+      const drawDonut = (x: number, y: number, radius: number, rows: { label: string; value: number; color: string }[], title: string) => {
+        const total = rows.reduce((sum, row) => sum + row.value, 0);
+        const chartTotal = total || 1;
+        let start = -Math.PI / 2;
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(10);
+        doc.text(title, x - radius, y - radius - 5);
+        rows.forEach((row) => {
+          const end = start + (row.value / chartTotal) * Math.PI * 2;
+          doc.setFillColor(...hexRgb(row.color));
+          for (let angle = start; angle < end; angle += 0.035) {
+            const next = Math.min(angle + 0.04, end);
+            const points = [[x, y], [x + Math.cos(angle) * radius, y + Math.sin(angle) * radius], [x + Math.cos(next) * radius, y + Math.sin(next) * radius]];
+            doc.triangle(points[0][0], points[0][1], points[1][0], points[1][1], points[2][0], points[2][1], 'F');
+          }
+          start = end;
+        });
+        doc.setFillColor(255, 255, 255);
+        doc.circle(x, y, radius * 0.58, 'F');
+        doc.setTextColor(...ink);
+        doc.setFontSize(13);
+        doc.text(formatNumber(total), x, y + 2, { align: 'center' });
+        rows.slice(0, 8).forEach((row, index) => {
+          const legendY = y - radius + index * 7;
+          doc.setFillColor(...hexRgb(row.color));
+          doc.rect(x + radius + 8, legendY - 3, 3, 3, 'F');
+          doc.setFont('helvetica', 'normal');
+          doc.setFontSize(7);
+          doc.setTextColor(...muted);
+          doc.text(`${row.label}: ${formatNumber(row.value)}`, x + radius + 13, legendY);
+        });
+      };
+      const drawBars = (x: number, y: number, width: number, height: number, rows: { label: string; value: number; color: string }[], title: string) => {
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(10);
+        doc.setTextColor(...ink);
+        doc.text(title, x, y - 5);
+        const visibleRows = rows.filter((row) => row.value > 0).sort((left, right) => right.value - left.value).slice(0, 6);
+        if (!visibleRows.length) {
+          doc.setFont('helvetica', 'normal');
+          doc.setFontSize(8);
+          doc.setTextColor(...muted);
+          doc.text('No recorded data', x, y + height / 2);
+          return;
+        }
+        const max = Math.max(...visibleRows.map((row) => row.value), 1);
+        const barWidth = Math.min(18, (width - Math.max(visibleRows.length - 1, 0) * 5) / Math.max(visibleRows.length, 1));
+        visibleRows.forEach((row, index) => {
+          const barHeight = (row.value / max) * height;
+          const barX = x + index * (barWidth + 5);
+          doc.setFillColor(...hexRgb(row.color));
+          doc.roundedRect(barX, y + height - barHeight, barWidth, barHeight, 1.5, 1.5, 'F');
+          doc.setFont('helvetica', 'normal');
+          doc.setFontSize(6.5);
+          doc.setTextColor(...muted);
+          doc.text(row.label.slice(0, 12), barX + barWidth / 2, y + height + 7, { align: 'center' });
+          doc.text(formatNumber(row.value), barX + barWidth / 2, y + height - barHeight - 2, { align: 'center' });
+        });
+      };
+      const drawTable = (title: string, columns: string[], rows: string[][], y: number, x = margin, tableWidth = pageWidth - margin * 2, compact = false) => {
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(compact ? 7 : 10);
+        doc.setTextColor(...ink);
+        if (title) doc.text(title, x, y);
+        const rowHeight = compact ? 4 : 7;
+        const columnWidth = tableWidth / columns.length;
+        doc.setFillColor(...ink);
+        doc.rect(x, y + 3, tableWidth, rowHeight, 'F');
+        doc.setFontSize(compact ? 5 : 7);
+        doc.setTextColor(255, 255, 255);
+        columns.forEach((column, index) => doc.text(column, x + index * columnWidth + 2, y + (compact ? 6 : 8)));
+        rows.forEach((row, rowIndex) => {
+          const rowY = y + (compact ? 7 : 10) + rowIndex * rowHeight;
+          const rowColor: [number, number, number] = rowIndex % 2 ? [250, 250, 250] : [255, 255, 255];
+          doc.setFillColor(...rowColor);
+          doc.rect(x, rowY, tableWidth, rowHeight, 'F');
+          doc.setTextColor(...muted);
+          row.forEach((value, index) => doc.text(String(value).slice(0, compact ? 24 : 30), x + index * columnWidth + 2, rowY + (compact ? 2.8 : 5)));
+        });
       };
 
-      appendSheet('Report Info', [
-        { Field: 'Report date', Value: reportDate },
-        { Field: 'Reporting range', Value: rangeLabel },
-        { Field: 'Cell filter', Value: selectedCellStatus },
-        { Field: 'Pack filter', Value: selectedPackType },
-        { Field: 'Rack filter', Value: selectedRackType },
-        { Field: 'Module configuration', Value: selectedModuleConfig },
-      ]);
+      drawTitle('POWER2GO MES | CEO PERFORMANCE REPORT', `Reporting range: ${rangeLabel}   |   Generated: ${reportDate}`);
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(9);
+      doc.setTextColor(...green);
+      doc.text('EXECUTIVE SNAPSHOT', margin, 34);
+      kpiCards.forEach((card, index) => {
+        const cardWidth = (pageWidth - margin * 2 - 15) / 6;
+        const x = margin + index * (cardWidth + 3);
+        doc.setFillColor(...light);
+        doc.roundedRect(x, 39, cardWidth, 25, 2, 2, 'F');
+        doc.setTextColor(...muted);
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(7);
+        doc.text(card.label, x + 3, 46, { maxWidth: cardWidth - 6 });
+        doc.setTextColor(...ink);
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(12);
+        doc.text(card.value, x + 3, 57);
+      });
+      drawDonut(43, 104, 22, cellReportRows, 'CELL INVENTORY');
+      drawBars(105, 82, 82, 44, batteryReportRows, 'BATTERY PACK STATUS');
+      drawBars(205, 82, 70, 44, rackReportRows, 'RACK STATUS');
+      const contextRows = [
+        ['Reporting range', rangeLabel],
+        ['Generated at', new Date().toLocaleString()],
+        ['Total cell records', formatNumber(numberOr(inventory.totalCells))],
+        ['Available cells', formatNumber(numberOr(inventory.availableCells))],
+        ['Reserved cells', formatNumber(numberOr(inventory.reservedCells))],
+        ['Cells in process', formatNumber(numberOr(inventory.inProcessCells))],
+        ['Cells assembled', formatNumber(numberOr(inventory.assembledCells))],
+        ['Open quarantines', formatNumber(numberOr(quality.quarantinedCount ?? inventory.quarantinedCells))],
+        ['Quality pass rate', `${passRate.toFixed(1)}%`],
+        ['Scrap rate', `${scrapRate.toFixed(1)}%`],
+        ['Online machines', `${onlineMachines} / ${machines.length}`],
+        ['Total batteries', formatNumber(reportBatteryTotal)],
+        ['Total racks', formatNumber(rackTotal)],
+        ['Orders total', formatNumber(numberOr(orders.total))],
+        ['Orders in process', formatNumber(numberOr(orders.inProcess))],
+        ['Orders completed', formatNumber(numberOr(orders.completed))],
+        ['Orders planned', formatNumber(numberOr(orders.planned))],
+      ];
+      drawTable('REPORT CONTEXT', ['Field', 'Value'], contextRows.slice(0, 9), 145, margin, 88, true);
+      drawTable('', ['Field', 'Value'], contextRows.slice(9), 145, 110, 88, true);
+      doc.setFontSize(7);
+      doc.setFont('helvetica', 'normal');
+      doc.setTextColor(...muted);
+      doc.text(`Active filters: Cells ${selectedCellStatus} | Packs ${selectedPackType} | Racks ${selectedRackType} | Modules ${selectedModuleConfig}`, margin, pageHeight - 12);
 
-      appendSheet('Executive KPIs', kpiCards.map((card) => ({
-        KPI: card.label,
-        Value: card.value,
-        Source: 'Power2Go MES live dashboard',
-      })));
+      doc.addPage();
+      drawTitle('POWER2GO MES | OPERATIONS DETAIL', `Live database report   |   ${reportDate}`);
+      drawTable('CELL STATUS - ALL ENUM VALUES', ['Status', 'Quantity', 'Share'], cellReportRows.map((row) => [row.label, formatNumber(row.value), `${((row.value / Math.max(1, cellReportRows.reduce((sum, item) => sum + item.value, 0))) * 100).toFixed(1)}%`]), 35, margin, 88, true);
+      drawTable('MODULE STATUS - ALL ENUM VALUES', ['Status', 'Quantity', 'Share'], moduleReportRows.map((row) => [row.label, formatNumber(row.value), `${((row.value / Math.max(1, moduleReportRows.reduce((sum, item) => sum + item.value, 0))) * 100).toFixed(1)}%`]), 35, 110, 88, true);
+      drawTable('BATTERY STATUS - ALL ENUM VALUES', ['Status', 'Quantity', 'Share'], batteryReportRows.map((row) => [row.label, formatNumber(row.value), `${((row.value / Math.max(1, batteryReportRows.reduce((sum, item) => sum + item.value, 0))) * 100).toFixed(1)}%`]), 105, margin, 88, true);
+      drawTable('RACK STATUS - ALL ENUM VALUES', ['Status', 'Quantity', 'Share'], rackReportRows.map((row) => [row.label, formatNumber(row.value), `${((row.value / Math.max(1, rackReportRows.reduce((sum, item) => sum + item.value, 0))) * 100).toFixed(1)}%`]), 105, 110, 88, true);
+      drawTable('MACHINE STATUS', ['Machine', 'Type', 'Status'], machines.map((machine: any) => [machine.name || machine.id || 'Unnamed', machine.type || '-', machine.status || 'UNKNOWN']), 165, margin, 176, true);
 
-      appendSheet('Inventory', [
-        { Metric: 'Total cells', Value: numberOr(inventory.totalCells) },
-        { Metric: 'Available cells', Value: numberOr(inventory.availableCells) },
-        { Metric: 'Cells in stock', Value: numberOr(inventory.inStockCells) },
-        { Metric: 'Floor stock cells', Value: numberOr(inventory.floorStockCells) },
-        { Metric: 'Cells in modules', Value: numberOr(inventory.inModuleCells) },
-        { Metric: 'Cells in packs', Value: numberOr(inventory.inPackCells) },
-        { Metric: 'Cells in racks', Value: numberOr(inventory.inRackCells) },
-        { Metric: 'Sold cells', Value: numberOr(inventory.soldCells) },
-        { Metric: 'Scrap cells', Value: numberOr(inventory.scrapCells ?? inventory.quarantinedCells) },
-      ]);
-
-      appendSheet('Battery Packs', batteryData.map((row) => ({ Status: row.label, Quantity: row.value })));
-      appendSheet('Modules', moduleData.map((row) => ({ Status: row.status, '8S': row['8S'], '12S': row['12S'] })));
-      appendSheet('Racks', rackData.map((row) => ({ Status: row.label, Quantity: row.value })));
-      appendSheet('Machines', machines.map((machine: any) => ({
-        Name: machine.name || machine.id || 'Unnamed machine',
-        Type: machine.type || '',
-        Status: machine.status || 'UNKNOWN',
-        'IP address': machine.ip_address || machine.ipAddress || '',
-      })));
-
-      XLSX.writeFile(workbook, `power2go-ceo-report-${reportDate}.xlsx`);
+      doc.save(`power2go-ceo-report-${reportDate}.pdf`);
       addNotification('success', 'Report exported', 'The CEO monitoring report has been downloaded.');
     } catch (error: any) {
       addNotification('error', 'Export failed', error?.message || 'Unable to generate the CEO monitoring report.');
@@ -242,7 +383,7 @@ export const CEOMonitoringView: React.FC = () => {
                 onClick={exportReport}
                 disabled={exporting}
                 className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-700 shadow-sm transition-colors hover:border-emerald-200 hover:bg-emerald-50 hover:text-emerald-700 disabled:cursor-wait disabled:opacity-60"
-                title="Download the current CEO monitoring report as an Excel workbook"
+                title="Download the current CEO monitoring report as a PDF"
               >
                 <Download className="h-3.5 w-3.5" />
                 {exporting ? 'Exporting...' : 'Export Report'}
@@ -396,11 +537,11 @@ export const CEOMonitoringView: React.FC = () => {
             </div>
 
             <div className="mb-3 flex gap-2 text-[10px]">
-              {['Both', '8S', '12S'].map((option) => (
+              {['All', ...moduleData.map((item) => item.status)].map((option) => (
                 <button
                   key={option}
                   type="button"
-                  onClick={() => setSelectedModuleConfig(option as 'Both' | '8S' | '12S')}
+                  onClick={() => setSelectedModuleConfig(option)}
                   className={`rounded-md border px-2 py-1 ${selectedModuleConfig === option ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-slate-200 bg-slate-50 text-slate-500'}`}
                 >
                   {option}
@@ -414,10 +555,9 @@ export const CEOMonitoringView: React.FC = () => {
                   <line key={row} x1="20" x2="200" y1={row * 28 + 12} y2={row * 28 + 12} stroke="#e5e7eb" strokeDasharray="2 3" />
                 ))}
                 <g>
-                  {moduleData.map((item, columnIndex) => (
+                  {filteredModuleData.map((item, columnIndex) => (
                     <g key={item.status} transform={`translate(${columnIndex * 52 + 35}, 0)`}>
-                      <rect x="0" y={100 - item['8S'] / 14} width="12" height={item['8S'] / 14} fill="#16a34a" rx="2" />
-                      <rect x="16" y={100 - item['12S'] / 14} width="12" height={item['12S'] / 14} fill="#86efac" rx="2" />
+                      <rect x="0" y={100 - item.value / 14} width="12" height={item.value / 14} fill="#16a34a" rx="2" />
                       <text x="8" y="112" textAnchor="middle" fontSize="8" fill="#64748b">{item.status.split(' ')[0]}</text>
                     </g>
                   ))}
@@ -443,11 +583,11 @@ export const CEOMonitoringView: React.FC = () => {
             </div>
 
             <div className="mb-3 flex gap-2 text-[10px]">
-              {['All', '5 kWh', '7.5 kWh'].map((size) => (
+              {['All', ...batteryData.map((item) => item.label)].map((size) => (
                 <button
                   key={size}
                   type="button"
-                  onClick={() => setSelectedPackType(size as 'All' | '5 kWh' | '7.5 kWh')}
+                  onClick={() => setSelectedPackType(size)}
                   className={`rounded-md border px-2 py-1 ${selectedPackType === size ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-slate-200 bg-slate-50 text-slate-500'}`}
                 >
                   {size}
@@ -485,7 +625,7 @@ export const CEOMonitoringView: React.FC = () => {
               </div>
 
               <div className="flex-1 space-y-2.5 py-2">
-                {batteryData.map((segment) => (
+                {filteredBatteryData.map((segment) => (
                   <div key={segment.label} className="flex items-center justify-between gap-3 text-[12px]">
                     <div className="flex items-center gap-2 text-slate-600">
                       <span className="h-2.5 w-2.5 rounded-sm" style={{ backgroundColor: segment.color }} />
@@ -513,11 +653,11 @@ export const CEOMonitoringView: React.FC = () => {
             </div>
 
             <div className="mb-3 flex gap-2 text-[10px]">
-              {['All', '25 kWh', '75 kWh'].map((size) => (
+              {['All', ...rackData.map((item) => item.label)].map((size) => (
                 <button
                   key={size}
                   type="button"
-                  onClick={() => setSelectedRackType(size as 'All' | '25 kWh' | '75 kWh')}
+                  onClick={() => setSelectedRackType(size)}
                   className={`rounded-md border px-2 py-1 ${selectedRackType === size ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-slate-200 bg-slate-50 text-slate-500'}`}
                 >
                   {size}
@@ -531,7 +671,7 @@ export const CEOMonitoringView: React.FC = () => {
                   <line key={row} x1="20" x2="200" y1={row * 28 + 12} y2={row * 28 + 12} stroke="#e5e7eb" strokeDasharray="2 3" />
                 ))}
                 <g>
-                  {rackData.map((item, index) => (
+                  {filteredRackData.map((item, index) => (
                     <g key={item.label} transform={`translate(${index * 70 + 38}, 0)`}>
                       <rect x="0" y={100 - item.value * 6} width="28" height={item.value * 6} fill={item.color} rx="4" />
                       <text x="14" y="112" textAnchor="middle" fontSize="8" fill="#64748b">{item.label}</text>

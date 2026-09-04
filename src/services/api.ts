@@ -67,6 +67,25 @@ function toAppValue(value: any): any {
   return Object.fromEntries(Object.entries(value).map(([key, child]) => [toAppColumn(key), toAppValue(child)]));
 }
 
+function reconcileDashboardCellBuckets(buckets: any[], totalCells: any): any[] {
+  if (!Array.isArray(buckets)) return [];
+  const rows = buckets.map(row => ({ ...row, label: String(row.label), value: Math.max(0, Number(row.value) || 0) }));
+  const total = Math.max(0, Number(totalCells) || 0);
+  const stockRows = rows.filter(row => row.label === 'In Stock' || row.label === 'Floor Stock');
+  const nonStockTotal = rows
+    .filter(row => row.label !== 'In Stock' && row.label !== 'Floor Stock')
+    .reduce((sum, row) => sum + row.value, 0);
+  const remainingStock = Math.max(0, total - nonStockTotal);
+  const currentStock = stockRows.reduce((sum, row) => sum + row.value, 0);
+  if (currentStock > remainingStock) {
+    const inStock = rows.find(row => row.label === 'In Stock');
+    const floorStock = rows.find(row => row.label === 'Floor Stock');
+    if (inStock) inStock.value = Math.min(inStock.value, remainingStock);
+    if (floorStock) floorStock.value = Math.max(0, remainingStock - (inStock?.value || 0));
+  }
+  return rows;
+}
+
 function mergeReservedBatteryCells(modules: any[], reservedCells: any[], batteryId: string): any[] {
   return Array.isArray(modules) ? modules : [];
 }
@@ -363,6 +382,11 @@ async getUsers(): Promise<User[]> {
           machines: [],
           finishedPackTrend: [],
           activeBatchTrend: [],
+          batteryBuildTrend: [],
+          cellBuckets: [],
+          moduleStatusBuckets: [],
+          batteryStatusBuckets: [],
+          rackStatusBuckets: [],
         };
       }
 
@@ -404,7 +428,10 @@ async getUsers(): Promise<User[]> {
           totalBms: Number(data.inventory.totalBms || 0),
           totalBmu: Number(data.inventory.totalBmu || 0),
         } : { availableBms: 0, availableBmu: 0, totalBms: 0, totalBmu: 0 },
-        cellBuckets: Array.isArray(data?.cellBuckets) ? data.cellBuckets : [],
+        cellBuckets: reconcileDashboardCellBuckets(data?.cellBuckets, data?.inventory?.totalCells),
+        moduleStatusBuckets: Array.isArray(data?.moduleStatusBuckets) ? data.moduleStatusBuckets : [],
+        batteryStatusBuckets: Array.isArray(data?.batteryStatusBuckets) ? data.batteryStatusBuckets : [],
+        rackStatusBuckets: Array.isArray(data?.rackStatusBuckets) ? data.rackStatusBuckets : [],
         quarantineOpenCount: data?.inventory?.quarantinedCells || 0,
       };
     } catch (error) {
