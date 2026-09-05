@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useApp } from '../../context/AppContext';
 import { useAuth } from '../../context/AuthContext';
 import { api } from '../../services/api';
-import { Supplier, SupplierImportSummary } from '../../types';
+import { ProductTemplate, Supplier, SupplierImportSummary } from '../../types';
 import {
   Truck,
   Upload,
@@ -39,6 +39,7 @@ interface ParsedBatteryRow {
   index: number;
   batterySerialNumber: string;
   bmuSerialNumber?: string;
+  bmsSerialNumber?: string;
   cellQrCodes?: string[];
   cellCount?: number;
   isValid: boolean;
@@ -50,6 +51,11 @@ export const SupplierImportView: React.FC = () => {
   const { currentUser } = useAuth();
 
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
+  const [batteryTemplates, setBatteryTemplates] = useState<ProductTemplate[]>([]);
+  const [selectedBatteryTemplateId, setSelectedBatteryTemplateId] = useState('');
+  const [availableBmsCount, setAvailableBmsCount] = useState(0);
+  const [availableBmuCount, setAvailableBmuCount] = useState(0);
+  const [controllerType, setControllerType] = useState<'BMS' | 'BMU'>('BMS');
   const [loading, setLoading] = useState(false);
   const [importResult, setImportResult] = useState<{ summary: SupplierImportSummary; importedCount: number } | null>(null);
 
@@ -71,14 +77,33 @@ export const SupplierImportView: React.FC = () => {
 
   const loadData = async () => {
     try {
-      const sups = await api.getSuppliers();
+      const [sups, products, bmsUnits, bmuUnits] = await Promise.all([
+        api.getSuppliers(),
+        api.getProducts(),
+        api.getBmsUnits(),
+        api.getBmuUnits(),
+      ]);
       setSuppliers(sups);
+      const isAvailable = (item: { status?: string; assignedToBatteryId?: string; reservedForBatteryId?: string }) =>
+        !['QUARANTINED', 'FAILED', 'ARCHIVED'].includes(String(item.status || '').toUpperCase())
+        && !item.assignedToBatteryId
+        && !item.reservedForBatteryId;
+      const availableBmsRows = bmsUnits.filter(isAvailable);
+      const availableBmuRows = bmuUnits.filter(isAvailable);
+      setAvailableBmsCount(availableBmsRows.length);
+      setAvailableBmuCount(availableBmuRows.length);
+      const activeProducts = products.filter(product => product.active !== false);
+      setBatteryTemplates(activeProducts);
+      setSelectedBatteryTemplateId(current => current && activeProducts.some(product => product.id === current)
+        ? current
+        : activeProducts[0]?.id || '');
     } catch (err) {
       console.error('Failed to load supplier data', err);
     }
   };
 
   const normalizeHeader = (h: string) => h.toLowerCase().trim().replace(/[\s-]+/g, '_');
+  const normalizeControllerSerial = (value: string) => value.trim().replace(/\s*-\s*/g, '-');
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -232,6 +257,12 @@ export const SupplierImportView: React.FC = () => {
   const handleBatteryFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
+    const selectedTemplate = batteryTemplates.find(product => product.id === selectedBatteryTemplateId);
+    if (!selectedTemplate) {
+      addNotification('error', 'Select Battery Type', 'Choose a product template before uploading a battery batch.');
+      e.target.value = '';
+      return;
+    }
 
     // BUG-16 fix: show loading state so UI is not clickable during parse
     setLoading(true);
@@ -305,6 +336,7 @@ export const SupplierImportView: React.FC = () => {
         const batteryGroups: Map<string, {
           rawSerial: string;
           bmuSerial: string;
+          bmsSerial: string;
           qrCodes: string[];
           seqNumber: number;
         }> = new Map();
@@ -313,11 +345,14 @@ export const SupplierImportView: React.FC = () => {
         let batteryCounter = 0;
         const now = new Date();
         const yymm = `${String(now.getFullYear()).slice(2)}${String(now.getMonth() + 1).padStart(2, '0')}`;
+        const uploadToken = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`.toUpperCase();
+        const templateToken = String(selectedTemplate.productModel || selectedTemplate.sku || 'BATTERY').replace(/[^A-Z0-9]+/gi, '').toUpperCase();
 
         for (const row of rawRows) {
           const qrCode   = findColValue(row, 'QR code', 'qr', 'qrcode', 'barcode', 'cell qr', 'cell_qr');
           const batteryVal = findColValue(row, 'Battery', 'battery serial', 'battery_serial', 'battery_no', 'battery number', 'battery');
-          const bmuVal   = findColValue(row, 'BMU', 'bmu serial', 'bmu_serial', 'controller');
+          const bmuVal = controllerType === 'BMU' ? normalizeControllerSerial(findColValue(row, 'BMU', 'bmu serial', 'bmu_serial', 'controller')) : '';
+          const bmsVal = controllerType === 'BMS' ? normalizeControllerSerial(findColValue(row, 'BMS', 'bms serial', 'bms_serial', 'bms number', 'bms')) : '';
 
           // A non-empty Battery column value signals the start of a new battery group
           if (batteryVal) {
@@ -327,12 +362,13 @@ export const SupplierImportView: React.FC = () => {
             // If the Excel value is a plain number (e.g. "1", "2"), format it as a proper serial
             const isNumeric = /^\d+$/.test(batteryVal);
             const rawSerial = isNumeric
-              ? `P2G-7K5-${yymm}-${String(parseInt(batteryVal)).padStart(6, '0')}`
+              ? `P2G-${templateToken}-${yymm}-${uploadToken}-${String(batteryCounter).padStart(4, '0')}`
               : batteryVal.toUpperCase();
 
             batteryGroups.set(currentKey, {
               rawSerial,
-              bmuSerial: bmuVal,   // BMU is on the same first row of the merged region
+              bmuSerial: bmuVal,
+              bmsSerial: bmsVal,
               qrCodes: [],
               seqNumber: batteryCounter,
             });
@@ -342,6 +378,10 @@ export const SupplierImportView: React.FC = () => {
           if (bmuVal && currentKey) {
             const g = batteryGroups.get(currentKey);
             if (g && !g.bmuSerial) g.bmuSerial = bmuVal;
+          }
+          if (bmsVal && currentKey) {
+            const g = batteryGroups.get(currentKey);
+            if (g && !g.bmsSerial) g.bmsSerial = bmsVal;
           }
 
           // Accumulate cell QR codes into the current battery group
@@ -363,10 +403,10 @@ export const SupplierImportView: React.FC = () => {
         const normalizedRows = Array.from(batteryGroups.values()).map((group, idx) => {
           const errors: string[] = [];
 
-          // Must have exactly 24 cells (2 modules × 12)
-          if (group.qrCodes.length !== 24) {
+          // Validate against the product selected before upload.
+          if (group.qrCodes.length !== selectedTemplate.totalCells) {
             errors.push(
-              `Expected 24 cells (2 modules × 12), found ${group.qrCodes.length}`
+              `Expected ${selectedTemplate.totalCells} cells (${selectedTemplate.numModules} modules × ${selectedTemplate.cellsPerModule}), found ${group.qrCodes.length}`
             );
           }
 
@@ -390,6 +430,7 @@ export const SupplierImportView: React.FC = () => {
             index: idx + 2,
             batterySerialNumber: group.rawSerial,
             bmuSerialNumber: group.bmuSerial || '',
+            bmsSerialNumber: group.bmsSerial || '',
             cellQrCodes: group.qrCodes,
             cellCount: group.qrCodes.length,
             isValid: errors.length === 0,
@@ -460,9 +501,10 @@ export const SupplierImportView: React.FC = () => {
       );
     }
 
-    const payloadRows = validRows.map(row => ({
+    const payloadRows = validRows.map((row, index) => ({
       batterySerialNumber: row.batterySerialNumber,
-      bmuSerialNumber: row.bmuSerialNumber || undefined,
+      bmuSerialNumber: controllerType === 'BMU' ? row.bmuSerialNumber || undefined : undefined,
+      bmsSerialNumber: controllerType === 'BMS' ? row.bmsSerialNumber || undefined : undefined,
       cellQrCodes: Array.isArray(row.cellQrCodes) ? row.cellQrCodes : [],
     }));
 
@@ -470,6 +512,8 @@ export const SupplierImportView: React.FC = () => {
     try {
       const result = await api.bulkInitializeBatteryBatch({
         rows: payloadRows,
+        productId: selectedBatteryTemplateId,
+        controllerType,
         userId: currentUser.id,
       });
 
@@ -561,16 +605,54 @@ export const SupplierImportView: React.FC = () => {
             <span className="text-[10px] uppercase tracking-wider text-slate-500">Existing stock allocation</span>
           </div>
 
+          <label className="block text-xs font-bold text-slate-700">
+            Battery product template
+            <select
+              value={selectedBatteryTemplateId}
+              onChange={event => setSelectedBatteryTemplateId(event.target.value)}
+              disabled={loading || batteryTemplates.length === 0}
+              className="mt-2 w-full rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-xs font-medium text-slate-700 outline-none focus:border-emerald-500 disabled:bg-slate-50"
+            >
+              {batteryTemplates.length === 0 && <option value="">No active product templates available</option>}
+              {batteryTemplates.map(product => (
+                <option key={product.id} value={product.id}>
+                  {product.name} · {product.capacityKwh} kWh · {product.numModules} modules × {product.cellsPerModule} cells
+                </option>
+              ))}
+            </select>
+            <span className="mt-1 block font-normal text-slate-400">Select the battery type before choosing a file.</span>
+          </label>
+
+          <div className="rounded-xl border border-slate-200 bg-slate-100 p-1">
+            <div className="grid grid-cols-2 gap-1">
+              <button
+                type="button"
+                onClick={() => setControllerType('BMS')}
+                className={`rounded-lg px-3 py-2 text-xs font-bold transition-colors ${controllerType === 'BMS' ? 'bg-emerald-600 text-white shadow-sm' : 'bg-transparent text-slate-600 hover:bg-white'}`}
+              >
+                BMS · {availableBmsCount} available
+              </button>
+              <button
+                type="button"
+                onClick={() => setControllerType('BMU')}
+                className={`rounded-lg px-3 py-2 text-xs font-bold transition-colors ${controllerType === 'BMU' ? 'bg-emerald-600 text-white shadow-sm' : 'bg-transparent text-slate-600 hover:bg-white'}`}
+              >
+                BMU · {availableBmuCount} available
+              </button>
+            </div>
+          </div>
+
           <div className="border-2 border-dashed border-slate-200 rounded-2xl p-7 text-center relative hover:border-emerald-500">
             <input
               type="file"
               accept=".csv,.xlsx,.xls"
               onChange={handleBatteryFileUpload}
+              disabled={loading || !selectedBatteryTemplateId}
               className="absolute inset-0 opacity-0 cursor-pointer"
             />
             <Boxes className="w-10 h-10 text-emerald-500 mx-auto mb-2 opacity-80" />
             <p className="text-xs font-bold text-slate-800">Upload Battery Excel / CSV</p>
-            <p className="text-[11px] text-slate-400 mt-1">Primary identifier is the Battery serial column; BMU is optional. Uses imported BMUs/cells already in stock.</p>
+            <p className="text-[11px] text-slate-400 mt-1">Uses one {controllerType} serial from available inventory for each battery, plus imported cells already in stock.</p>
           </div>
         </div>
       )}
@@ -602,7 +684,7 @@ export const SupplierImportView: React.FC = () => {
                   <th className="px-3 py-2">Battery #</th>
                   <th className="px-3 py-2">Generated Serial</th>
                   <th className="px-3 py-2">Cells</th>
-                  <th className="px-3 py-2">BMU Serial</th>
+                  <th className="px-3 py-2">{controllerType} Serial</th>
                   <th className="px-3 py-2">Status</th>
                 </tr>
               </thead>
@@ -612,7 +694,7 @@ export const SupplierImportView: React.FC = () => {
                     <td className="px-3 py-2 text-center font-bold text-slate-900">{idx + 1}</td>
                     <td className="px-3 py-2 font-mono text-xs">{row.batterySerialNumber}</td>
                     <td className="px-3 py-2 text-center">{row.cellCount}</td>
-                    <td className="px-3 py-2 font-mono text-xs">{row.bmuSerialNumber || '—'}</td>
+                    <td className="px-3 py-2 font-mono text-xs">{controllerType === 'BMS' ? row.bmsSerialNumber || 'Missing' : row.bmuSerialNumber || 'Missing'}</td>
                     <td className="px-3 py-2">
                       <span className={`inline-flex rounded-full px-2 py-1 text-[10px] font-bold ${row.isValid ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-800 text-white'}`}>
                         {row.isValid ? 'VALID' : 'INVALID'}

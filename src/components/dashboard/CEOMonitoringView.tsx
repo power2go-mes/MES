@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { jsPDF } from 'jspdf';
-import { Activity, AlertTriangle, ArrowRight, Boxes, CheckCircle2, ChevronDown, Download, Factory, Gauge, Layers, PackageCheck, ShieldCheck, Truck, Zap } from 'lucide-react';
+import { Activity, AlertTriangle, ArrowRight, Boxes, CheckCircle2, ChevronDown, Download, Factory, Gauge, Layers, PackageCheck, ShieldCheck, Truck, Wrench, Zap } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
 import { api } from '../../services/api';
 
@@ -20,8 +20,25 @@ const statusColors: Record<string, string> = {
   Sold: '#059669',
   Scrap: '#ef4444',
 };
+const packColors = ['#2563eb', '#f59e0b', '#16a34a'];
+type ChartRow = { label: string; value: number; color?: string };
+type ModuleRow = { status: string; value: number };
 
 const formatNumber = (value: number) => new Intl.NumberFormat('en-US').format(value);
+const formatShare = (value: number, total: number) => `${((value / Math.max(1, total)) * 100).toFixed(1)}%`;
+
+const normalizeLifecycleBuckets = (rows: any[], entity: 'module' | 'battery') => {
+  const totals = new Map<string, number>();
+  (rows || []).forEach((row: any) => {
+    const raw = String(row.label || '').replace(/_/g, ' ').toUpperCase();
+    const label = entity === 'module'
+      ? raw === 'IN PACK' ? 'In Pack' : raw === 'IN RACK' ? 'In Rack' : 'Available'
+      : raw === 'IN RACK' ? 'In Rack' : raw === 'SOLD' ? 'Sold' : 'Available';
+    totals.set(label, (totals.get(label) || 0) + numberOr(row.value));
+  });
+  const labels = entity === 'module' ? ['Available', 'In Pack', 'In Rack'] : ['Available', 'In Rack', 'Sold'];
+  return labels.map(label => ({ label, value: totals.get(label) || 0 }));
+};
 
 const dateInputValue = (date: Date) => {
   const year = date.getFullYear();
@@ -71,13 +88,15 @@ export const CEOMonitoringView: React.FC = () => {
       if (!document.hidden) void refresh();
     }, 60000);
 
-    document.addEventListener('visibilitychange', () => {
+    const handleVisibilityChange = () => {
       if (!document.hidden) void refresh();
-    });
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
 
     return () => {
       cancelled = true;
       window.clearInterval(interval);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
   }, [refreshKey]);
 
@@ -95,10 +114,10 @@ export const CEOMonitoringView: React.FC = () => {
     : 1;
   const scaleValue = (value: number) => Math.max(0, Math.round(value));
 
-  const cellsSeries = useMemo(() => {
-    const rows = (source.cellBuckets || []).map((row: any) => ({ label: row.label, value: numberOr(row.value), color: statusColors[row.label] || '#64748b' }));
+  const cellsSeries = useMemo<ChartRow[]>(() => {
+    const rows: ChartRow[] = (source.cellBuckets || []).map((row: any) => ({ label: row.label, value: numberOr(row.value), color: statusColors[row.label] || '#64748b' }));
 
-    const filtered = selectedCellStatus === 'All'
+    const filtered: ChartRow[] = selectedCellStatus === 'All'
       ? rows
       : rows.filter((row) => row.label === selectedCellStatus);
 
@@ -112,23 +131,41 @@ export const CEOMonitoringView: React.FC = () => {
   const passRate = clamp(numberOr(quality.firstPassYieldPercent), 0, 100);
   const scrapRate = clamp((numberOr(inventory.quarantinedCells) / Math.max(1, numberOr(inventory.totalCells))) * 100, 0, 100);
   const onlineMachines = machines.filter((machine: any) => ['ONLINE', 'BUSY', 'RUNNING'].includes(String(machine?.status || '').toUpperCase())).length;
+  const totalCells = Math.max(1, scaleValue(numberOr(inventory.totalCells)));
+  const usedCellShare = clamp((scaleValue(numberOr(inventory.usedCells)) / totalCells) * 100, 0, 100);
+  const completedOrders = scaleValue(numberOr(orders.completed));
+  const totalOrders = Math.max(1, scaleValue(numberOr(orders.total)));
+  const orderCompletion = clamp((completedOrders / totalOrders) * 100, 0, 100);
+  const totalControllers = Math.max(1, scaleValue(numberOr(source.controllerInventory?.totalBms)) + scaleValue(numberOr(source.controllerInventory?.totalBmu)));
+  const availableControllers = scaleValue(numberOr(source.controllerInventory?.availableBms)) + scaleValue(numberOr(source.controllerInventory?.availableBmu));
+  const controllerReadiness = clamp((availableControllers / totalControllers) * 100, 0, 100);
+  const openRisks = scaleValue(numberOr(source.quarantineOpenCount ?? quality.quarantinedCount ?? inventory.quarantinedCells));
 
-  const cellsTotal = scaleValue(numberOr(inventory.totalCells));
-  const moduleData = useMemo(() => (source.moduleStatusBuckets || []).map((row: any) => ({ status: String(row.label).replace(/_/g, ' '), value: numberOr(row.value) })), [source.moduleStatusBuckets]);
-  const filteredModuleData = selectedModuleConfig === 'All' ? moduleData : moduleData.filter((row) => row.status === selectedModuleConfig);
-  const moduleTotal = filteredModuleData.reduce((sum, row) => sum + row.value, 0);
+  const cellsBucketTotal = (source.cellBuckets || []).reduce((sum: number, row: any) => sum + scaleValue(numberOr(row.value)), 0);
+  const cellsTotal = cellsBucketTotal || scaleValue(numberOr(inventory.totalCells));
+  const moduleBuckets = useMemo<ChartRow[]>(() => (source.moduleTypeBuckets || source.moduleStatusBuckets || []).map((row: any) => ({ label: String(row.label || ''), value: numberOr(row.value) })), [source.moduleTypeBuckets, source.moduleStatusBuckets]);
+  const moduleData = useMemo<ModuleRow[]>(() => moduleBuckets.map((row) => ({ status: row.label, value: numberOr(row.value) })), [moduleBuckets]);
+  const filteredModuleData: ModuleRow[] = selectedModuleConfig === 'All' ? moduleData : moduleData.filter((row) => row.status === selectedModuleConfig);
+  const moduleTotal = filteredModuleData.reduce((sum: number, row: ModuleRow) => sum + row.value, 0);
+  const moduleChartMax = Math.max(1, ...filteredModuleData.map((row: ModuleRow) => row.value));
 
   const batteryData = useMemo(() => {
-    return (source.batteryStatusBuckets || []).map((row: any) => ({ label: String(row.label).replace(/_/g, ' '), value: scaleValue(numberOr(row.value)), color: statusColors[String(row.label).replace(/_/g, ' ')] || '#64748b' }));
+    return normalizeLifecycleBuckets(source.batteryStatusBuckets, 'battery').map((row: any) => ({ label: row.label, value: scaleValue(numberOr(row.value)), color: statusColors[row.label] || '#64748b' }));
   }, [source.batteryStatusBuckets, activeRange]);
-  const filteredBatteryData = selectedPackType === 'All' ? batteryData : batteryData.filter((row) => row.label === selectedPackType);
-  const batteryTotal = filteredBatteryData.reduce((sum, row) => sum + row.value, 0);
+  const batteryPackData = useMemo<ChartRow[]>(() => (source.batteryPackBuckets || []).map((row: any, index: number) => ({
+    label: String(row.label || 'Unnamed Pack'),
+    value: scaleValue(numberOr(row.value)),
+    color: packColors[index % packColors.length],
+  })), [source.batteryPackBuckets]);
+  const filteredBatteryPackData: ChartRow[] = selectedPackType === 'All' ? batteryPackData : batteryPackData.filter((row) => row.label === selectedPackType);
+  const batteryPackTotal = filteredBatteryPackData.reduce((sum: number, row: ChartRow) => sum + row.value, 0);
 
-  const rackData = useMemo(() => {
+  const rackData = useMemo<ChartRow[]>(() => {
     return (source.rackStatusBuckets || []).map((row: any) => ({ label: String(row.label).replace(/_/g, ' '), value: scaleValue(numberOr(row.value)), color: statusColors[String(row.label).replace(/_/g, ' ')] || '#64748b' }));
   }, [source.rackStatusBuckets, activeRange]);
-  const filteredRackData = selectedRackType === 'All' ? rackData : rackData.filter((row) => row.label === selectedRackType);
-  const rackTotal = filteredRackData.reduce((sum, row) => sum + row.value, 0);
+  const filteredRackData: ChartRow[] = selectedRackType === 'All' ? rackData : rackData.filter((row) => row.label === selectedRackType);
+  const rackTotal = filteredRackData.reduce((sum: number, row: ChartRow) => sum + row.value, 0);
+  const rackChartMax = Math.max(1, ...filteredRackData.map((row: ChartRow) => row.value));
 
   const kpiCards = [
     { label: 'Capacity Produced', value: `${formatNumber(scaleValue(capacityProduced))} kWh`, delta: 'Live database value', positive: true, icon: <Zap className="h-5 w-5 text-emerald-600" />, bg: '#f0fdf4' },
@@ -160,13 +197,13 @@ export const CEOMonitoringView: React.FC = () => {
         statusColors,
       );
       const batteryReportRows = statusRows(
-        ['CREATED', 'ASSEMBLY', 'TESTING', 'QC', 'RELEASED', 'WAREHOUSE', 'DISPATCHED', 'FINISHED', 'IN_PROCESS', 'QUARANTINED'],
-        source.batteryStatusBuckets,
+        ['Available', 'In Rack', 'Sold'],
+        normalizeLifecycleBuckets(source.batteryStatusBuckets, 'battery'),
         statusColors,
       );
       const moduleReportRows = statusRows(
-        ['CREATED', 'CELLS_ASSIGNED', 'ASSEMBLED', 'WELDED', 'QC', 'PASSED', 'FAILED', 'QUARANTINED'],
-        source.moduleStatusBuckets,
+        ['Available', 'In Pack', 'In Rack'],
+        normalizeLifecycleBuckets(source.moduleStatusBuckets, 'module'),
         statusColors,
       );
       const rackReportRows = statusRows(
@@ -222,13 +259,16 @@ export const CEOMonitoringView: React.FC = () => {
         doc.setFontSize(13);
         doc.text(formatNumber(total), x, y + 2, { align: 'center' });
         rows.slice(0, 8).forEach((row, index) => {
-          const legendY = y - radius + index * 7;
+          const legendColumn = index < 4 ? 0 : 1;
+          const legendIndex = index % 4;
+          const legendX = x - radius - 13 + legendColumn * 35;
+          const legendY = y + radius + 8 + legendIndex * 5;
           doc.setFillColor(...hexRgb(row.color));
-          doc.rect(x + radius + 8, legendY - 3, 3, 3, 'F');
+          doc.rect(legendX, legendY - 3, 2, 2, 'F');
           doc.setFont('helvetica', 'normal');
-          doc.setFontSize(7);
+          doc.setFontSize(5.5);
           doc.setTextColor(...muted);
-          doc.text(`${row.label}: ${formatNumber(row.value)}`, x + radius + 13, legendY);
+          doc.text(`${row.label.slice(0, 9)} ${formatNumber(row.value)}`, legendX + 3, legendY);
         });
       };
       const drawBars = (x: number, y: number, width: number, height: number, rows: { label: string; value: number; color: string }[], title: string) => {
@@ -236,7 +276,7 @@ export const CEOMonitoringView: React.FC = () => {
         doc.setFontSize(10);
         doc.setTextColor(...ink);
         doc.text(title, x, y - 5);
-        const visibleRows = rows.filter((row) => row.value > 0).sort((left, right) => right.value - left.value).slice(0, 6);
+        const visibleRows = rows.sort((left, right) => right.value - left.value).slice(0, 6);
         if (!visibleRows.length) {
           doc.setFont('helvetica', 'normal');
           doc.setFontSize(8);
@@ -247,7 +287,7 @@ export const CEOMonitoringView: React.FC = () => {
         const max = Math.max(...visibleRows.map((row) => row.value), 1);
         const barWidth = Math.min(18, (width - Math.max(visibleRows.length - 1, 0) * 5) / Math.max(visibleRows.length, 1));
         visibleRows.forEach((row, index) => {
-          const barHeight = (row.value / max) * height;
+          const barHeight = row.value > 0 ? Math.max((row.value / max) * height, 1.5) : 0;
           const barX = x + index * (barWidth + 5);
           doc.setFillColor(...hexRgb(row.color));
           doc.roundedRect(barX, y + height - barHeight, barWidth, barHeight, 1.5, 1.5, 'F');
@@ -299,9 +339,38 @@ export const CEOMonitoringView: React.FC = () => {
         doc.setFontSize(12);
         doc.text(card.value, x + 3, 57);
       });
-      drawDonut(43, 104, 22, cellReportRows, 'CELL INVENTORY');
-      drawBars(105, 82, 82, 44, batteryReportRows, 'BATTERY PACK STATUS');
-      drawBars(205, 82, 70, 44, rackReportRows, 'RACK STATUS');
+      drawDonut(30, 94, 15, cellReportRows, 'CELL INVENTORY');
+      drawBars(78, 77, 48, 38, moduleReportRows, 'MODULE STATUS');
+      drawBars(143, 77, 55, 38, batteryReportRows, 'BATTERY PACK STATUS');
+      drawBars(216, 77, 60, 38, rackReportRows, 'RACK STATUS');
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(8);
+      doc.setTextColor(...green);
+      doc.text('EXECUTIVE PULSE', margin, 140);
+      const pulseRows = [
+        ['Inventory utilization', `${usedCellShare.toFixed(1)}%`, `${formatNumber(scaleValue(numberOr(inventory.usedCells)))} used cells`],
+        ['Controller readiness', `${controllerReadiness.toFixed(1)}%`, `${formatNumber(availableControllers)} available BMS/BMU`],
+        ['Order completion', `${orderCompletion.toFixed(1)}%`, `${formatNumber(completedOrders)} of ${formatNumber(totalOrders)} orders`],
+        ['Open operational risks', formatNumber(openRisks), 'Open quarantine records'],
+      ];
+      const pulseWidth = (pageWidth - margin * 2 - 9) / 4;
+      pulseRows.forEach((row, index) => {
+        const x = margin + index * (pulseWidth + 3);
+        doc.setFillColor(...light);
+        doc.roundedRect(x, 145, pulseWidth, 20, 2, 2, 'F');
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(6);
+        doc.setTextColor(...muted);
+        doc.text(row[0], x + 3, 151, { maxWidth: pulseWidth - 6 });
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(10);
+        doc.setTextColor(...ink);
+        doc.text(row[1], x + 3, 158);
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(5.5);
+        doc.setTextColor(...muted);
+        doc.text(row[2], x + 3, 163, { maxWidth: pulseWidth - 6 });
+      });
       const contextRows = [
         ['Reporting range', rangeLabel],
         ['Generated at', new Date().toLocaleString()],
@@ -320,21 +389,38 @@ export const CEOMonitoringView: React.FC = () => {
         ['Orders in process', formatNumber(numberOr(orders.inProcess))],
         ['Orders completed', formatNumber(numberOr(orders.completed))],
         ['Orders planned', formatNumber(numberOr(orders.planned))],
+        ['Inventory utilization', `${usedCellShare.toFixed(1)}%`],
+        ['Order completion', `${orderCompletion.toFixed(1)}%`],
+        ['Controller readiness', `${controllerReadiness.toFixed(1)}%`],
+        ['Open operational risks', formatNumber(openRisks)],
       ];
-      drawTable('REPORT CONTEXT', ['Field', 'Value'], contextRows.slice(0, 9), 145, margin, 88, true);
-      drawTable('', ['Field', 'Value'], contextRows.slice(9), 145, 110, 88, true);
+      drawTable('REPORT CONTEXT', ['Field', 'Value'], contextRows.slice(0, 7), 168, margin, 88, true);
+      drawTable('', ['Field', 'Value'], contextRows.slice(7, 14), 168, 110, 88, true);
       doc.setFontSize(7);
       doc.setFont('helvetica', 'normal');
       doc.setTextColor(...muted);
-      doc.text(`Active filters: Cells ${selectedCellStatus} | Packs ${selectedPackType} | Racks ${selectedRackType} | Modules ${selectedModuleConfig}`, margin, pageHeight - 12);
+      doc.text(`Active filters: Cells ${selectedCellStatus} | Packs ${selectedPackType} | Racks ${selectedRackType} | Modules ${selectedModuleConfig}`, margin, pageHeight - 2);
 
       doc.addPage();
       drawTitle('POWER2GO MES | OPERATIONS DETAIL', `Live database report   |   ${reportDate}`);
       drawTable('CELL STATUS - ALL ENUM VALUES', ['Status', 'Quantity', 'Share'], cellReportRows.map((row) => [row.label, formatNumber(row.value), `${((row.value / Math.max(1, cellReportRows.reduce((sum, item) => sum + item.value, 0))) * 100).toFixed(1)}%`]), 35, margin, 88, true);
-      drawTable('MODULE STATUS - ALL ENUM VALUES', ['Status', 'Quantity', 'Share'], moduleReportRows.map((row) => [row.label, formatNumber(row.value), `${((row.value / Math.max(1, moduleReportRows.reduce((sum, item) => sum + item.value, 0))) * 100).toFixed(1)}%`]), 35, 110, 88, true);
-      drawTable('BATTERY STATUS - ALL ENUM VALUES', ['Status', 'Quantity', 'Share'], batteryReportRows.map((row) => [row.label, formatNumber(row.value), `${((row.value / Math.max(1, batteryReportRows.reduce((sum, item) => sum + item.value, 0))) * 100).toFixed(1)}%`]), 105, margin, 88, true);
+      drawTable('MODULE STATUS', ['Status', 'Quantity', 'Share'], moduleReportRows.map((row) => [row.label, formatNumber(row.value), `${((row.value / Math.max(1, moduleReportRows.reduce((sum, item) => sum + item.value, 0))) * 100).toFixed(1)}%`]), 35, 110, 88, true);
+      drawTable('BATTERY PACK STATUS', ['Status', 'Quantity', 'Share'], batteryReportRows.map((row) => [row.label, formatNumber(row.value), `${((row.value / Math.max(1, batteryReportRows.reduce((sum, item) => sum + item.value, 0))) * 100).toFixed(1)}%`]), 105, margin, 88, true);
       drawTable('RACK STATUS - ALL ENUM VALUES', ['Status', 'Quantity', 'Share'], rackReportRows.map((row) => [row.label, formatNumber(row.value), `${((row.value / Math.max(1, rackReportRows.reduce((sum, item) => sum + item.value, 0))) * 100).toFixed(1)}%`]), 105, 110, 88, true);
-      drawTable('MACHINE STATUS', ['Machine', 'Type', 'Status'], machines.map((machine: any) => [machine.name || machine.id || 'Unnamed', machine.type || '-', machine.status || 'UNKNOWN']), 165, margin, 176, true);
+      drawTable('REPORT CONTEXT CONTINUED', ['Field', 'Value'], contextRows.slice(14), 165, margin, 88, true);
+      drawTable('MACHINE STATUS', ['Machine', 'Type', 'Status'], machines.map((machine: any) => [machine.name || machine.id || 'Unnamed', machine.type || '-', machine.status || 'UNKNOWN']), 165, 110, 88, true);
+
+      const recentRows = (source.recentBatteries || []).slice(0, 12).map((battery: any) => [
+        battery.serialNumber || battery.serial_number || battery.id || '-',
+        battery.productName || battery.product_name || '-',
+        `${numberOr(battery.progressPercent ?? battery.progress_percent)}%`,
+        String(battery.status || '-'),
+      ]);
+      if (recentRows.length) {
+        doc.addPage();
+        drawTitle('POWER2GO MES | PRODUCTION DETAIL', `Recent batteries   |   ${reportDate}`);
+        drawTable('RECENT BATTERY BUILDS', ['Serial', 'Product', 'Progress', 'Status'], recentRows, 35, margin, pageWidth - margin * 2, true);
+      }
 
       doc.save(`power2go-ceo-report-${reportDate}.pdf`);
       addNotification('success', 'Report exported', 'The CEO monitoring report has been downloaded.');
@@ -449,6 +535,27 @@ export const CEOMonitoringView: React.FC = () => {
           ))}
         </div>
 
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+          {[
+            { label: 'Inventory Utilization', value: `${usedCellShare.toFixed(1)}%`, detail: `${formatNumber(scaleValue(numberOr(inventory.usedCells)))} used cells`, icon: <Gauge className="h-4 w-4 text-emerald-600" />, color: '#16a34a', progress: usedCellShare },
+            { label: 'Controller Readiness', value: `${controllerReadiness.toFixed(1)}%`, detail: `${formatNumber(availableControllers)} available BMS/BMU`, icon: <Wrench className="h-4 w-4 text-amber-600" />, color: '#f59e0b', progress: controllerReadiness },
+          ].map((pulse) => (
+            <div key={pulse.label} className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+              <div className="flex items-center justify-between gap-3">
+                <div className="flex items-center gap-2">
+                  <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-slate-50">{pulse.icon}</div>
+                  <span className="text-[11px] font-semibold text-slate-500">{pulse.label}</span>
+                </div>
+                <span className="text-[20px] font-extrabold text-slate-900">{pulse.value}</span>
+              </div>
+              <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-slate-100">
+                <div className="h-full rounded-full transition-all duration-500" style={{ width: `${pulse.progress}%`, backgroundColor: pulse.color }} />
+              </div>
+              <div className="mt-2 text-[10px] text-slate-400">{pulse.detail}</div>
+            </div>
+          ))}
+        </div>
+
         <div className="grid gap-4 lg:grid-cols-2">
           <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
             <div className="mb-2 flex items-center justify-between">
@@ -481,24 +588,24 @@ export const CEOMonitoringView: React.FC = () => {
               <div className="h-[190px] w-[190px] shrink-0">
                 <svg viewBox="0 0 100 100" className="h-full w-full" aria-label="Cells donut chart">
                   <circle cx="50" cy="50" r="35" fill="none" stroke="#e5e7eb" strokeWidth="14" />
-                  {cellsSeries.map((segment, index) => {
-                    const total = cellsSeries.reduce((sum, item) => sum + item.value, 0) || 1;
-                    const prev = cellsSeries.slice(0, index).reduce((sum, item) => sum + item.value, 0);
-                    const startAngle = (prev / total) * 360;
-                    const arcLength = (segment.value / total) * 360;
-                    const dashArray = `${arcLength} ${360 - arcLength}`;
-                    const dashOffset = -startAngle;
+                  {cellsSeries.filter((segment) => segment.value > 0).map((segment, index, visibleSegments) => {
+                    const total = visibleSegments.reduce((sum, item) => sum + item.value, 0) || 1;
+                    const prev = visibleSegments.slice(0, index).reduce((sum, item) => sum + item.value, 0);
+                    const startPercent = (prev / total) * 100;
+                    const segmentPercent = (segment.value / total) * 100;
                     return (
                       <circle
+                        className="chart-donut-segment"
                         key={segment.label}
                         cx="50"
                         cy="50"
                         r="35"
+                        pathLength="100"
                         fill="none"
                         stroke={segment.color}
                         strokeWidth="14"
-                        strokeDasharray={dashArray}
-                        strokeDashoffset={dashOffset}
+                        strokeDasharray={`${segmentPercent} ${100 - segmentPercent}`}
+                        strokeDashoffset={-startPercent}
                         transform="rotate(-90 50 50)"
                         strokeLinecap="round"
                       />
@@ -515,7 +622,7 @@ export const CEOMonitoringView: React.FC = () => {
                       <span className="h-2.5 w-2.5 rounded-sm" style={{ backgroundColor: segment.color }} />
                       {segment.label}
                     </div>
-                    <span className="font-semibold text-slate-900">{formatNumber(segment.value)}</span>
+                    <span className="font-semibold text-slate-900">{formatNumber(segment.value)} <span className="font-normal text-slate-400">({formatShare(segment.value, cellsTotal)})</span></span>
                   </div>
                 ))}
               </div>
@@ -555,12 +662,22 @@ export const CEOMonitoringView: React.FC = () => {
                   <line key={row} x1="20" x2="200" y1={row * 28 + 12} y2={row * 28 + 12} stroke="#e5e7eb" strokeDasharray="2 3" />
                 ))}
                 <g>
-                  {filteredModuleData.map((item, columnIndex) => (
-                    <g key={item.status} transform={`translate(${columnIndex * 52 + 35}, 0)`}>
-                      <rect x="0" y={100 - item.value / 14} width="12" height={item.value / 14} fill="#16a34a" rx="2" />
-                      <text x="8" y="112" textAnchor="middle" fontSize="8" fill="#64748b">{item.status.split(' ')[0]}</text>
+                  {filteredModuleData.length === 0 && <text x="110" y="60" textAnchor="middle" fontSize="9" fill="#94a3b8">No recorded data</text>}
+                  {filteredModuleData.map((item, columnIndex) => {
+                    const slotWidth = 180 / Math.max(filteredModuleData.length, 1);
+                    const barHeight = (item.value / moduleChartMax) * 82;
+                    const labelParts = item.status.split(' ');
+                    return (
+                    <g key={`${item.status}-${item.value}`} transform={`translate(${20 + columnIndex * slotWidth + slotWidth / 2 - 8}, 0)`}>
+                      <rect className="chart-bar" x="0" y={94 - barHeight} width="16" height={barHeight} fill="#16a34a" rx="2">
+                        <title>{`${item.status}: ${formatNumber(item.value)}`}</title>
+                      </rect>
+                      <text x="8" y={Math.max(8, 90 - barHeight)} textAnchor="middle" fontSize="7" fontWeight="600" fill="#111111">{formatNumber(item.value)}</text>
+                      <text x="8" y="108" textAnchor="middle" fontSize="7" fill="#64748b">{labelParts[0]}</text>
+                      {labelParts.length > 1 && <text x="8" y="117" textAnchor="middle" fontSize="7" fill="#64748b">{labelParts.slice(1).join(' ')}</text>}
                     </g>
-                  ))}
+                    );
+                  })}
                 </g>
               </svg>
             </div>
@@ -579,11 +696,11 @@ export const CEOMonitoringView: React.FC = () => {
                   <div className="text-[11px] text-slate-400">Status by model</div>
                 </div>
               </div>
-              <div className="text-[18px] font-extrabold text-slate-900">{formatNumber(batteryTotal)}</div>
+              <div className="text-[18px] font-extrabold text-slate-900">{formatNumber(batteryPackTotal)}</div>
             </div>
 
             <div className="mb-3 flex gap-2 text-[10px]">
-              {['All', ...batteryData.map((item) => item.label)].map((size) => (
+              {['All', ...batteryPackData.map((item) => item.label)].map((size) => (
                 <button
                   key={size}
                   type="button"
@@ -599,22 +716,24 @@ export const CEOMonitoringView: React.FC = () => {
               <div className="h-[190px] w-[190px] shrink-0">
                 <svg viewBox="0 0 100 100" className="h-full w-full" aria-label="Battery packs donut chart">
                   <circle cx="50" cy="50" r="35" fill="none" stroke="#e5e7eb" strokeWidth="14" />
-                  {batteryData.map((segment, index) => {
-                    const total = batteryData.reduce((sum, item) => sum + item.value, 0) || 1;
-                    const previous = batteryData.slice(0, index).reduce((sum, item) => sum + item.value, 0);
-                    const startAngle = (previous / total) * 360;
-                    const arcLength = (segment.value / total) * 360;
+                  {filteredBatteryPackData.filter((segment) => segment.value > 0).map((segment, index, visibleSegments) => {
+                    const total = visibleSegments.reduce((sum, item) => sum + item.value, 0) || 1;
+                    const previous = visibleSegments.slice(0, index).reduce((sum, item) => sum + item.value, 0);
+                    const startPercent = (previous / total) * 100;
+                    const segmentPercent = (segment.value / total) * 100;
                     return (
                       <circle
+                        className="chart-donut-segment"
                         key={segment.label}
                         cx="50"
                         cy="50"
                         r="35"
+                        pathLength="100"
                         fill="none"
                         stroke={segment.color}
                         strokeWidth="14"
-                        strokeDasharray={`${arcLength} ${360 - arcLength}`}
-                        strokeDashoffset={-startAngle}
+                        strokeDasharray={`${segmentPercent} ${100 - segmentPercent}`}
+                        strokeDashoffset={-startPercent}
                         transform="rotate(-90 50 50)"
                         strokeLinecap="round"
                       />
@@ -625,13 +744,13 @@ export const CEOMonitoringView: React.FC = () => {
               </div>
 
               <div className="flex-1 space-y-2.5 py-2">
-                {filteredBatteryData.map((segment) => (
+                  {filteredBatteryPackData.map((segment) => (
                   <div key={segment.label} className="flex items-center justify-between gap-3 text-[12px]">
                     <div className="flex items-center gap-2 text-slate-600">
                       <span className="h-2.5 w-2.5 rounded-sm" style={{ backgroundColor: segment.color }} />
                       {segment.label}
                     </div>
-                    <span className="font-semibold text-slate-900">{segment.value}</span>
+                    <span className="font-semibold text-slate-900">{formatNumber(segment.value)} <span className="font-normal text-slate-400">({formatShare(segment.value, batteryPackTotal)})</span></span>
                   </div>
                 ))}
               </div>
@@ -671,12 +790,22 @@ export const CEOMonitoringView: React.FC = () => {
                   <line key={row} x1="20" x2="200" y1={row * 28 + 12} y2={row * 28 + 12} stroke="#e5e7eb" strokeDasharray="2 3" />
                 ))}
                 <g>
-                  {filteredRackData.map((item, index) => (
-                    <g key={item.label} transform={`translate(${index * 70 + 38}, 0)`}>
-                      <rect x="0" y={100 - item.value * 6} width="28" height={item.value * 6} fill={item.color} rx="4" />
-                      <text x="14" y="112" textAnchor="middle" fontSize="8" fill="#64748b">{item.label}</text>
+                  {filteredRackData.length === 0 && <text x="110" y="60" textAnchor="middle" fontSize="9" fill="#94a3b8">No recorded data</text>}
+                  {filteredRackData.map((item, index) => {
+                    const slotWidth = 180 / Math.max(filteredRackData.length, 1);
+                    const barHeight = (item.value / rackChartMax) * 82;
+                    const labelParts = item.label.split(' ');
+                    return (
+                    <g key={`${item.label}-${item.value}`} transform={`translate(${20 + index * slotWidth + slotWidth / 2 - 12}, 0)`}>
+                      <rect className="chart-bar" x="0" y={94 - barHeight} width="24" height={barHeight} fill={item.color} rx="4">
+                        <title>{`${item.label}: ${formatNumber(item.value)}`}</title>
+                      </rect>
+                      <text x="12" y={Math.max(8, 90 - barHeight)} textAnchor="middle" fontSize="7" fontWeight="600" fill="#111111">{formatNumber(item.value)}</text>
+                      <text x="12" y="108" textAnchor="middle" fontSize="7" fill="#64748b">{labelParts[0]}</text>
+                      {labelParts.length > 1 && <text x="12" y="117" textAnchor="middle" fontSize="7" fill="#64748b">{labelParts.slice(1).join(' ')}</text>}
                     </g>
-                  ))}
+                    );
+                  })}
                 </g>
               </svg>
             </div>

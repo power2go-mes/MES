@@ -2,6 +2,7 @@ export type BulkBatteryRow = {
   batterySerialNumber?: string;
   bmuSerialNumber?: string;
   cellQrCodes?: string[];
+  bmsSerialNumber?: string;
   cellIds?: string[];
   [key: string]: any;
 };
@@ -32,6 +33,13 @@ export type AvailableBmuLike = {
   reservedForBatteryId?: string | null;
 };
 
+export type AvailableBmsLike = {
+  id: string;
+  serialNumber: string;
+  status?: string;
+  reservedForBatteryId?: string | null;
+};
+
 export type AvailableCellLike = {
   id: string;
   internalSerial: string;
@@ -52,16 +60,19 @@ function normalizeBatteryIdentifier(value: string): string {
   return String(value ?? '')
     .trim()
     .replace(/^'+/, '')
-    .replace(/\s+/g, '')
+    .replace(/[^a-z0-9]/gi, '')
     .toLowerCase();
 }
 
 function resolveExplicitBatteryAssignments(
   rows: BulkBatteryRow[],
+  controllerType: 'BMS' | 'BMU',
+  availableBms: AvailableBmsLike[] = [],
   availableBmUs: AvailableBmuLike[],
   availableCells: AvailableCellLike[],
   productTemplate: ProductTemplateLike,
-): Array<{ batterySerial: string; bmu?: AvailableBmuLike; cells: AvailableCellLike[]; modules: Array<{ moduleIndex: number; cells: AvailableCellLike[] }> }> {
+): Array<{ batterySerial: string; bms?: AvailableBmsLike; bmu?: AvailableBmuLike; cells: AvailableCellLike[]; modules: Array<{ moduleIndex: number; cells: AvailableCellLike[] }> }> {
+  const bmsBySerial = new Map(availableBms.map(item => [normalizeBatteryIdentifier(item.serialNumber), item]));
   const bmuBySerial = new Map<string, AvailableBmuLike>();
   for (const item of availableBmUs) {
     const serial = normalizeBatteryIdentifier(item.serialNumber);
@@ -70,9 +81,12 @@ function resolveExplicitBatteryAssignments(
   }
 
   const usedBmuIds = new Set<string>();
+  const bmsPool = availableBms.filter(item => !['QUARANTINED', 'FAILED', 'ARCHIVED'].includes(String(item.status ?? '').toUpperCase()) && !item.reservedForBatteryId);
+  if (controllerType === 'BMS' && bmsPool.length < rows.length) throw new Error(`Insufficient available BMS units: required ${rows.length}, available ${bmsPool.length}.`);
+  if (controllerType === 'BMU' && availableBmUs.length < rows.length) throw new Error(`Insufficient available BMU units: required ${rows.length}, available ${availableBmUs.length}.`);
   const usedCellIds = new Set<string>();
 
-  return rows.map((row) => {
+  return rows.map((row, rowIndex) => {
     const batterySerial = normalizeBatterySerial(row.batterySerialNumber ?? '');
 
     // Resolve requested cell references — prefer cellQrCodes then cellIds
@@ -111,9 +125,17 @@ function resolveExplicitBatteryAssignments(
         return candidates.includes(ref);
       });
       if (!match) {
+        const existing = availableCells.find(cell => {
+          const candidates = [cell.id, cell.internalSerial, cell.supplierBarcode, cell.qrCode]
+            .map(v => normalizeBatteryIdentifier(String(v ?? '')));
+          return candidates.includes(ref);
+        });
         throw new Error(
-          `Battery ${batterySerial} references cell '${ref}' that was not found in available inventory. ` +
-          `Ensure the cell is imported via the Supplier Manifest before importing batteries.`,
+          existing
+            ? `Battery ${batterySerial} references cell '${ref}', but it is already allocated or unavailable (status: ${existing.status || 'UNKNOWN'}). ` +
+              `Release its existing assignment before importing this battery.`
+            : `Battery ${batterySerial} references cell '${ref}' that was not found in available inventory. ` +
+              `Ensure the cell is imported via the Supplier Manifest before importing batteries.`,
         );
       }
       return match;
@@ -147,8 +169,14 @@ function resolveExplicitBatteryAssignments(
     }
 
     // Resolve BMU
+    const assignedBms = controllerType === 'BMS'
+      ? bmsBySerial.get(normalizeBatteryIdentifier(row.bmsSerialNumber ?? ''))
+      : undefined;
+    if (controllerType === 'BMS' && !assignedBms) {
+      throw new Error(`BMS serial '${row.bmsSerialNumber || ''}' for battery ${batterySerial} was not found in available BMS inventory.`);
+    }
     let assignedBmu: AvailableBmuLike | undefined;
-    if (row.bmuSerialNumber) {
+    if (controllerType === 'BMU' && row.bmuSerialNumber) {
       const explicitBmuRef = normalizeBatteryIdentifier(row.bmuSerialNumber);
       const match = bmuBySerial.get(explicitBmuRef);
       if (!match) {
@@ -162,6 +190,8 @@ function resolveExplicitBatteryAssignments(
       }
       assignedBmu = match;
       usedBmuIds.add(match.id);
+    } else if (controllerType === 'BMU') {
+      assignedBmu = availableBmUs[rowIndex];
     }
 
     // Distribute cells across modules
@@ -175,6 +205,7 @@ function resolveExplicitBatteryAssignments(
 
     return {
       batterySerial,
+      bms: assignedBms,
       bmu: assignedBmu,
       cells: matchedCells,
       modules: moduleAssignments,
@@ -479,12 +510,18 @@ export function dedupeModuleCellAssignments<T extends string | { id?: string; ce
 export async function createBulkBatteryInitialization({
   rows,
   products,
+  productId,
+  controllerType = 'BMU',
+  availableBms,
   availableBmUs,
   availableCells,
   userId,
 }: {
   rows: BulkBatteryRow[];
   products: ProductTemplateLike[];
+  productId?: string;
+  controllerType?: 'BMS' | 'BMU';
+  availableBms?: AvailableBmsLike[];
   availableBmUs: AvailableBmuLike[];
   availableCells: AvailableCellLike[];
   userId?: string;
@@ -498,8 +535,23 @@ export async function createBulkBatteryInitialization({
     throw new Error('No battery rows were provided for initialization.');
   }
 
-  const productTemplate = resolveBatteryTemplate(products, '7.5');
+  const selectedProduct = productId ? products.find(product => product.id === productId) : undefined;
+  if (productId && !selectedProduct) {
+    throw new Error('The selected battery product template is no longer available. Refresh the page and choose it again.');
+  }
+  const productTemplate = selectedProduct
+    ? normalizeBatteryProductTemplate(selectedProduct)
+    : resolveBatteryTemplate(products, '7.5');
   const requiredBmuCount = rows.length;
+  const bmsInput: AvailableBmsLike[] = availableBms ?? rows.map((_, index) => ({ id: `bms-placeholder-${index + 1}`, serialNumber: `BMS-PLACEHOLDER-${index + 1}`, status: 'AVAILABLE' }));
+  const bmsPool = bmsInput.filter(item => !['QUARANTINED', 'FAILED', 'ARCHIVED'].includes(String(item.status ?? '').toUpperCase()) && !item.reservedForBatteryId);
+  const bmsBySerial = new Map(bmsPool.map(item => [normalizeBatteryIdentifier(item.serialNumber), item]));
+  const legacyNoControllerData = availableBms === undefined && availableBmUs.length === 0;
+  const bmuInput: AvailableBmuLike[] = legacyNoControllerData
+    ? rows.map((_, index) => ({ id: `bmu-placeholder-${index + 1}`, serialNumber: `BMU-PLACEHOLDER-${index + 1}`, status: 'AVAILABLE' }))
+    : availableBmUs;
+  const controllerPool = controllerType === 'BMS' ? bmsPool : bmuInput;
+  if (controllerPool.length < rows.length) throw new Error(`Insufficient available ${controllerType} units: required ${rows.length}, available ${controllerPool.length}.`);
   const totalRequiredCells = productTemplate.totalCells * rows.length;
 
   // A row has explicit cell mapping if it provides QR codes OR cell IDs
@@ -529,17 +581,17 @@ export async function createBulkBatteryInitialization({
   }
 
   const bmuPool = hasExplicitCellMaps
-    ? availableBmUs.filter(item => {
+    ? bmuInput.filter(item => {
         const status = String(item.status ?? '').toUpperCase();
         const unavailableStatuses = ['QUARANTINED', 'FAILED', 'ARCHIVED'];
         return !unavailableStatuses.includes(status) && !item.reservedForBatteryId;
       })
-    : selectAvailableBmUs(availableBmUs, requiredBmuCount);
+    : selectAvailableBmUs(bmuInput, requiredBmuCount);
 
   const selectedCells = hasExplicitCellMaps
     ? availableCells.filter(item => {
         const status = String(item.status ?? '').toUpperCase();
-        const unavailableStatuses = ['QUARANTINED', 'REJECTED', 'RESERVED', 'MODULE_ASSIGNED'];
+        const unavailableStatuses = ['QUARANTINED', 'REJECTED', 'MODULE_ASSIGNED'];
         return !unavailableStatuses.includes(status)
           && !item.reservedForBatteryId
           && !item.reservedForOrderId
@@ -548,14 +600,17 @@ export async function createBulkBatteryInitialization({
     : selectRequiredCells(availableCells, totalRequiredCells);
 
   const batteryPlan = hasExplicitCellMaps
-    ? resolveExplicitBatteryAssignments(rows, bmuPool, selectedCells, productTemplate).map((battery, index) => ({
+    ? resolveExplicitBatteryAssignments(rows, controllerType, bmsPool, bmuPool, selectedCells, productTemplate).map((battery, index) => ({
         rowIndex: index + 2,
         batterySerial: battery.batterySerial,
+        bms: battery.bms,
         bmu: battery.bmu,
         cells: battery.cells,
         modules: battery.modules,
         genealogy: {
           batterySerial: battery.batterySerial,
+          bmsId: battery.bms?.id,
+          bmsSerial: battery.bms?.serialNumber,
           bmuId: battery.bmu?.id,
           bmuSerial: battery.bmu?.serialNumber,
           cellIds: battery.cells.map(cell => cell.id),
@@ -563,7 +618,9 @@ export async function createBulkBatteryInitialization({
       }))
     : rows.map((row, index) => {
         const batterySerial = normalizeBatterySerial(row.batterySerialNumber ?? '');
-        const assignedBmu = bmuPool[index];
+        const assignedBms = controllerType === 'BMS' ? bmsBySerial.get(normalizeBatteryIdentifier(row.bmsSerialNumber ?? '')) : undefined;
+        if (controllerType === 'BMS' && !assignedBms) throw new Error(`BMS serial '${row.bmsSerialNumber || ''}' for battery ${batterySerial} was not found in available BMS inventory.`);
+        const assignedBmu = controllerType === 'BMU' ? bmuPool[index] : undefined;
         const cellStart = index * productTemplate.totalCells;
         const cellSlice = selectedCells.slice(cellStart, cellStart + productTemplate.totalCells);
         if (cellSlice.length !== productTemplate.totalCells) {
@@ -578,11 +635,14 @@ export async function createBulkBatteryInitialization({
         return {
           rowIndex: index + 2,
           batterySerial,
-          bmu: assignedBmu,
+          bms: assignedBms,
+          bmu: controllerType === 'BMU' ? assignedBmu : undefined,
           cells: cellSlice,
           modules: moduleAssignments,
           genealogy: {
             batterySerial,
+            bmsId: assignedBms?.id,
+            bmsSerial: assignedBms?.serialNumber,
             bmuId: assignedBmu?.id,
             bmuSerial: assignedBmu?.serialNumber,
             cellIds: cellSlice.map(cell => cell.id),

@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from 'react';
 import { useApp } from '../../context/AppContext';
-import { useAuth } from '../../context/AuthContext';
 import { api } from '../../services/api';
 import { QuarantineRecord } from '../../types';
 import {
@@ -18,7 +17,6 @@ import {
 
 export const QuarantineView: React.FC = () => {
   const { addNotification, triggerRefresh, refreshKey } = useApp();
-  const { currentUser, hasPermission } = useAuth();
 
   const [records, setRecords] = useState<QuarantineRecord[]>([]);
   const [loading, setLoading] = useState(true);
@@ -66,14 +64,19 @@ export const QuarantineView: React.FC = () => {
 
     setActionLoading(true);
     try {
-      await api.quarantineItem({
-        itemType: entityType,
-        itemId: entitySerial.trim(),
-        reason: reason.trim(),
-        userId: currentUser.id,
-      });
-
-      addNotification('warning', 'Item Sent to Scrap Review', `${entityType} ${entitySerial} locked into scrap review`);
+      if (entityType === 'CELL') {
+        const barcodes = entitySerial.split(/[\n,;]+/).map(value => value.trim()).filter(Boolean);
+        const result = await api.scrapCellsByBarcodes(barcodes, reason.trim());
+        const missingText = result.missingCount > 0 ? ` ${result.missingCount} barcode(s) not found.` : '';
+        addNotification('warning', 'Cells Scrapped', `${result.scrappedCount} cell(s) permanently removed from production.${missingText}`);
+      } else {
+        await api.quarantineItem({
+          itemType: entityType,
+          itemId: entitySerial.trim(),
+          reason: reason.trim(),
+        });
+        addNotification('warning', 'Item Sent to Scrap Review', `${entityType} ${entitySerial} locked into scrap review`);
+      }
       setShowQuarantineModal(false);
       setEntitySerial('');
       setReason('');
@@ -100,7 +103,6 @@ export const QuarantineView: React.FC = () => {
       await api.resolveQuarantine(resolveTarget.id, {
         disposition: resolveDisposition,
         dispositionNotes: resolveNotes.trim() || 'Signed off by quality manager',
-        userId: currentUser.id,
       });
 
       addNotification('success', 'Scrap Review Resolved', `${resolveTarget.entitySerial} marked as ${resolveDisposition}`);
@@ -376,12 +378,12 @@ export const QuarantineView: React.FC = () => {
               </div>
 
               <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">Serial / Barcode</label>
+                <label className="block text-xs font-bold text-slate-700 mb-1">{entityType === 'CELL' ? 'Cell Barcodes' : 'Serial / Barcode'}</label>
                 <input
                   type="text"
                   value={entitySerial}
                   onChange={e => setEntitySerial(e.target.value)}
-                  placeholder="e.g. P2G-CL-000001 or Barcode"
+                  placeholder={entityType === 'CELL' ? 'Enter barcodes separated by commas or new lines' : 'e.g. P2G-CL-000001 or Barcode'}
                   className="w-full px-3.5 py-2.5 text-xs font-mono bg-slate-50/70 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-slate-500"
                   required
                 />
@@ -412,7 +414,7 @@ export const QuarantineView: React.FC = () => {
                   disabled={actionLoading}
                   className="px-5 py-2 text-xs font-bold text-white bg-slate-600 hover:bg-slate-500 rounded-xl shadow-xs transition-colors"
                 >
-                  Lock for Scrap Review
+                  {entityType === 'CELL' ? 'Scrap Cells Now' : 'Lock for Scrap Review'}
                 </button>
               </div>
             </form>

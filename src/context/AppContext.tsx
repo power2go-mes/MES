@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState } from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 
 export type NavView =
   | 'dashboard'
@@ -82,12 +82,17 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [inventoryTab, setInventoryTab] = useState<'CELLS' | 'BMS' | 'BMU' | 'MODULES' | 'BATTERIES'>('CELLS');
 
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
+  const notificationTimers = useRef<Set<number>>(new Set());
   const [refreshKey, setRefreshKey] = useState<number>(0);
   const [quickSearchQuery, setQuickSearchQuery] = useState<string>('');
 
-  const triggerRefresh = () => setRefreshKey(prev => prev + 1);
+  const triggerRefresh = useCallback(() => setRefreshKey(prev => prev + 1), []);
 
-  const addNotification = (type: 'success' | 'error' | 'warning' | 'info', title: string, message: string) => {
+  const dismissNotification = useCallback((id: string) => {
+    setNotifications(prev => prev.filter(n => n.id !== id));
+  }, []);
+
+  const addNotification = useCallback((type: 'success' | 'error' | 'warning' | 'info', title: string, message: string) => {
     const newNotif: AppNotification = {
       id: `notif-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`,
       type,
@@ -96,34 +101,50 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       timestamp: new Date().toLocaleTimeString(),
     };
     setNotifications(prev => [newNotif, ...prev.slice(0, 9)]);
-    window.setTimeout(() => {
+    const timer = window.setTimeout(() => {
+      notificationTimers.current.delete(timer);
       dismissNotification(newNotif.id);
     }, 5000);
-  };
+    notificationTimers.current.add(timer);
+  }, [dismissNotification]);
 
-  const dismissNotification = (id: string) => {
-    setNotifications(prev => prev.filter(n => n.id !== id));
-  };
+  useEffect(() => () => {
+    notificationTimers.current.forEach(timer => window.clearTimeout(timer));
+    notificationTimers.current.clear();
+  }, []);
+
+  const contextValue = useMemo(() => ({
+    activeView,
+    setActiveView,
+    activeBatteryId,
+    setActiveBatteryId,
+    activeOrderId,
+    setActiveOrderId,
+    inventoryTab,
+    setInventoryTab,
+    notifications,
+    addNotification,
+    dismissNotification,
+    refreshKey,
+    triggerRefresh,
+    quickSearchQuery,
+    setQuickSearchQuery,
+  }), [
+    activeView,
+    activeBatteryId,
+    activeOrderId,
+    inventoryTab,
+    notifications,
+    addNotification,
+    dismissNotification,
+    refreshKey,
+    triggerRefresh,
+    quickSearchQuery,
+  ]);
 
   return (
     <AppContext.Provider
-      value={{
-        activeView,
-        setActiveView,
-        activeBatteryId,
-        setActiveBatteryId,
-        activeOrderId,
-        setActiveOrderId,
-        inventoryTab,
-        setInventoryTab,
-        notifications,
-        addNotification,
-        dismissNotification,
-        refreshKey,
-        triggerRefresh,
-        quickSearchQuery,
-        setQuickSearchQuery,
-      }}
+      value={contextValue}
     >
       {children}
     </AppContext.Provider>

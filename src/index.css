@@ -72,6 +72,7 @@
 }
 
 .chart-bar { animation: chart-rise .6s ease-out both; transform-origin: bottom; }
+.chart-donut-segment { transition: stroke-dasharray 500ms ease, stroke-dashoffset 500ms ease; }
 @keyframes chart-rise { from { opacity: 0; transform: scaleY(0); } to { opacity: 1; transform: scaleY(1); } }
 
 /* Keep the operational shell usable on narrow touch screens. */

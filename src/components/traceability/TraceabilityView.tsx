@@ -121,7 +121,7 @@ function buildTree(t: any): TraceNode[] {
     const roots: TraceNode[] = [];
     const compChildren: TraceNode[] = [];
     if (t.battery) {
-      compChildren.push(batterySubtree(t.battery, t.battery.bms, t.battery.bmu));
+      compChildren.push(batterySubtree(t.battery, t.bms, t.bmu));
       const supplier = t.cells && t.cells[0] ? t.cells[0].supplierName : null;
       if (supplier) compChildren.push(makeNode('supplier', supplier, 'SUPPLIER', { name: supplier }, 'Supplier'));
     }
@@ -558,7 +558,7 @@ export const TraceabilityView: React.FC = () => {
                         </p>
                       )}
                       <div className="text-[10px] text-slate-400 font-mono">
-                        User: <strong className="text-slate-700">{log.userName}</strong> ({log.userRole})
+                        User: <strong className="text-slate-700">{log.userName || 'System'}</strong>{log.userRole ? ` (${log.userRole})` : ''}
                       </div>
                     </div>
                     <span className="text-[11px] font-mono text-slate-400 shrink-0">

@@ -1,4 +1,4 @@
-import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import type { User } from '../types';
 import {
   setAccessToken,
@@ -68,16 +68,21 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [pendingEmail, setPendingEmail] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [subStore, setSubStore] = useState<{ unsubscribe: () => void } | null>(null);
+  const lastAppliedSession = useRef<string | null>(null);
 
   const isAuthenticated = !!currentUser;
   const state: AuthState = authLoading ? 'AUTH_LOADING' : isAuthenticated ? 'AUTHENTICATED' : 'UNAUTHENTICATED';
 
   const applySession = useCallback(async (session: { access_token: string; user: { id: string; email?: string | null } } | null) => {
     if (!session) {
+      lastAppliedSession.current = null;
       setAccessToken(null);
       setCurrentUser(null);
       return;
     }
+    const sessionKey = `${session.user.id}:${session.access_token}`;
+    if (lastAppliedSession.current === sessionKey) return;
+    lastAppliedSession.current = sessionKey;
     setAccessToken(session.access_token);
     const mapped = await loadProfile(session.user.id, session.user);
     setCurrentUser(mapped);

@@ -25,6 +25,10 @@ import {
 
 type Tab = 'CELLS' | 'BMS' | 'BMU' | 'MODULES' | 'BATTERIES';
 
+const cellStatuses = [
+  'IN_STOCK', 'FLOOR_STOCK', 'IN_MODULE', 'IN_PACK', 'IN_RACK', 'SOLD', 'SCRAP',
+] as const;
+
 export const InventoryView: React.FC = () => {
   const { setActiveView, setActiveBatteryId, setQuickSearchQuery, refreshKey, addNotification, triggerRefresh, inventoryTab, setInventoryTab } = useApp();
   const activeTab = inventoryTab;
@@ -87,13 +91,13 @@ export const InventoryView: React.FC = () => {
     setLoading(true);
     try {
       if (activeTab === 'CELLS') {
-        const serverStatus = ['AVAILABLE', 'RESERVED', 'IN_PROCESS', 'QUARANTINED', 'FAILED'].includes(statusFilter)
+        const serverLifecycleStatus = cellStatuses.includes(statusFilter as typeof cellStatuses[number])
           ? statusFilter
           : undefined;
         const [res, counts] = await Promise.all([
           api.getCells({
             search: search || undefined,
-            status: serverStatus,
+            lifecycleStatus: serverLifecycleStatus,
             usedOnly: cellsView === 'USED' ? true : undefined,
             limit: 50,
           }),
@@ -124,11 +128,27 @@ export const InventoryView: React.FC = () => {
           }
         }
       } else if (activeTab === 'BMS') {
-        const res = await api.getBmsUnits();
-        setBmsUnits(res);
+        const [res, loadedBatteries] = await Promise.all([api.getBmsUnits(), api.getBatteries()]);
+        const assignedBatteryByBmsId = new Map(
+          loadedBatteries
+            .filter((battery: any) => battery.bmsId)
+            .map((battery: any) => [battery.bmsId, battery.id]),
+        );
+        setBmsUnits(res.map((bms: any) => {
+          const assignedToBatteryId = bms.assignedToBatteryId || bms.reservedForBatteryId || assignedBatteryByBmsId.get(bms.id);
+          return assignedToBatteryId ? { ...bms, status: 'ASSIGNED', assignedToBatteryId } : bms;
+        }));
       } else if (activeTab === 'BMU') {
-        const res = await api.getBmuUnits();
-        setBmuUnits(res);
+        const [res, loadedBatteries] = await Promise.all([api.getBmuUnits(), api.getBatteries()]);
+        const assignedBatteryByBmuId = new Map(
+          loadedBatteries
+            .filter((battery: any) => battery.bmuId)
+            .map((battery: any) => [battery.bmuId, battery.id]),
+        );
+        setBmuUnits(res.map((bmu: any) => {
+          const assignedToBatteryId = bmu.assignedToBatteryId || bmu.reservedForBatteryId || assignedBatteryByBmuId.get(bmu.id);
+          return assignedToBatteryId ? { ...bmu, status: 'ASSIGNED', assignedToBatteryId } : bmu;
+        }));
       } else if (activeTab === 'MODULES') {
         const res = await api.getModules();
         setModules(res);
@@ -211,7 +231,12 @@ export const InventoryView: React.FC = () => {
         return 'bg-slate-50 text-slate-700 border-slate-200';
       case 'ASSEMBLED':
       case 'IN_PROCESS':
+      case 'IN_MODULE':
         return 'bg-emerald-50 text-emerald-700 border-emerald-200';
+      case 'IN_PACK':
+      case 'IN_RACK':
+      case 'SOLD':
+        return 'bg-blue-50 text-blue-700 border-blue-200';
       case 'FINISHED':
         return 'bg-emerald-50 text-emerald-800 border-emerald-300 font-bold';
       case 'QUARANTINED':
@@ -220,6 +245,23 @@ export const InventoryView: React.FC = () => {
       default:
         return 'bg-slate-100 text-slate-700 border-slate-200';
     }
+  };
+
+  const batteryById = new Map(batteries.map(battery => [battery.id, battery]));
+  const moduleById = new Map(modules.map(module => [module.id, module]));
+  const getCellDisplayStatus = (cell: CellItem) => {
+    const lifecycleStatus = String(cell.lifecycleStatus || '').toUpperCase();
+    if (lifecycleStatus === 'SCRAP' || ['QUARANTINED', 'REJECTED'].includes(String(cell.status).toUpperCase())) return 'SCRAP';
+    if (lifecycleStatus === 'SOLD') return 'SOLD';
+    if (lifecycleStatus === 'IN_RACK') return 'IN_RACK';
+
+    const module = cell.assignedToModuleId ? moduleById.get(cell.assignedToModuleId) : undefined;
+    const battery = batteryById.get(cell.reservedForBatteryId || module?.batteryId || '');
+    const batteryStatus = String((cell as any).assignedBatteryStatus || battery?.status || '').toUpperCase();
+    if (lifecycleStatus === 'IN_PACK' || ['RELEASED', 'WAREHOUSE', 'DISPATCHED', 'FINISHED'].includes(batteryStatus)) return 'IN_PACK';
+    if (lifecycleStatus === 'IN_MODULE' || module || cell.reservedForBatteryId) return 'IN_MODULE';
+    if (lifecycleStatus) return lifecycleStatus;
+    return String(cell.status || 'UNKNOWN').toUpperCase();
   };
 
   const filteredCells = cells.filter(c => {
@@ -231,14 +273,7 @@ export const InventoryView: React.FC = () => {
       internalSerial.includes(search.toLowerCase()) ||
       supplierBarcode.includes(search.toLowerCase()) ||
       supplierName.includes(search.toLowerCase());
-    const matchesStatus = !statusFilter ||
-      (statusFilter === 'DAMAGE'
-        ? ['QUARANTINED', 'FAILED'].includes(c.status) || ['DAMAGED', 'FAILED'].includes(c.productionGrade || c.supplierGrade || '') || Boolean(c.quarantineReason)
-        : statusFilter === 'IN_PROCESS'
-          ? ['IN_PROCESS', 'VALIDATING', 'TESTING', 'SCANNED', 'PASSED', 'ASSEMBLED'].includes(c.status)
-          : statusFilter === 'NON_AVAILABLE'
-            ? !['AVAILABLE', 'OCV_TESTED', 'GRADED'].includes(c.status) || Boolean(c.reservedForOrderId || c.reservedForBatteryId)
-            : c.status === statusFilter);
+    const matchesStatus = !statusFilter || getCellDisplayStatus(c) === statusFilter;
     return matchesSearch && matchesStatus;
   });
 
@@ -376,13 +411,7 @@ export const InventoryView: React.FC = () => {
           >
             <option value="">All Statuses</option>
             {activeTab === 'CELLS' ? (
-              <>
-                <option value="AVAILABLE">AVAILABLE</option>
-                <option value="RESERVED">RESERVED</option>
-                <option value="IN_PROCESS">IN PROCESS</option>
-                <option value="NON_AVAILABLE">NON AVAILABLE</option>
-                <option value="DAMAGE">DAMAGED</option>
-              </>
+              cellStatuses.map(status => <option key={status} value={status}>{status}</option>)
             ) : (
               <>
                 <option value="AVAILABLE">AVAILABLE</option>
@@ -572,8 +601,8 @@ export const InventoryView: React.FC = () => {
                       {cell.palletNumber.slice(-8)} / {cell.boxNumber.slice(-8)}
                     </td>
                     <td className="px-5 py-3.5 font-sans">
-                      <span className={`px-2.5 py-0.5 rounded-md text-[10px] font-bold border uppercase tracking-wider ${getStatusBadge(cell.lifecycleStatus || cell.status)}`}>
-                        {cell.lifecycleStatus || cell.status}
+                      <span className={`px-2.5 py-0.5 rounded-md text-[10px] font-bold border uppercase tracking-wider ${getStatusBadge(getCellDisplayStatus(cell))}`}>
+                        {getCellDisplayStatus(cell)}
                       </span>
                     </td>
                     <td className="px-5 py-3.5 text-right space-x-1 font-sans">
@@ -589,7 +618,7 @@ export const InventoryView: React.FC = () => {
                               CAPACITY: `${cell.supplierCapacityAh} Ah`,
                               OCV: `${cell.supplierOcvV} V`,
                               IR: `${cell.supplierIrMilliOhm} mΩ`,
-                              STATUS: cell.status,
+                              STATUS: getCellDisplayStatus(cell),
                             },
                           });
                           setQrModalOpen(true);

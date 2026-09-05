@@ -61,26 +61,55 @@ export const DashboardView: React.FC = () => {
   const inventory = stats.inventory || {};
   const quality = stats.quality || {};
   const controller = stats.controllerInventory || {};
-  const trend = (range === '30D' ? stats.batteryBuildTrend : stats.finishedPackTrend) || [];
-  const maxTrend = Math.max(1, ...trend.map((item: any) => Number(item.value) || 0));
-  const available = Number(inventory.availableCells || 0);
   const totalCells = Math.max(1, Number(inventory.totalCells || 0));
   const yieldRate = Number(quality.firstPassYieldPercent || 0);
+  const liveCellBuckets = Array.isArray(stats.cellBuckets) ? stats.cellBuckets : [];
+  const cellBucketValues = new Map<string, number>(liveCellBuckets.map((row: any) => [String(row.label), Number(row.value) || 0] as [string, number]));
   const statusRows = [
-    { label: 'In Stock', value: Number(inventory.inStockCells || 0), color: '#36a852' },
-    { label: 'Floor Stock', value: Number(inventory.floorStockCells || 0), color: '#2a9bd2' },
-    { label: 'In Module', value: Number(inventory.inModuleCells || 0), color: '#1b1b1b' },
-    { label: 'In Pack', value: Number(inventory.inPackCells || 0), color: '#e8a323' },
-    { label: 'In Rack', value: Number(inventory.inRackCells || 0), color: '#0ea5e9' },
-    { label: 'Sold', value: Number(inventory.soldCells || 0), color: '#059669' },
-    { label: 'Scrap', value: Number(inventory.scrapCells || 0), color: '#b7b7b7' },
+    { label: 'In Stock', value: cellBucketValues.get('In Stock') ?? Number(inventory.inStockCells || 0), color: '#36a852' },
+    { label: 'Floor Stock', value: cellBucketValues.get('Floor Stock') ?? Number(inventory.floorStockCells || 0), color: '#2a9bd2' },
+    { label: 'In Module', value: cellBucketValues.get('In Module') ?? Number(inventory.inModuleCells || 0), color: '#1b1b1b' },
+    { label: 'In Pack', value: cellBucketValues.get('In Pack') ?? Number(inventory.inPackCells || 0), color: '#e8a323' },
+    { label: 'In Rack', value: cellBucketValues.get('In Rack') ?? Number(inventory.inRackCells || 0), color: '#0ea5e9' },
+    { label: 'Sold', value: cellBucketValues.get('Sold') ?? Number(inventory.soldCells || 0), color: '#059669' },
+    { label: 'Scrap', value: cellBucketValues.get('Scrap') ?? Number(inventory.scrapCells || 0), color: '#b7b7b7' },
   ];
+  const available = statusRows
+    .filter(row => row.label === 'In Stock' || row.label === 'Floor Stock')
+    .reduce((sum, row) => sum + row.value, 0);
   const statusTotal = Math.max(1, statusRows.reduce((sum, row) => sum + row.value, 0));
   let donutOffset = 0;
   const donut = statusRows.map(row => { const start = donutOffset; donutOffset += row.value / statusTotal * 100; return `${row.color} ${start}% ${donutOffset}%`; }).join(', ');
   const recentBatteries = (stats.recentBatteries || []).slice(0, 5);
   const machines = Array.isArray(stats.machines) ? stats.machines : [];
   const onlineMachines = machines.filter((machine: any) => machine.status === 'ONLINE' || machine.status === 'BUSY').length;
+  const packColors = ['#2563eb', '#f59e0b', '#16a34a'];
+  const packRows = (stats.batteryPackBuckets || []).map((row: any, index: number) => ({
+    label: String(row.label || 'Unnamed Pack'),
+    value: Math.max(0, Number(row.value) || 0),
+    color: packColors[index % packColors.length],
+  }));
+  const packMax = Math.max(1, ...packRows.map((row: any) => row.value));
+  const packTrend = (stats.batteryPackTrend || []).slice(range === '7D' ? -7 : -30);
+  const moduleTrend = (stats.moduleTypeTrend || []).slice(range === '7D' ? -7 : -30);
+  const trendLabels = Array.from(new Set([...packTrend, ...moduleTrend].map((point: any) => String(point.label)))).sort();
+  const moduleTrendNames = Array.from(new Set(moduleTrend.flatMap((point: any) => (point.series || []).map((row: any) => String(row.name)))));
+  const trendSeries = [
+    ...packRows.map((row: any, index: number) => ({ key: `battery:${row.label}`, name: `Battery · ${row.label}`, sourceName: row.label, kind: 'battery', color: ['#2563eb', '#f59e0b', '#16a34a'][index % 3] })),
+    ...moduleTrendNames.map((name: string, index: number) => ({ key: `module:${name}`, name: `Module · ${name}`, sourceName: name, kind: 'module', color: ['#7c3aed', '#db2777', '#0891b2'][index % 3] })),
+  ];
+  const trendValue = (series: any, label: string) => {
+    const source = series.kind === 'module' ? moduleTrend : packTrend;
+    const point = source.find((item: any) => String(item.label) === label);
+    return Number(point?.series?.find((item: any) => String(item.name) === series.sourceName)?.value) || 0;
+  };
+  const trendMax = Math.max(1, ...trendSeries.flatMap((series: any) => trendLabels.map(label => trendValue(series, label))));
+  const chartWidth = 760;
+  const chartHeight = 190;
+  const chartPoint = (index: number, value: number) => ({
+    x: trendLabels.length > 1 ? (index / (trendLabels.length - 1)) * chartWidth : chartWidth / 2,
+    y: chartHeight - ((value / trendMax) * (chartHeight - 24)) - 12,
+  });
 
   const deleteBattery = async (battery: any) => {
     if (!window.confirm(`Delete battery ${battery.serialNumber}? Its reserved cells and controllers will return to inventory.`)) return;
@@ -97,13 +126,30 @@ export const DashboardView: React.FC = () => {
 
     <section className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">{navActions.map(({ label, view, icon: Icon }) => <button key={label} type="button" onClick={() => setActiveView(view as any)} className="group flex items-center justify-between rounded-2xl border border-slate-200 bg-white p-4 text-left shadow-sm transition hover:-translate-y-0.5 hover:border-emerald-500 hover:shadow-md"><span className="flex items-center gap-3"><span className="grid h-10 w-10 place-items-center rounded-xl bg-emerald-50 text-emerald-600"><Icon className="h-5 w-5" /></span><span className="text-sm font-bold text-slate-800">{label}</span></span><ArrowUpRight className="h-4 w-4 text-slate-300 transition group-hover:text-emerald-600" /></button>)}</section>
 
-    <section className="grid grid-cols-1 gap-5 xl:grid-cols-[1.65fr,1fr]"><Panel eyebrow="Output rhythm" title="Released packs" action={<div className="flex rounded-lg bg-slate-100 p-1">{(['7D', '30D'] as const).map(item => <button key={item} type="button" onClick={() => setRange(item)} className={`rounded-md px-3 py-1.5 text-[10px] font-black ${range === item ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-400'}`}>{item}</button>)}</div>}>
-      <div className="mt-6 flex h-56 items-end gap-2 border-b border-slate-100 px-1 sm:gap-3">{trend.length === 0 ? <div className="grid w-full place-items-center text-xs text-slate-400">No production trend data yet</div> : trend.map((item: any, index: number) => <div key={`${item.label}-${index}`} className="group flex h-full flex-1 flex-col items-center justify-end gap-2"><span className="text-[10px] font-bold text-slate-500 opacity-0 transition group-hover:opacity-100">{item.value}</span><div className="chart-bar w-full max-w-12 rounded-t-lg bg-emerald-500" style={{ height: `${Math.max(5, ((Number(item.value) || 0) / maxTrend) * 78)}%` }} title={`${item.label}: ${item.value}`} /><span className="text-[9px] text-slate-400">{String(item.label || '').slice(-5)}</span></div>)}</div>
+    <section className="grid grid-cols-1 gap-5 xl:grid-cols-[1.65fr,1fr]"><Panel eyebrow="Output rhythm" title="Production by type" action={<div className="flex rounded-lg bg-slate-100 p-1">{(['7D', '30D'] as const).map(item => <button key={item} type="button" onClick={() => setRange(item)} className={`rounded-md px-3 py-1.5 text-[10px] font-black ${range === item ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-400'}`}>{item}</button>)}</div>}>
+      <div className="mt-6 border-b border-slate-100 px-1">
+        {trendLabels.length === 0 ? <div className="grid h-56 place-items-center text-xs text-slate-400">No production trend data yet</div> : <>
+          <div className="h-56 w-full overflow-hidden">
+            <svg viewBox={`0 0 ${chartWidth} ${chartHeight}`} preserveAspectRatio="none" className="h-full w-full" role="img" aria-label="Battery and module production by type">
+              {[0, 1, 2, 3].map((line) => <line key={line} x1="0" x2={chartWidth} y1={12 + line * ((chartHeight - 24) / 3)} y2={12 + line * ((chartHeight - 24) / 3)} stroke="#e5e7eb" strokeDasharray="3 5" />)}
+              {trendSeries.map((series: any) => {
+                const points = trendLabels.map((label, index) => chartPoint(index, trendValue(series, label)));
+                return <g key={series.key}>
+                  <polyline points={points.map((point: any) => `${point.x},${point.y}`).join(' ')} fill="none" stroke={series.color} strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
+                  {points.map((point: any, index: number) => { const value = trendValue(series, trendLabels[index]); return <circle key={`${series.key}-${index}`} cx={point.x} cy={point.y} r="3.5" fill={series.color}><title>{`${series.name} | ${trendLabels[index]}: ${value}`}</title></circle>; })}
+                </g>;
+              })}
+            </svg>
+          </div>
+          <div className="flex justify-between text-[9px] text-slate-400"><span>{String(trendLabels[0] || '').slice(5)}</span><span>{String(trendLabels[trendLabels.length - 1] || '').slice(5)}</span></div>
+          <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 pb-3 text-[10px] text-slate-500">{trendSeries.map((series: any) => <span key={series.key} className="flex items-center gap-1.5"><i className="h-2 w-2 rounded-full" style={{ background: series.color }} />{series.name}</span>)}</div>
+        </>}
+      </div>
       <div className="mt-5 flex items-center justify-between"><span className="text-xs font-bold text-slate-500">{range === '7D' ? 'Latest release window' : 'Monthly build output'}</span><button type="button" onClick={() => setActiveView('reports')} className="flex items-center gap-1 text-xs font-bold text-emerald-600">Open reports <ChevronRight className="h-3.5 w-3.5" /></button></div>
     </Panel><Panel eyebrow="Inventory composition" title="Where the cells are" action={<Boxes className="h-5 w-5 text-emerald-600" />}><div className="mt-5 flex items-center gap-6"><div className="relative grid h-36 w-36 shrink-0 place-items-center rounded-full" style={{ background: `conic-gradient(${donut})` }}><div className="grid h-24 w-24 place-items-center rounded-full bg-white text-center"><strong className="text-2xl font-black text-slate-900">{available.toLocaleString()}</strong><span className="text-[9px] font-bold uppercase tracking-wider text-slate-400">available</span></div></div><div className="min-w-0 flex-1 space-y-3">{statusRows.map(row => <div key={row.label} className="flex items-center justify-between gap-2 text-xs"><span className="flex items-center gap-2 font-semibold text-slate-600"><i className="h-2 w-2 rounded-full" style={{ background: row.color }} />{row.label}</span><b className="font-mono text-slate-900">{row.value.toLocaleString()}</b></div>)}</div></div><div className="mt-6 h-2 overflow-hidden rounded-full bg-slate-100"><div className="h-full rounded-full bg-emerald-500" style={{ width: `${Math.min(100, available / totalCells * 100)}%` }} /></div><p className="mt-2 text-[11px] text-slate-400">{Math.round(available / totalCells * 100)}% of total cell inventory is ready for allocation.</p></Panel></section>
 
-    <section className="grid grid-cols-1 gap-5 lg:grid-cols-3"><Panel eyebrow="Quality gate" title="First-pass yield" action={<ShieldCheck className="h-5 w-5 text-emerald-600" />}><div className="mt-5 flex items-end justify-between"><span className="text-5xl font-black tracking-tight text-slate-900">{yieldRate ? `${yieldRate}%` : '—'}</span><span className="mb-1 rounded-full bg-emerald-50 px-2.5 py-1 text-[10px] font-black text-emerald-700">Target 99%</span></div><div className="mt-6 h-3 rounded-full bg-slate-100"><div className="h-full rounded-full bg-emerald-500" style={{ width: `${Math.min(100, yieldRate)}%` }} /></div><p className="mt-3 text-xs text-slate-500">{Number(quality.quarantinedCount || inventory.quarantinedCells || 0).toLocaleString()} items require quality review.</p></Panel>
-      <Panel eyebrow="Component readiness" title="Controllers on hand" action={<Cpu className="h-5 w-5 text-emerald-600" />}><div className="mt-5 grid grid-cols-2 gap-3">{[['BMS', controller.availableBms, controller.totalBms], ['BMU', controller.availableBmu, controller.totalBmu]].map(([label, value, total]) => <div key={String(label)} className="rounded-xl bg-slate-50 p-4"><span className="text-xs font-black text-slate-500">{label}</span><strong className="mt-2 block text-2xl font-black text-slate-900">{Number(value || 0).toLocaleString()}</strong><span className="text-[10px] text-slate-400">of {Number(total || 0).toLocaleString()} available</span></div>)}</div></Panel>
+    <section className="grid grid-cols-1 gap-5 lg:grid-cols-3"><Panel eyebrow="Pack mix" title="Battery packs by model" action={<Factory className="h-5 w-5 text-emerald-600" />}><div className="mt-5 space-y-4">{packRows.length === 0 ? <div className="py-8 text-center text-xs text-slate-400">No pack model data yet</div> : packRows.map((row: any) => <div key={row.label}><div className="mb-1 flex items-center justify-between gap-3 text-xs"><span className="flex min-w-0 items-center gap-2 font-semibold text-slate-600"><i className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: row.color }} /><span className="truncate">{row.label}</span></span><b className="font-mono text-slate-900">{row.value.toLocaleString()}</b></div><div className="h-2 overflow-hidden rounded-full bg-slate-100"><div className="h-full rounded-full transition-all duration-500" style={{ width: `${(row.value / packMax) * 100}%`, background: row.color }} /></div></div>)}</div></Panel><Panel eyebrow="Quality gate" title="First-pass yield" action={<ShieldCheck className="h-5 w-5 text-emerald-600" />}><div className="mt-5 flex items-end justify-between"><span className="text-5xl font-black tracking-tight text-slate-900">{yieldRate ? `${yieldRate}%` : '—'}</span><span className="mb-1 rounded-full bg-emerald-50 px-2.5 py-1 text-[10px] font-black text-emerald-700">Target 99%</span></div><div className="mt-6 h-3 rounded-full bg-slate-100"><div className="h-full rounded-full bg-emerald-500" style={{ width: `${Math.min(100, yieldRate)}%` }} /></div><p className="mt-3 text-xs text-slate-500">{Number(quality.quarantinedCount || inventory.quarantinedCells || 0).toLocaleString()} items require quality review.</p></Panel>
+      <Panel eyebrow="Component readiness" title="Controllers on hand" action={<Cpu className="h-5 w-5 text-emerald-600" />}><div className="mt-5 grid grid-cols-2 gap-3">{[['BMS', controller.availableBms, controller.assignedBms, controller.totalBms], ['BMU', controller.availableBmu, controller.assignedBmu, controller.totalBmu]].map(([label, value, assigned, total]) => <div key={String(label)} className="rounded-xl bg-slate-50 p-4"><span className="text-xs font-black text-slate-500">{label}</span><strong className="mt-2 block text-2xl font-black text-slate-900">{Number(value || 0).toLocaleString()}</strong><span className="text-[10px] text-slate-400">available of {Number(total || 0).toLocaleString()} total</span><span className="mt-1 block text-[10px] font-semibold text-emerald-600">{Number(assigned || 0).toLocaleString()} assigned</span></div>)}</div></Panel>
       <Panel eyebrow="Line routing" title="Six production gates" action={<Zap className="h-5 w-5 text-emerald-600" />}><div className="mt-4 grid grid-cols-2 gap-2">{pipeline.map(([number, label, view]) => <button key={number} type="button" onClick={() => setActiveView(view as any)} className="flex items-center gap-2 rounded-lg border border-slate-100 p-2.5 text-left hover:border-emerald-400 hover:bg-emerald-50"><span className="font-mono text-[10px] font-black text-emerald-600">{number}</span><span className="text-[11px] font-bold text-slate-600">{label}</span></button>)}</div></Panel></section>
 
     <section className="grid grid-cols-1 gap-5 xl:grid-cols-[1.5fr,1fr]"><Panel eyebrow="Needs attention" title={`Live WIP / ${Number(inventory.inProcessBatteries || 0)} in process`} action={<button type="button" onClick={() => setActiveView('production')} className="text-xs font-bold text-emerald-600">View all <ArrowUpRight className="inline h-3.5 w-3.5" /></button>}><div className="mt-4 space-y-2">{recentBatteries.length === 0 ? <div className="rounded-xl border border-dashed border-slate-200 p-8 text-center"><Layers className="mx-auto h-7 w-7 text-slate-300" /><p className="mt-2 text-xs font-bold text-slate-600">No active packs on the floor</p><button type="button" onClick={() => setActiveView('planning')} className="mt-3 rounded-lg bg-emerald-600 px-3 py-2 text-[11px] font-bold text-white">Create production order</button></div> : recentBatteries.map((battery: any) => <div key={battery.id} className="flex items-center justify-between gap-3 rounded-xl border border-slate-100 p-3 hover:bg-slate-50"><button type="button" onClick={() => { setActiveBatteryId(battery.id); setActiveView('production'); }} className="min-w-0 flex-1 text-left"><span className="block truncate font-mono text-xs font-black text-slate-900">{battery.serialNumber}</span><span className="mt-1 block text-[11px] text-slate-500">{String(battery.currentStep || 'NOT STARTED').replace(/_/g, ' ')}</span></button><div className="w-24"><div className="text-right text-[10px] font-black text-slate-600">{battery.progressPercent ?? 0}%</div><div className="mt-1 h-1.5 rounded-full bg-slate-100"><div className="h-full rounded-full bg-emerald-500" style={{ width: `${Math.min(100, Number(battery.progressPercent) || 0)}%` }} /></div></div><button type="button" onClick={() => { setActiveBatteryId(battery.id); setActiveView('workflow-pack'); }} className="rounded-lg p-2 text-slate-400 hover:bg-emerald-50 hover:text-emerald-600" title="Edit battery"><Pencil className="h-4 w-4" /></button><button type="button" onClick={() => void deleteBattery(battery)} className="rounded-lg p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-900" title="Delete battery"><Trash2 className="h-4 w-4" /></button></div>)}</div></Panel>

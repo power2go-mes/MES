@@ -100,7 +100,7 @@ begin
     ) then return true; end if;
     return false;
 end;
-$$ language plpgsql security definer;
+$$ language plpgsql security definer set search_path = public;
 
 create or replace function public.require_permission(required_permission text)
 returns void as $$
@@ -583,7 +583,10 @@ begin
         p_entity_type, p_entity_id, p_event_type, p_parent_type, p_parent_id, p_event_data, auth.uid()
     );
 end;
-$$ language plpgsql security definer;
+$$ language plpgsql security definer set search_path = public;
+
+revoke all on function public.record_genealogy_event(text, text, text, text, text, jsonb) from public;
+revoke all on function public.record_genealogy_event(text, text, text, text, text, jsonb) from anon;
 -- ================================================================
 -- 12. RPCs & STATE MACHINE FUNCTIONS
 -- ================================================================
@@ -877,6 +880,15 @@ declare
     v_cell_slice_ids text[];
 begin
     perform public.require_permission('MANAGE_ORDERS');
+    if p_product_id is null or nullif(trim(p_product_id), '') is null then
+        raise exception 'Product id is required';
+    end if;
+    if p_quantity is null or p_quantity <= 0 then
+        raise exception 'Production quantity must be greater than zero';
+    end if;
+    if nullif(trim(p_order_number), '') is null then
+        raise exception 'Order number is required';
+    end if;
     select serial_prefix, product_model, battery_name, voltage_type, capacity_kwh, num_modules, cells_per_module, total_cells
     into v_serial_prefix, v_product_model, v_battery_name, v_voltage_type, v_capacity_kwh, v_num_modules, v_cells_per_module, v_total_cells_per_battery
     from public.product_templates
@@ -935,6 +947,7 @@ begin
     select array_agg(id) into v_cell_ids from (
         select id from public.cells
                 where status in ('AVAILABLE', 'IMPORTED', 'ACKNOWLEDGED', 'OCV_TESTED', 'GRADED')
+                    and lifecycle_status <> 'SCRAP'
                     and reserved_for_order_id is null
                     and reserved_for_battery_id is null
         order by created_at asc
@@ -993,7 +1006,6 @@ begin
         for j in 1..v_total_cells_per_battery loop
             update public.cells
             set status = 'RESERVED',
-                internal_serial = v_cell_serial_prefix || '-' || lpad((v_next_cell_number + ((i - 1) * v_total_cells_per_battery) + j - 1)::text, 5, '0'),
                 reserved_for_order_id = v_order_id,
                 reserved_for_battery_id = v_battery_id
             where id = v_cell_slice_ids[j];
@@ -1647,7 +1659,10 @@ begin
     );
 
     if v_quarantine_record.entity_type = 'CELL' then
-        update public.cells set status = case when p_disposition = 'SCRAP' then 'REJECTED'::cell_status else 'AVAILABLE'::cell_status end where id = v_quarantine_record.entity_id;
+        update public.cells
+        set status = case when p_disposition = 'SCRAP' or lifecycle_status = 'SCRAP' then 'REJECTED'::cell_status else 'AVAILABLE'::cell_status end,
+            lifecycle_status = case when p_disposition = 'SCRAP' or lifecycle_status = 'SCRAP' then 'SCRAP' else 'FLOOR_STOCK' end
+        where id = v_quarantine_record.entity_id;
     elsif v_quarantine_record.entity_type = 'MODULE' then
         update public.modules set status = case when p_disposition = 'SCRAP' then 'FAILED'::module_status else 'PASSED'::module_status end where id = v_quarantine_record.entity_id;
     elsif v_quarantine_record.entity_type = 'BATTERY' then
@@ -1776,6 +1791,9 @@ begin
     if v_cell.status = 'QUARANTINED' then
         raise exception 'Cell % is quarantined. Cannot assign', v_cell.internal_serial;
     end if;
+    if v_cell.status = 'REJECTED' or v_cell.lifecycle_status = 'SCRAP' then
+        raise exception 'Cell % is scrapped. Cannot assign', v_cell.internal_serial;
+    end if;
 
     select * into v_module from public.modules
     where battery_id = p_battery_id and module_index = p_module_index for update;
@@ -1851,6 +1869,7 @@ begin
             select id from public.cells
             where reserved_for_battery_id = p_battery_id
             and id not in (select cell_id from public.module_cells)
+            and lifecycle_status <> 'SCRAP'
             and status in ('AVAILABLE', 'RESERVED', 'VALIDATING', 'PASSED', 'IMPORTED', 'OCV_TESTED', 'GRADED')
             order by coalesce(production_ocv_v, supplier_ocv_v) desc, id asc
             limit v_required_count
@@ -1958,7 +1977,7 @@ begin
     -- Release only unassigned order reservations. Never delete batteries,
     -- modules, or module-cell genealogy belonging to this order.
     update public.cells
-    set status = case when lifecycle_status = 'FLOOR_STOCK' then 'AVAILABLE' else 'IMPORTED' end,
+    set status = (case when lifecycle_status = 'FLOOR_STOCK' then 'AVAILABLE' else 'IMPORTED' end)::cell_status,
         lifecycle_status = 'IN_STOCK',
         reserved_for_order_id = null,
         reserved_for_battery_id = null,
@@ -2022,11 +2041,11 @@ create policy "Auth Read" on public.profiles for select using (
     auth.uid() = id or public.has_permission('MANAGE_USERS') or public.has_permission('ALL')
 );
 drop policy if exists "Auth Read" on public.roles;
-create policy "Auth Read" on public.roles for select using (auth.role() = 'authenticated');
+create policy "Auth Read" on public.roles for select using (public.has_permission('READ_MES') or public.has_permission('ALL'));
 drop policy if exists "Auth Read" on public.permissions;
-create policy "Auth Read" on public.permissions for select using (auth.role() = 'authenticated');
+create policy "Auth Read" on public.permissions for select using (public.has_permission('READ_MES') or public.has_permission('ALL'));
 drop policy if exists "Auth Read" on public.role_permissions;
-create policy "Auth Read" on public.role_permissions for select using (auth.role() = 'authenticated');
+create policy "Auth Read" on public.role_permissions for select using (public.has_permission('READ_MES') or public.has_permission('ALL'));
 
 drop policy if exists "Auth Write Profiles" on public.profiles;
 create policy "Auth Write Profiles" on public.profiles for all using (public.has_permission('MANAGE_USERS'));
@@ -2041,73 +2060,75 @@ with check (public.has_permission('security.roles') or public.has_permission('MA
 
 -- Manufacturing Data Policies
 drop policy if exists "Read Inventory" on public.cells;
-create policy "Read Inventory" on public.cells for select using (auth.role() = 'authenticated');
+create policy "Read Inventory" on public.cells for select using (public.has_permission('READ_MES') or public.has_permission('ALL'));
 drop policy if exists "Write Inventory" on public.cells;
 create policy "Write Inventory" on public.cells for all using (public.has_permission('MANAGE_INVENTORY') or public.has_permission('ALL'));
 
 drop policy if exists "Read Prod" on public.batteries;
-create policy "Read Prod" on public.batteries for select using (auth.role() = 'authenticated');
+create policy "Read Prod" on public.batteries for select using (public.has_permission('READ_MES') or public.has_permission('ALL'));
 drop policy if exists "Write Prod" on public.batteries;
 create policy "Write Prod" on public.batteries for all using (public.has_permission('MANAGE_PRODUCTION') or public.has_permission('ALL'));
 
 drop policy if exists "Read Modules" on public.modules;
-create policy "Read Modules" on public.modules for select using (auth.role() = 'authenticated');
+create policy "Read Modules" on public.modules for select using (public.has_permission('READ_MES') or public.has_permission('ALL'));
 drop policy if exists "Write Modules" on public.modules;
 create policy "Write Modules" on public.modules for all using (public.has_permission('MANAGE_PRODUCTION') or public.has_permission('ALL'));
 drop policy if exists "Read Module Cells" on public.module_cells;
-create policy "Read Module Cells" on public.module_cells for select using (auth.role() = 'authenticated');
+create policy "Read Module Cells" on public.module_cells for select using (public.has_permission('READ_MES') or public.has_permission('ALL'));
 drop policy if exists "Write Module Cells" on public.module_cells;
 create policy "Write Module Cells" on public.module_cells for all using (public.has_permission('MANAGE_PRODUCTION') or public.has_permission('ALL'));
 
 drop policy if exists "Read Module Tests" on public.module_tests;
-create policy "Read Module Tests" on public.module_tests for select using (auth.role() = 'authenticated');
+create policy "Read Module Tests" on public.module_tests for select using (public.has_permission('READ_MES') or public.has_permission('ALL'));
 drop policy if exists "Write Module Tests" on public.module_tests;
 create policy "Write Module Tests" on public.module_tests for all using (public.has_permission('MANAGE_PRODUCTION') or public.has_permission('ALL'));
 
 drop policy if exists "Read Controller Tests" on public.controller_tests;
-create policy "Read Controller Tests" on public.controller_tests for select using (auth.role() = 'authenticated');
+create policy "Read Controller Tests" on public.controller_tests for select using (public.has_permission('READ_MES') or public.has_permission('ALL'));
 drop policy if exists "Write Controller Tests" on public.controller_tests;
 create policy "Write Controller Tests" on public.controller_tests for all using (public.has_permission('MANAGE_PRODUCTION') or public.has_permission('ALL'));
 
 drop policy if exists "Read Battery Tests" on public.battery_tests;
-create policy "Read Battery Tests" on public.battery_tests for select using (auth.role() = 'authenticated');
+create policy "Read Battery Tests" on public.battery_tests for select using (public.has_permission('READ_MES') or public.has_permission('ALL'));
 drop policy if exists "Write Battery Tests" on public.battery_tests;
 create policy "Write Battery Tests" on public.battery_tests for all using (public.has_permission('MANAGE_PRODUCTION') or public.has_permission('ALL'));
+drop policy if exists "Read Quarantine Records" on public.quarantine_records;
+create policy "Read Quarantine Records" on public.quarantine_records for select using (public.has_permission('READ_MES') or public.has_permission('ALL'));
 
 drop policy if exists "Read Controllers" on public.bms_units;
-create policy "Read Controllers" on public.bms_units for select using (auth.role() = 'authenticated');
+create policy "Read Controllers" on public.bms_units for select using (public.has_permission('READ_MES') or public.has_permission('ALL'));
 drop policy if exists "Write Controllers" on public.bms_units;
 create policy "Write Controllers" on public.bms_units for all using (public.has_permission('MANAGE_INVENTORY') or public.has_permission('ALL'));
 drop policy if exists "Read BMU Controllers" on public.bmu_units;
-create policy "Read BMU Controllers" on public.bmu_units for select using (auth.role() = 'authenticated');
+create policy "Read BMU Controllers" on public.bmu_units for select using (public.has_permission('READ_MES') or public.has_permission('ALL'));
 drop policy if exists "Write BMU Controllers" on public.bmu_units;
 create policy "Write BMU Controllers" on public.bmu_units for all using (public.has_permission('MANAGE_INVENTORY') or public.has_permission('ALL'));
 
 drop policy if exists "Read Orders" on public.production_orders;
-create policy "Read Orders" on public.production_orders for select using (auth.role() = 'authenticated');
+create policy "Read Orders" on public.production_orders for select using (public.has_permission('READ_MES') or public.has_permission('ALL'));
 drop policy if exists "Write Orders" on public.production_orders;
 create policy "Write Orders" on public.production_orders for all using (public.has_permission('MANAGE_ORDERS') or public.has_permission('ALL'));
 
 -- Audit Logs (Append Only - see trigger for update/delete protection)
 drop policy if exists "Read Audit" on public.audit_logs;
-create policy "Read Audit" on public.audit_logs for select using (auth.role() = 'authenticated');
+create policy "Read Audit" on public.audit_logs for select using (public.has_permission('READ_MES') or public.has_permission('ALL'));
 drop policy if exists "Write Audit" on public.audit_logs;
-create policy "Write Audit" on public.audit_logs for insert with check (auth.role() = 'authenticated');
+create policy "Write Audit" on public.audit_logs for insert with check (public.has_permission('READ_MES') or public.has_permission('ALL'));
 revoke update, delete on public.audit_logs from anon, authenticated;
 
 -- Master Data
 drop policy if exists "Read Master" on public.product_templates;
-create policy "Read Master" on public.product_templates for select using (auth.role() = 'authenticated');
+create policy "Read Master" on public.product_templates for select using (public.has_permission('READ_MES') or public.has_permission('ALL'));
 drop policy if exists "Write Master" on public.product_templates;
 create policy "Write Master" on public.product_templates for all using (public.has_permission('MANAGE_MASTER_DATA') or public.has_permission('ALL'));
 
 drop policy if exists "Read Master" on public.suppliers;
-create policy "Read Master" on public.suppliers for select using (auth.role() = 'authenticated');
+create policy "Read Master" on public.suppliers for select using (public.has_permission('READ_MES') or public.has_permission('ALL'));
 drop policy if exists "Write Master" on public.suppliers;
 create policy "Write Master" on public.suppliers for all using (public.has_permission('MANAGE_MASTER_DATA') or public.has_permission('ALL'));
 
 drop policy if exists "Read Master" on public.machine_configurations;
-create policy "Read Master" on public.machine_configurations for select using (auth.role() = 'authenticated');
+create policy "Read Master" on public.machine_configurations for select using (public.has_permission('READ_MES') or public.has_permission('ALL'));
 drop policy if exists "Write Master" on public.machine_configurations;
 create policy "Write Master" on public.machine_configurations for all using (public.has_permission('MANAGE_MASTER_DATA') or public.has_permission('ALL'));
 
@@ -2147,6 +2168,15 @@ begin
         insert into public.permissions (id, name, description, resource, action)
         values ('ALL', 'Full Access', 'Superuser access', 'ALL', 'ALL');
     end if;
+
+    if not exists (select 1 from public.permissions where id = 'READ_MES') then
+        insert into public.permissions (id, name, description, resource, action)
+        values ('READ_MES', 'Read MES Data', 'Read manufacturing and inventory data', 'MES', 'READ');
+    end if;
+
+    insert into public.role_permissions (role_id, permission_id)
+    values ('role-operator', 'READ_MES')
+    on conflict (role_id, permission_id) do nothing;
 
     -- 3. Link permission to role
     if not exists (select 1 from public.role_permissions where role_id = 'role-admin' and permission_id = 'ALL') then
@@ -2394,6 +2424,54 @@ begin
     return jsonb_build_object('entityType', p_entity_type, 'entityId', v_id, 'status', 'SCRAP');
 end $$;
 
+-- SCRAP CELLS BY BARCODE
+create or replace function public.scrap_cells_by_barcodes(p_barcodes text[], p_reason text)
+returns jsonb language plpgsql security definer set search_path = public as $$
+declare
+    v_barcode text;
+    v_cell record;
+    v_scrapped jsonb := '[]'::jsonb;
+    v_missing jsonb := '[]'::jsonb;
+begin
+    perform public.require_permission('MANAGE_INVENTORY');
+    if nullif(trim(p_reason), '') is null then raise exception 'Scrap reason is required'; end if;
+
+    foreach v_barcode in array p_barcodes loop
+        v_barcode := trim(v_barcode);
+        if v_barcode = '' then continue; end if;
+
+        select * into v_cell
+        from public.cells
+        where id = v_barcode or internal_serial = v_barcode or supplier_barcode = v_barcode
+        limit 1
+        for update;
+
+        if not found then
+            v_missing := v_missing || jsonb_build_array(v_barcode);
+            continue;
+        end if;
+
+        delete from public.module_cells where cell_id = v_cell.id;
+        update public.cells
+        set status = 'REJECTED',
+            lifecycle_status = 'SCRAP',
+            reserved_for_order_id = null,
+            reserved_for_battery_id = null,
+            updated_at = now()
+        where id = v_cell.id;
+
+        insert into public.quarantine_records (id, entity_type, entity_id, reason, status, quarantined_by, quarantined_at)
+        values ('quar-' || gen_random_uuid()::text, 'CELL', v_cell.id, p_reason, 'OPEN', auth.uid(), now());
+
+        insert into public.audit_logs (entity_type, entity_id, action, actor, result, details)
+        values ('CELL', v_cell.id, 'SCRAP_CELL', coalesce(auth.uid()::text, 'SYSTEM'), 'SUCCESS', 'Scrapped barcode ' || v_barcode || ': ' || p_reason);
+
+        v_scrapped := v_scrapped || jsonb_build_array(jsonb_build_object('barcode', v_barcode, 'cellId', v_cell.id, 'internalSerial', v_cell.internal_serial));
+    end loop;
+
+    return jsonb_build_object('scrapped', v_scrapped, 'missing', v_missing, 'scrappedCount', jsonb_array_length(v_scrapped), 'missingCount', jsonb_array_length(v_missing));
+end $$;
+
 create or replace function public.register_imported_pallet()
 returns trigger language plpgsql security definer set search_path = public as $$
 begin
@@ -2412,13 +2490,50 @@ alter table public.racks enable row level security;
 alter table public.rack_packs enable row level security;
 alter table public.lifecycle_events enable row level security;
 drop policy if exists "Read lifecycle pallets" on public.pallets;
-create policy "Read lifecycle pallets" on public.pallets for select using (auth.role() = 'authenticated');
+create policy "Read lifecycle pallets" on public.pallets for select using (public.has_permission('READ_MES') or public.has_permission('ALL'));
 drop policy if exists "Read lifecycle racks" on public.racks;
-create policy "Read lifecycle racks" on public.racks for select using (auth.role() = 'authenticated');
+create policy "Read lifecycle racks" on public.racks for select using (public.has_permission('READ_MES') or public.has_permission('ALL'));
 drop policy if exists "Read lifecycle rack packs" on public.rack_packs;
-create policy "Read lifecycle rack packs" on public.rack_packs for select using (auth.role() = 'authenticated');
+create policy "Read lifecycle rack packs" on public.rack_packs for select using (public.has_permission('READ_MES') or public.has_permission('ALL'));
 drop policy if exists "Read lifecycle events" on public.lifecycle_events;
-create policy "Read lifecycle events" on public.lifecycle_events for select using (auth.role() = 'authenticated');
+create policy "Read lifecycle events" on public.lifecycle_events for select using (public.has_permission('READ_MES') or public.has_permission('ALL'));
+
+-- Controllers remain assigned whenever their reservation points at a battery.
+-- This also repairs rows written before the assignment status was enforced.
+update public.bms_units
+set status = 'ASSIGNED', updated_at = now()
+where reserved_for_battery_id is not null
+    and status = 'AVAILABLE';
+
+update public.bmu_units
+set status = 'ASSIGNED', updated_at = now()
+where reserved_for_battery_id is not null
+    and status = 'AVAILABLE';
+
+create or replace function public.sync_controller_assignment_status()
+returns trigger language plpgsql security definer set search_path = public as $$
+begin
+        if new.reserved_for_battery_id is not null then
+                new.status := 'ASSIGNED';
+        elsif tg_op = 'UPDATE' and new.reserved_for_battery_id is null and old.reserved_for_battery_id is not null and new.status = 'ASSIGNED' then
+                new.status := 'AVAILABLE';
+        end if;
+        return new;
+end;
+$$;
+
+drop trigger if exists trg_sync_bms_assignment_status on public.bms_units;
+create trigger trg_sync_bms_assignment_status
+before insert or update of reserved_for_battery_id, status on public.bms_units
+for each row execute function public.sync_controller_assignment_status();
+
+drop trigger if exists trg_sync_bmu_assignment_status on public.bmu_units;
+create trigger trg_sync_bmu_assignment_status
+before insert or update of reserved_for_battery_id, status on public.bmu_units
+for each row execute function public.sync_controller_assignment_status();
+
+drop policy if exists "Read Genealogy" on public.genealogy_records;
+create policy "Read Genealogy" on public.genealogy_records for select using (public.has_permission('READ_MES') or public.has_permission('ALL'));
 
 -- Safe template and orphan cleanup from the former repair script.
 update public.product_templates set cells_per_module = 12, num_modules = 2, total_cells = 24, updated_at = now()
@@ -2452,16 +2567,26 @@ where o.status = 'IN_PROCESS'
     );
 
 -- Final dashboard summary definition. This is the single source of truth for CEO metrics.
+alter table public.cells add column if not exists lifecycle_status text default 'IN_STOCK';
+alter table public.modules add column if not exists lifecycle_status text default 'IN_MODULE';
+alter table public.batteries add column if not exists lifecycle_status text default 'IN_PACK';
+
 create or replace function public.get_dashboard_summary()
 returns jsonb language sql security definer set search_path = public as $$
 with cell_counts as (
     select
         count(*)::int as total,
         count(*) filter (where lifecycle_status in ('IN_STOCK','FLOOR_STOCK') and reserved_for_order_id is null and reserved_for_battery_id is null)::int as available,
-        count(*) filter (where lifecycle_status = 'IN_STOCK' and not exists (select 1 from public.module_cells mc where mc.cell_id = cells.id))::int as in_stock,
-        count(*) filter (where lifecycle_status = 'FLOOR_STOCK' and not exists (select 1 from public.module_cells mc where mc.cell_id = cells.id))::int as floor_stock,
-        count(*) filter (where lifecycle_status = 'IN_MODULE' or exists (select 1 from public.module_cells mc where mc.cell_id = cells.id))::int as assembled,
-        count(*) filter (where lifecycle_status = 'IN_PACK')::int as in_pack,
+        count(*) filter (where lifecycle_status = 'IN_STOCK' and reserved_for_order_id is null and reserved_for_battery_id is null)::int as in_stock,
+        count(*) filter (where lifecycle_status = 'FLOOR_STOCK' and reserved_for_order_id is null and reserved_for_battery_id is null)::int as floor_stock,
+        count(*) filter (where (lifecycle_status = 'IN_MODULE' or exists (select 1 from public.module_cells mc where mc.cell_id = cells.id))
+            and not exists (select 1 from public.batteries b
+                where b.id = coalesce(cells.reserved_for_battery_id, (select m.battery_id from public.module_cells mc join public.modules m on m.id = mc.module_id where mc.cell_id = cells.id limit 1))
+                and (b.progress_percent >= 100 or b.status in ('RELEASED','WAREHOUSE','DISPATCHED','FINISHED')))
+            and lifecycle_status not in ('IN_PACK','IN_RACK','SOLD','SCRAP'))::int as assembled,
+        count(*) filter (where lifecycle_status = 'IN_PACK' or exists (select 1 from public.batteries b
+            where b.id = coalesce(cells.reserved_for_battery_id, (select m.battery_id from public.module_cells mc join public.modules m on m.id = mc.module_id where mc.cell_id = cells.id limit 1))
+            and (b.progress_percent >= 100 or b.status in ('RELEASED','WAREHOUSE','DISPATCHED','FINISHED'))))::int as in_pack,
         count(*) filter (where lifecycle_status = 'IN_RACK')::int as in_rack,
         count(*) filter (where lifecycle_status = 'SOLD')::int as sold,
         count(*) filter (where lifecycle_status = 'SCRAP' or status in ('QUARANTINED','REJECTED'))::int as quarantined,
@@ -2506,8 +2631,37 @@ select jsonb_build_object(
     'kpis', jsonb_build_object('totalCellsInInventory', total, 'availableCells', available, 'usedCells', total - available, 'reservedCells', reserved, 'inProcessCells', in_process, 'assembledCells', assembled, 'quarantinedCells', quarantined, 'totalBatteriesCompleted', finished, 'batteriesInProduction', batteries_in_process, 'activeOrders', orders_in_process, 'firstPassYield', coalesce(round(100.0 * quality_passed / nullif(quality_total, 0), 1), 0), 'onlineMachines', machines_online, 'totalMachines', machines_total),
     'machines', coalesce((select jsonb_agg(to_jsonb(m) - 'created_at' - 'updated_at' order by m.name) from public.machine_configurations m), '[]'::jsonb),
     'cellBuckets', jsonb_build_array(jsonb_build_object('label','In Stock','value',in_stock), jsonb_build_object('label','Floor Stock','value',floor_stock), jsonb_build_object('label','In Module','value',assembled), jsonb_build_object('label','In Pack','value',in_pack), jsonb_build_object('label','In Rack','value',in_rack), jsonb_build_object('label','Sold','value',sold), jsonb_build_object('label','Scrap','value',quarantined)),
-    'moduleStatusBuckets', coalesce((select jsonb_agg(jsonb_build_object('label', status, 'value', amount) order by status) from (select status, count(*)::int as amount from public.modules group by status) module_counts), '[]'::jsonb),
-    'batteryStatusBuckets', coalesce((select jsonb_agg(jsonb_build_object('label', status, 'value', amount) order by status) from (select status, count(*)::int as amount from public.batteries group by status) battery_counts), '[]'::jsonb),
+    'moduleStatusBuckets', jsonb_build_array(
+        jsonb_build_object('label', 'Available', 'value', (select count(*)::int from public.modules where lifecycle_status = 'IN_MODULE')),
+        jsonb_build_object('label', 'In Pack', 'value', (select count(*)::int from public.modules where lifecycle_status = 'IN_PACK')),
+        jsonb_build_object('label', 'In Rack', 'value', (select count(*)::int from public.modules where lifecycle_status = 'IN_RACK'))
+    ),
+    'batteryStatusBuckets', jsonb_build_array(
+        jsonb_build_object('label', 'Available', 'value', (select count(*)::int from public.batteries where lifecycle_status = 'IN_PACK')),
+        jsonb_build_object('label', 'In Rack', 'value', (select count(*)::int from public.batteries where lifecycle_status = 'IN_RACK')),
+        jsonb_build_object('label', 'Sold', 'value', (select count(*)::int from public.batteries where lifecycle_status = 'SOLD'))
+    ),
+    'batteryPackBuckets', coalesce((select jsonb_agg(jsonb_build_object('label', pack_name, 'value', pack_count) order by pack_name)
+        from (select p.name as pack_name, count(b.id)::int as pack_count
+              from public.product_templates p
+              left join public.batteries b on b.product_id = p.id
+              where p.active = true
+              group by p.id, p.name) pack_counts), '[]'::jsonb),
+    'batteryPackTrend', coalesce((select jsonb_agg(jsonb_build_object('label', day_label, 'series', series) order by day_label)
+        from (
+            select day_label, jsonb_agg(jsonb_build_object('name', pack_name, 'value', amount) order by pack_name) as series
+            from (
+                select to_char(days.day, 'YYYY-MM-DD') as day_label, p.name as pack_name, count(b.id)::int as amount
+                from generate_series(current_date - 29, current_date, interval '1 day') as days(day)
+                cross join public.product_templates p
+                left join public.batteries b on b.product_id = p.id
+                    and b.status in ('FINISHED','RELEASED','DISPATCHED')
+                    and b.created_at::date = days.day
+                where p.active = true
+                group by days.day, p.name
+            ) daily_pack_counts
+            group by day_label
+        ) daily_pack_series), '[]'::jsonb),
     'rackStatusBuckets', coalesce((select jsonb_agg(jsonb_build_object('label', status, 'value', amount) order by status) from (select status, count(*)::int as amount from public.racks group by status) rack_counts), '[]'::jsonb),
     'recentBatteries', coalesce((select jsonb_agg(jsonb_build_object('id',b.id,'serialNumber',b.serial_number,'productName',p.name,'currentStep',b.current_step,'progressPercent',b.progress_percent,'status',b.status) order by b.created_at desc) from public.batteries b join public.product_templates p on p.id = b.product_id limit 20), '[]'::jsonb),
     'recentOrders', coalesce((select jsonb_agg(to_jsonb(o) order by o.created_at desc) from public.production_orders o limit 20), '[]'::jsonb),
@@ -2517,7 +2671,9 @@ select jsonb_build_object(
     'quarantineOpenCount', (select count(*)::int from public.quarantine_records where status = 'OPEN')
 ) from summary;
 $$;
-grant execute on function public.get_dashboard_summary() to anon, authenticated;
+revoke all on function public.get_dashboard_summary() from public;
+revoke all on function public.get_dashboard_summary() from anon;
+grant execute on function public.get_dashboard_summary() to authenticated;
 
 -- Release cell reservations before a battery delete removes the foreign-key reference.
 create or replace function public.release_deleted_battery_cells()
@@ -2540,6 +2696,7 @@ for each row execute function public.release_deleted_battery_cells();
 create or replace function public.reset_operational_data()
 returns void language plpgsql security definer set search_path = public as $$
 begin
+    perform public.require_permission('MANAGE_USERS');
     truncate table
         public.module_cells,
         public.module_tests,
@@ -2568,6 +2725,10 @@ begin
     restart identity;
 end;
 $$;
+
+revoke all on function public.reset_operational_data() from public;
+revoke all on function public.reset_operational_data() from anon;
+grant execute on function public.reset_operational_data() to authenticated;
 
 -- ================================================================
 -- END OF AUTHORITATIVE SCHEMA
