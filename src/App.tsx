@@ -23,7 +23,6 @@ import { SupplierImportView } from './components/supplier/SupplierImportView';
 import { InventoryView } from './components/inventory/InventoryView';
 import { TraceabilityView } from './components/traceability/TraceabilityView';
 import { QuarantineView } from './components/quarantine/QuarantineView';
-import { MachineGatewayView } from './components/machines/MachineGatewayView';
 import { ProductConfiguratorView } from './components/products/ProductConfiguratorView';
 import { AuditTrailView } from './components/audit/AuditTrailView';
 import { ReportsView } from './components/reports/ReportsView';
@@ -88,8 +87,6 @@ const AppContent: React.FC = () => {
         return <QuarantineView />;
       case 'scrap':
         return <QuarantineView />;
-      case 'machines':
-        return <MachineGatewayView />;
       case 'products':
         return <ProductConfiguratorView />;
       case 'audit':

@@ -23,14 +23,14 @@ import {
   Download,
 } from 'lucide-react';
 
-type Tab = 'CELLS' | 'BMS' | 'BMU' | 'MODULES' | 'BATTERIES';
+type Tab = 'CELLS' | 'BMS' | 'BMU' | 'MODULES' | 'BATTERIES' | 'RACKS';
 
 const cellStatuses = [
   'IN_STOCK', 'FLOOR_STOCK', 'IN_MODULE', 'IN_PACK', 'IN_RACK', 'SOLD', 'SCRAP',
 ] as const;
 
 export const InventoryView: React.FC = () => {
-  const { setActiveView, setActiveBatteryId, setQuickSearchQuery, refreshKey, addNotification, triggerRefresh, inventoryTab, setInventoryTab } = useApp();
+  const { setActiveView, setActiveModuleId, setActiveBatteryId, setQuickSearchQuery, refreshKey, addNotification, triggerRefresh, inventoryTab, setInventoryTab } = useApp();
   const activeTab = inventoryTab;
   const setActiveTab = setInventoryTab;
   const [search, setSearch] = useState('');
@@ -47,6 +47,7 @@ export const InventoryView: React.FC = () => {
   const [bmuUnits, setBmuUnits] = useState<BMUItem[]>([]);
   const [modules, setModules] = useState<ModuleItem[]>([]);
   const [batteries, setBatteries] = useState<BatteryUnit[]>([]);
+  const [racks, setRacks] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedIds, setSelectedIds] = useState<Record<Tab, string[]>>({
     CELLS: [],
@@ -54,6 +55,7 @@ export const InventoryView: React.FC = () => {
     BMU: [],
     MODULES: [],
     BATTERIES: [],
+    RACKS: [],
   });
 
   // BMS Ingestion Modal
@@ -155,6 +157,9 @@ export const InventoryView: React.FC = () => {
       } else if (activeTab === 'BATTERIES') {
         const res = await api.getBatteries();
         setBatteries(res);
+      } else if (activeTab === 'RACKS') {
+        const res = await api.getRacks();
+        setRacks(res);
       }
     } catch (err) {
       console.error('Failed to load inventory', err);
@@ -300,6 +305,10 @@ export const InventoryView: React.FC = () => {
     const matchesStatus = !statusFilter || b.status === statusFilter;
     return matchesSearch && matchesStatus;
   });
+  const filteredRacks = racks.filter(rack => {
+    const haystack = [rack.serialNumber, rack.serial_number, rack.rackTemplateCode, rack.rack_template_code, rack.status, rack.location, rack.qrCode, rack.qr_code].filter(Boolean).join(' ').toLowerCase();
+    return !search || haystack.includes(search.toLowerCase());
+  });
 
   const displayedCells = filteredCells.slice(0, cellDisplayLimit);
 
@@ -308,7 +317,8 @@ export const InventoryView: React.FC = () => {
     if (tab === 'BMS') return filteredBms;
     if (tab === 'BMU') return filteredBmus;
     if (tab === 'MODULES') return filteredModules;
-    return filteredBatteries;
+    if (tab === 'BATTERIES') return filteredBatteries;
+    return filteredRacks;
   };
 
   const toggleSelectItem = (tab: Tab, id: string) => {
@@ -386,6 +396,7 @@ export const InventoryView: React.FC = () => {
           <button onClick={() => { setActiveTab('BMU'); setStatusFilter(''); }} className={`px-3.5 py-1.5 rounded-lg transition-all ${activeTab === 'BMU' ? 'bg-white text-slate-900 shadow-2xs font-bold' : 'text-slate-600 hover:text-slate-900'}`}>BMU ({bmuUnits.length})</button>
           <button onClick={() => { setActiveTab('MODULES'); setStatusFilter(''); }} className={`px-3.5 py-1.5 rounded-lg transition-all ${activeTab === 'MODULES' ? 'bg-white text-slate-900 shadow-2xs font-bold' : 'text-slate-600 hover:text-slate-900'}`}>Modules ({modules.length})</button>
           <button onClick={() => { setActiveTab('BATTERIES'); setStatusFilter(''); }} className={`px-3.5 py-1.5 rounded-lg transition-all ${activeTab === 'BATTERIES' ? 'bg-white text-slate-900 shadow-2xs font-bold' : 'text-slate-600 hover:text-slate-900'}`}>Batteries ({batteries.length})</button>
+          <button onClick={() => { setActiveTab('RACKS'); setStatusFilter(''); }} className={`px-3.5 py-1.5 rounded-lg transition-all ${activeTab === 'RACKS' ? 'bg-white text-slate-900 shadow-2xs font-bold' : 'text-slate-600 hover:text-slate-900'}`}>Racks ({racks.length})</button>
         </div>
       </div>
 
@@ -864,11 +875,10 @@ export const InventoryView: React.FC = () => {
                       {m.matchingScore > 0 ? `${m.matchingScore}%` : 'N/A'}
                     </td>
                     <td className="px-5 py-3.5 font-sans">
-                      {m.weldingResult?.status === 'PASSED' ? (
-                        <span className="text-slate-700 font-bold text-[10px]">WELDED ✓</span>
-                      ) : (
-                        <span className="text-slate-400 text-[10px]">PENDING</span>
-                      )}
+                      {m.weldingResult?.status === 'PASSED' && <span className="text-emerald-700 font-bold text-[10px]">WELDED ✓</span>}
+                      {m.weldingResult?.status === 'FAILED' && <span className="text-red-600 font-bold text-[10px]">FAILED</span>}
+                      {m.weldingResult?.status === 'BYPASSED' && <span className="text-amber-600 font-bold text-[10px]">BYPASSED</span>}
+                      {!m.weldingResult?.status && <span className="text-slate-500 font-bold text-[10px]">NOT WELDED</span>}
                     </td>
                     <td className="px-5 py-3.5 font-sans">
                       {m.qcResult?.status === 'PASSED' || m.status === 'PASSED' ? (
@@ -878,8 +888,8 @@ export const InventoryView: React.FC = () => {
                       )}
                     </td>
                     <td className="px-5 py-3.5 font-sans">
-                      <span className={`px-2.5 py-0.5 rounded-md text-[10px] font-bold border uppercase tracking-wider ${getStatusBadge(m.status)}`}>
-                        {m.status}
+                      <span className={`px-2.5 py-0.5 rounded-md text-[10px] font-bold border uppercase tracking-wider ${getStatusBadge(m.lifecycleStatus || (m as any).lifecycle_status || 'IN_STOCK')}`}>
+                        {m.lifecycleStatus || (m as any).lifecycle_status || 'IN_STOCK'}
                       </span>
                     </td>
                     <td className="px-5 py-3.5 text-right font-sans">
@@ -903,14 +913,9 @@ export const InventoryView: React.FC = () => {
                         <QrCode className="w-4 h-4" />
                       </button>
                       <button
-                        onClick={async () => {
-                          const status = window.prompt('Module status', m.status);
-                          if (!status || status === m.status) return;
-                          try { await api.updateModule(m.id, { status }); triggerRefresh(); }
-                          catch (err: any) { addNotification('error', 'Update Failed', err.message); }
-                        }}
+                        onClick={() => { setActiveModuleId(m.id); setActiveView('workflow-module'); }}
                         className="p-1.5 text-slate-500 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors"
-                        title="Update module"
+                        title="Edit in Module Assembly"
                       >
                         <Pencil className="w-4 h-4" />
                       </button>
@@ -1049,6 +1054,28 @@ export const InventoryView: React.FC = () => {
                     </td>
                   </tr>
                 ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {activeTab === 'RACKS' && (
+        <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-xs">
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-xs">
+              <thead className="border-b border-slate-200 bg-slate-50 text-[10px] font-semibold uppercase text-slate-500">
+                <tr><th className="px-5 py-3">Rack Serial</th><th className="px-5 py-3">Template</th><th className="px-5 py-3">Connected Batteries</th><th className="px-5 py-3">Location</th><th className="px-5 py-3">Status</th><th className="px-5 py-3">QR</th></tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {filteredRacks.map(rack => {
+                  const serial = rack.serialNumber || rack.serial_number || rack.id;
+                  const template = rack.rackTemplateCode || rack.rack_template_code || '-';
+                  const batteryIds = rack.batteryIds || rack.battery_ids || rack.rackPacks?.map((pack: any) => pack.batteryId || pack.battery_id) || [];
+                  const status = rack.status || 'UNKNOWN';
+                  return <tr key={rack.id} className="hover:bg-slate-50/70"><td className="px-5 py-3.5 font-mono font-bold text-slate-900">{serial}</td><td className="px-5 py-3.5 font-semibold text-slate-700">{template}</td><td className="px-5 py-3.5">{batteryIds.length} batteries</td><td className="px-5 py-3.5 text-slate-600">{rack.location || '-'}</td><td className="px-5 py-3.5"><span className={`rounded-md border px-2.5 py-0.5 text-[10px] font-bold uppercase ${getStatusBadge(status)}`}>{status}</span></td><td className="px-5 py-3.5 font-mono text-slate-500">{rack.qrCode || rack.qr_code || '-'}</td></tr>;
+                })}
+                {!loading && filteredRacks.length === 0 && <tr><td colSpan={6} className="px-5 py-12 text-center text-xs text-slate-400">No racks recorded.</td></tr>}
               </tbody>
             </table>
           </div>

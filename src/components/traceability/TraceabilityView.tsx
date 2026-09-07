@@ -53,7 +53,7 @@ function batterySubtree(bat: any, bms: any, bmu: any, modules = bat.modules || [
   const children: TraceNode[] = [];
   modules.forEach((m: any, mi: number) => {
     const cellChildren: TraceNode[] = (m.cells || []).map((c: any, ci: number) =>
-      makeNode(`cell-${c.id}`, c.internalSerial || c.supplierBarcode, 'CELL', c, `Cell ${mi + 1}-${ci + 1}`)
+      makeNode(`cell-${c.id}`, c.internalSerial || c.supplierBarcode, 'CELL', c, `Cell ${mi + 1} · Slot ${Number(c.moduleSlotIndex ?? ci) + 1}`)
     );
     children.push(
       makeNode(`mod-${m.id}`, m.serialNumber, 'MODULE', m, `Module ${mi + 1}`, undefined, cellChildren)
@@ -70,6 +70,7 @@ function batterySubtree(bat: any, bms: any, bmu: any, modules = bat.modules || [
 function buildTree(t: any): TraceNode[] {
   const type = t.entityType;
   const e = t.entity;
+  const cellStatus = (cell: any) => cell.lifecycleStatus || cell.lifecycle_status || cell.status;
 
   if (type === 'CELL') {
     const roots: TraceNode[] = [];
@@ -86,14 +87,14 @@ function buildTree(t: any): TraceNode[] {
         makeNode('battery-' + t.battery.serialNumber, t.battery.serialNumber, 'BATTERY', t.battery, 'Battery Pack', undefined, bChildren)
       );
     }
-    roots.push(makeNode('cell', e.internalSerial || e.supplierBarcode, 'CELL', e, 'Cell', e.status, cellChildren));
+    roots.push(makeNode('cell', e.internalSerial || e.supplierBarcode, 'CELL', e, 'Cell', cellStatus(e), cellChildren));
     if (t.supplier) roots.unshift(makeNode('supplier', t.supplier.name, 'SUPPLIER', t.supplier, 'Supplier'));
     return roots;
   }
 
   if (type === 'MODULE') {
     const modChildren: TraceNode[] = (t.cells || e.cells || []).map((c: any, ci: number) =>
-      makeNode(`cell-${c.id}`, c.internalSerial || c.supplierBarcode, 'CELL', c, `Cell ${ci + 1}`)
+      makeNode(`cell-${c.id}`, c.internalSerial || c.supplierBarcode, 'CELL', c, `Slot ${Number(c.moduleSlotIndex ?? ci) + 1}`)
     );
     if (t.battery) {
       const bChildren: TraceNode[] = [];
@@ -106,7 +107,7 @@ function buildTree(t: any): TraceNode[] {
         makeNode('battery', t.battery.serialNumber, 'BATTERY', t.battery, 'Battery Pack', undefined, bChildren)
       );
     }
-    const roots = [makeNode('module', e.serialNumber, 'MODULE', e, 'Module', e.status, modChildren)];
+    const roots = [makeNode('module', e.serialNumber, 'MODULE', e, 'Module', e.lifecycleStatus || e.lifecycle_status || e.status, modChildren)];
     if (t.supplier) roots.unshift(makeNode('supplier', t.supplier.name, 'SUPPLIER', t.supplier, 'Supplier'));
     return roots;
   }
@@ -204,7 +205,7 @@ function detailFields(node: TraceNode): { label: string; value: string }[] {
         { label: 'Batch', value: fmt(d.batchNumber) },
         { label: 'Pallet', value: fmt(d.palletNumber) },
         { label: 'Box', value: fmt(d.boxNumber) },
-        { label: 'Status', value: fmt(d.status) },
+        { label: 'Status', value: fmt(d.lifecycleStatus || d.lifecycle_status || d.status) },
         { label: 'Tested At', value: fmt(d.testedAt) },
         { label: 'Tested By', value: fmt(d.testedBy) },
       ];
@@ -221,6 +222,13 @@ function detailFields(node: TraceNode): { label: string; value: string }[] {
         { label: 'QC Status', value: fmt(d.qcResult?.status) },
         { label: 'Operator', value: fmt(d.weldingResult?.operatorId) },
         { label: 'Welded At', value: fmt(d.weldingResult?.weldedAt) },
+        ...(d.cells || []).flatMap((cell: any, index: number) => {
+          const slot = Number(cell.moduleSlotIndex ?? index) + 1;
+          return [
+            { label: `Cell Slot ${slot} Barcode`, value: fmt(cell.supplierBarcode || cell.qrCode || cell.internalSerial) },
+            { label: `Cell Slot ${slot} Internal Serial`, value: fmt(cell.internalSerial) },
+          ];
+        }),
       ];
     case 'BATTERY':
       return [

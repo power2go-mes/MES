@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { useApp } from '../../context/AppContext';
-import { Search, Cpu, RefreshCw, Bell, ChevronDown, LogOut, Menu } from 'lucide-react';
+import { Search, RefreshCw, Bell, ChevronDown, LogOut, Menu } from 'lucide-react';
 
 type HeaderProps = {
   onOpenNavigation: () => void;
@@ -80,16 +80,6 @@ export const Header: React.FC<HeaderProps> = ({ onOpenNavigation }) => {
         </div>
 
         <div className="ml-auto flex h-10 items-center gap-3 sm:gap-5">
-          {/* Machine Gateway status icon */}
-          <button
-            onClick={() => setActiveView('machines')}
-            className="flex h-10 items-center space-x-1.5 px-2.5 rounded-lg text-xs font-semibold bg-slate-50 border border-slate-200 hover:bg-slate-100 text-slate-700 transition-colors"
-            title="Machine Gateway IoT"
-          >
-            <Cpu className="w-3.5 h-3.5 text-emerald-600" />
-            <span className="hidden sm:inline font-mono text-[11px]">IoT Gateway</span>
-          </button>
-
           {/* Refresh button */}
           <button
             onClick={() => triggerRefresh()}

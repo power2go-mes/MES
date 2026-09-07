@@ -1,443 +1,232 @@
-import React, { useState, useEffect } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useApp } from '../../context/AppContext';
-import { useAuth } from '../../context/AuthContext';
 import { api } from '../../services/api';
-import { BatteryUnit, ModuleItem } from '../../types';
-import {
-  CheckCircle2,
-  AlertTriangle,
-  ArrowRight,
-  Zap,
-  Check,
-  GripVertical,
-  RotateCcw,
-  Sparkles,
-  ShieldAlert,
-  Info,
-  Layers,
-  ChevronRight
-} from 'lucide-react';
+import { CellItem } from '../../types';
+import { QRCodeModal } from '../common/QRCodeModal';
+import { ScannerModal } from '../common/ScannerModal';
+import { ClipboardPaste, GripVertical, Layers, ScanLine, Trash2 } from 'lucide-react';
 
-interface ModuleRowState {
-  moduleId: string;
-  weldingStatus: 'PASSED' | 'FAILED' | 'BYPASSED';
-  physicalVisualOk: boolean;
-  voltageQcOk: boolean;
-  laserPowerWatts: number;
-  weldTimeMs: number;
-  pullForceKg: number;
-  busbarResistanceMilliOhm: number;
-  packVoltageV: number;
-  insulationResistanceMOhm: number;
-  notes: string;
+interface ModuleTestRow {
+  cellId: string;
+  ocvV: string;
+  irMilliOhm: string;
+  grade: string;
+  damageCondition: 'GOOD' | 'DAMAGED';
+  damageRemarks: string;
 }
 
 export const ModuleWorkflowView: React.FC = () => {
-  const { activeBatteryId, setActiveView, addNotification, refreshKey, triggerRefresh } = useApp();
-  const { currentUser } = useAuth();
+  const { activeModuleId, addNotification, refreshKey, triggerRefresh } = useApp();
+  const [moduleType, setModuleType] = useState<'8S' | '12S'>('8S');
+  const [floorCells, setFloorCells] = useState<CellItem[]>([]);
+  const [selectedCellIds, setSelectedCellIds] = useState<string[]>([]);
+  const [manualBarcodes, setManualBarcodes] = useState('');
+  const [scannerOpen, setScannerOpen] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [qrModule, setQrModule] = useState<any | null>(null);
+  const [draftModule, setDraftModule] = useState<any | null>(null);
+  const [acknowledged, setAcknowledged] = useState(false);
+  const [weldingStatus, setWeldingStatus] = useState<'PASSED' | 'FAILED'>('PASSED');
+  const [testRows, setTestRows] = useState<ModuleTestRow[]>([]);
+  const [draggedCellId, setDraggedCellId] = useState<string | null>(null);
+  const requiredCells = moduleType === '8S' ? 8 : 12;
 
-  const [battery, setBattery] = useState<BatteryUnit | null>(null);
-  const [modules, setModules] = useState<ModuleItem[]>([]);
-  const [moduleStates, setModuleStates] = useState<Record<string, ModuleRowState>>({});
-  const [loading, setLoading] = useState(false);
-  const [submitting, setSubmitting] = useState(false);
-  const [draggedCell, setDraggedCell] = useState<{ moduleIndex: number; cellSlotIndex: number; cellId: string } | null>(null);
-  const [movingCell, setMovingCell] = useState(false);
-
-  useEffect(() => {
-    if (activeBatteryId) {
-      loadBattery(activeBatteryId);
-    }
-  }, [activeBatteryId, refreshKey]);
-
-  const loadBattery = async (id: string) => {
+  const loadFloorCells = async () => {
     setLoading(true);
     try {
-      const res = await api.getBattery(id);
-      setBattery(res.battery);
-      setModules(res.battery.modules || []);
-
-      // Initialize state for each module
-      const states: Record<string, ModuleRowState> = {};
-      (res.battery.modules || []).forEach(mod => {
-        states[mod.id] = {
-          moduleId: mod.id,
-          weldingStatus: mod.weldingResult?.status === 'FAILED' ? 'FAILED' : 'PASSED',
-          physicalVisualOk: mod.qcResult?.physicalVisualOk ?? true,
-          voltageQcOk: (mod.qcResult?.status === 'PASSED' || !mod.qcResult) ? true : false,
-          laserPowerWatts: mod.weldingResult?.laserPowerWatts || 2800,
-          weldTimeMs: mod.weldingResult?.weldTimeMs || 4200,
-          pullForceKg: mod.weldingResult?.pullForceKg || 18.5,
-          busbarResistanceMilliOhm: mod.qcResult?.busbarResistanceMilliOhm || 0.18,
-          packVoltageV: mod.qcResult?.packVoltageV || 26.4,
-          insulationResistanceMOhm: mod.qcResult?.insulationResistanceMOhm || 520,
-          notes: mod.qcResult?.notes || '',
-        };
-      });
-      setModuleStates(states);
-    } catch (err: any) {
-      addNotification('error', 'Failed to load battery', err.message);
+      setFloorCells(await api.getCells({ lifecycleStatus: 'FLOOR_STOCK', limit: 5000 }));
+    } catch (error: any) {
+      addNotification('error', 'Floor Stock Unavailable', error.message || 'Could not load floor-stock cells.');
     } finally {
       setLoading(false);
     }
   };
 
-  const handlePassAllModules = () => {
-    const updated: Record<string, ModuleRowState> = {};
-    modules.forEach(mod => {
-      updated[mod.id] = {
-        moduleId: mod.id,
-        weldingStatus: 'PASSED',
-        physicalVisualOk: true,
-        voltageQcOk: true,
-        laserPowerWatts: 2800,
-        weldTimeMs: 4200,
-        pullForceKg: 18.5,
-        busbarResistanceMilliOhm: 0.18,
-        packVoltageV: 26.4,
-        insulationResistanceMOhm: 520,
-        notes: 'Verified busbar weld & insulation parameters',
-      };
-    });
-    setModuleStates(updated);
-    addNotification('info', 'Module Presets Applied', 'All modules marked as PASSED with nominal welding & QC parameters.');
-  };
+  useEffect(() => { void loadFloorCells(); }, [refreshKey]);
+  useEffect(() => { setSelectedCellIds([]); setManualBarcodes(''); }, [moduleType]);
 
-  const handleContinueToPack = async () => {
-    if (!battery) return;
-    setSubmitting(true);
+  useEffect(() => {
+    if (!activeModuleId) return;
+    let cancelled = false;
+    const loadModuleForEdit = async () => {
+      try {
+        const module = (await api.getModules()).find(item => item.id === activeModuleId);
+        if (!module || cancelled) return;
+        const moduleCells = module.cells || [];
+        const inferredModuleType = module.moduleType === '12S' || moduleCells.length === 12 ? '12S' : '8S';
+        setModuleType(inferredModuleType);
+        setFloorCells(current => [...current.filter(cell => !moduleCells.some(moduleCell => moduleCell.id === cell.id)), ...moduleCells]);
+        setSelectedCellIds(moduleCells.map(cell => cell.id));
+        setDraftModule(module);
+        setWeldingStatus(module.weldingResult?.status === 'FAILED' ? 'FAILED' : 'PASSED');
+        setAcknowledged(true);
+        setTestRows(moduleCells.map(cell => ({
+          cellId: cell.id,
+          ocvV: cell.productionOcvV != null ? String(cell.productionOcvV) : cell.supplierOcvV != null ? String(cell.supplierOcvV) : '',
+          irMilliOhm: cell.productionIrMilliOhm != null ? String(cell.productionIrMilliOhm) : cell.supplierIrMilliOhm != null ? String(cell.supplierIrMilliOhm) : '',
+          grade: cell.productionGrade || cell.supplierGrade || 'A+',
+          damageCondition: 'GOOD',
+          damageRemarks: '',
+        })));
+      } catch (error: any) {
+        if (!cancelled) addNotification('error', 'Module Load Failed', error.message || 'Could not load the module for editing.');
+      }
+    };
+    void loadModuleForEdit();
+    return () => { cancelled = true; };
+  }, [activeModuleId, addNotification]);
 
-    try {
-      const payload = modules.map(m => {
-        const state = moduleStates[m.id];
-        return state || {
-          moduleId: m.id,
-          weldingStatus: 'PASSED',
-          physicalVisualOk: true,
-          voltageQcOk: true,
-        };
-      });
+  const selectedCells = useMemo(() => selectedCellIds
+    .map(id => floorCells.find(cell => cell.id === id))
+    .filter(Boolean) as CellItem[], [floorCells, selectedCellIds]);
 
-      const res = await api.bulkSaveModuleWorkflow(battery.id, payload, currentUser.id);
-      setBattery(res.battery);
-      addNotification('success', 'Module Workflow Saved', 'Laser welding and module QC logged. Advancing to Battery Pack assembly.');
-      triggerRefresh();
-      setActiveView('workflow-pack');
-    } catch (err: any) {
-      addNotification('error', 'Save Failed', err.message || 'Failed to complete module workflow');
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
-  const handleCellDrop = async (targetModuleIndex: number, targetCellSlotIndex: number) => {
-    if (!battery || !draggedCell || movingCell) return;
-    if (draggedCell.moduleIndex === targetModuleIndex && draggedCell.cellSlotIndex === targetCellSlotIndex) {
-      setDraggedCell(null);
+  const addCellByBarcode = (barcode: string) => {
+    const normalized = barcode.trim().toLowerCase();
+    if (!normalized) return;
+    const cell = floorCells.find(item => [item.id, item.internalSerial, item.supplierBarcode].some(value => String(value || '').toLowerCase() === normalized));
+    if (!cell) {
+      addNotification('error', 'Cell Not Available', `${barcode} is not in FLOOR_STOCK.`);
       return;
     }
+    if (selectedCellIds.includes(cell.id)) {
+      addNotification('warning', 'Duplicate Cell', `${barcode} has already been selected.`);
+      return;
+    }
+    if (selectedCellIds.length >= requiredCells) {
+      addNotification('warning', 'Module Full', `An ${moduleType} module accepts exactly ${requiredCells} cells.`);
+      return;
+    }
+    setSelectedCellIds(current => [...current, cell.id]);
+  };
 
-    setMovingCell(true);
+  const submitManualCells = (event: React.FormEvent) => {
+    event.preventDefault();
+    manualBarcodes.split(/[\n,;\t]+/).filter(Boolean).forEach(addCellByBarcode);
+    setManualBarcodes('');
+  };
+
+  const createModule = async () => {
+    if (selectedCells.length !== requiredCells) return;
+    setSaving(true);
     try {
-      await api.moveCell(
-        battery.id,
-        draggedCell.moduleIndex,
-        draggedCell.cellSlotIndex,
-        targetModuleIndex,
-        targetCellSlotIndex,
-        draggedCell.cellId,
-      );
-      await loadBattery(battery.id);
-      addNotification('success', 'Cell Slot Updated', 'The cell was moved to the selected slot.');
-    } catch (err: any) {
-      addNotification('error', 'Cell Move Failed', err.message || 'Unable to update the cell slot.');
+      const result = await api.createStandaloneModule(moduleType, selectedCells.map(cell => cell.internalSerial || cell.id));
+      setDraftModule(result.module);
+      setWeldingStatus('PASSED');
+      setAcknowledged(false);
+      setTestRows(selectedCells.map(cell => ({
+        cellId: cell.id,
+        ocvV: cell.supplierOcvV != null ? String(cell.supplierOcvV) : '',
+        irMilliOhm: cell.supplierIrMilliOhm != null ? String(cell.supplierIrMilliOhm) : '',
+        grade: cell.supplierGrade || 'A+',
+        damageCondition: 'GOOD',
+        damageRemarks: '',
+      })));
+      addNotification('success', 'Module Draft Created', 'Complete acknowledgement, OCV/IR, grading, and damage history before final completion.');
+    } catch (error: any) {
+      addNotification('error', 'Module Creation Failed', error.message || 'Could not create the module.');
     } finally {
-      setDraggedCell(null);
-      setMovingCell(false);
+      setSaving(false);
     }
   };
 
-  if (!activeBatteryId || !battery) {
-    return (
-      <div className="flex-1 p-8 bg-slate-50 flex items-center justify-center">
-        <div className="max-w-md w-full bg-white p-8 rounded-2xl border border-slate-200 shadow-sm text-center">
-          <Layers className="w-12 h-12 text-slate-400 mx-auto mb-3" />
-          <h2 className="text-xl font-black text-slate-800 mb-2">NO ACTIVE BATTERY</h2>
-          <p className="text-sm text-slate-500 mb-6">Select a battery from the 2D Builder or Production Orders.</p>
-          <button
-            onClick={() => setActiveView('production')}
-            className="w-full py-3 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-xl text-sm transition-colors"
-          >
-            Go to 2D Battery Builder
-          </button>
-        </div>
-      </div>
-    );
-  }
+  const updateTestRow = (cellId: string, changes: Partial<ModuleTestRow>) => {
+    setTestRows(current => current.map(row => row.cellId === cellId ? { ...row, ...changes } : row));
+  };
 
-  const allModulesValid = modules.every(m => {
-    const s = moduleStates[m.id];
-    return s && s.weldingStatus === 'PASSED' && s.physicalVisualOk && s.voltageQcOk;
-  });
+  const moveCellBefore = (sourceId: string, targetId: string) => {
+    if (sourceId === targetId) return;
+    setTestRows(current => {
+      const sourceIndex = current.findIndex(row => row.cellId === sourceId);
+      const targetIndex = current.findIndex(row => row.cellId === targetId);
+      if (sourceIndex < 0 || targetIndex < 0) return current;
+      const next = [...current];
+      const [moved] = next.splice(sourceIndex, 1);
+      next.splice(targetIndex, 0, moved);
+      return next;
+    });
+    setSelectedCellIds(current => {
+      const sourceIndex = current.indexOf(sourceId);
+      const targetIndex = current.indexOf(targetId);
+      if (sourceIndex < 0 || targetIndex < 0) return current;
+      const next = [...current];
+      const [moved] = next.splice(sourceIndex, 1);
+      next.splice(targetIndex, 0, moved);
+      return next;
+    });
+  };
+
+  const completeModule = async () => {
+    if (!draftModule || !acknowledged || testRows.some(row => Number(row.ocvV) <= 0 || Number(row.irMilliOhm) < 0 || !row.grade || row.damageCondition !== 'GOOD')) return;
+    setSaving(true);
+    try {
+      const result = await api.completeStandaloneModule(draftModule.id, acknowledged, testRows.map(row => ({
+        cellId: row.cellId,
+        ocvV: Number(row.ocvV),
+        irMilliOhm: Number(row.irMilliOhm),
+        grade: row.grade,
+        damageCondition: row.damageCondition,
+        damageRemarks: row.damageRemarks,
+      })));
+      await api.updateModuleWeldingStatus(draftModule.id, weldingStatus);
+      setQrModule({ ...draftModule, ...result.module, serial_number: result.module.serial_number || draftModule.serial_number, qr_code: draftModule.qr_code || `${draftModule.serial_number}|MODULE:${draftModule.id}` });
+      setDraftModule(null);
+      setSelectedCellIds([]);
+      setTestRows([]);
+      triggerRefresh();
+      await loadFloorCells();
+      addNotification('success', 'Module Complete', `${moduleType} module completed with laser welding ${weldingStatus === 'PASSED' ? 'passed' : 'failed'}.`);
+    } catch (error: any) {
+      addNotification('error', 'Module Completion Failed', error.message || 'Complete every required module test.');
+    } finally {
+      setSaving(false);
+    }
+  };
 
   return (
-    <div className="flex-1 p-4 md:p-8 overflow-y-auto bg-slate-50">
-      <div className="max-w-6xl mx-auto space-y-6">
+    <div className="flex-1 overflow-y-auto bg-slate-50 p-4 md:p-8">
+      <div className="mx-auto max-w-6xl space-y-6">
+        <header className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+          <div className="flex items-center gap-3"><Layers className="h-7 w-7 text-emerald-600" /><div><h1 className="text-xl font-black text-slate-900">Standalone Module Assembly</h1><p className="text-xs text-slate-500">Build a module directly from FLOOR_STOCK cells. Battery and rack selection happens in later production stages.</p></div></div>
+        </header>
 
-        {/* Header */}
-        <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
-          <div>
-            <div className="flex items-center space-x-2 text-xs font-bold text-slate-400 uppercase tracking-widest mb-1">
-              <span>Module Workflow Engine</span>
-              <span className="text-slate-300">•</span>
-              <span className="text-emerald-600">Welding & Inspection</span>
+        <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+          <div className="grid gap-4 md:grid-cols-[220px_1fr_auto] md:items-end">
+            <label className="text-xs font-bold text-slate-600">Module type<select value={moduleType} disabled={Boolean(draftModule)} onChange={event => setModuleType(event.target.value as '8S' | '12S')} className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2.5 text-sm font-bold"><option value="8S">8S · 8 cells</option><option value="12S">12S · 12 cells</option></select></label>
+            <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-2.5 text-xs text-emerald-900"><strong>Floor stock only:</strong> scan cells received from Supplier Import and moved through Container to Floor.</div>
+            <button type="button" onClick={() => setScannerOpen(true)} disabled={Boolean(draftModule) || selectedCellIds.length >= requiredCells} className="inline-flex items-center justify-center gap-2 rounded-lg bg-emerald-600 px-4 py-2.5 text-xs font-bold text-white disabled:bg-slate-300"><ScanLine className="h-4 w-4" />Scan cell</button>
+          </div>
+          {!draftModule && <form onSubmit={submitManualCells} className="mt-4 flex flex-col gap-2 sm:flex-row"><textarea value={manualBarcodes} onChange={event => setManualBarcodes(event.target.value)} placeholder="Paste cell barcodes, one per line or comma separated" className="min-h-12 flex-1 rounded-lg border border-slate-200 px-3 py-2 text-xs font-mono" /><button type="submit" className="inline-flex items-center justify-center gap-2 rounded-lg border border-slate-300 px-4 py-2 text-xs font-bold text-slate-700 hover:bg-slate-50"><ClipboardPaste className="h-4 w-4" />Add pasted cells</button></form>}
+        </section>
+
+        <section className="rounded-2xl border border-slate-200 bg-white shadow-sm">
+          <div className="flex items-center justify-between border-b border-slate-100 p-5"><div><p className="text-[10px] font-black uppercase tracking-widest text-emerald-600">2D Module Builder</p><h2 className="text-base font-black text-slate-900">Cells assigned to {moduleType}</h2></div><span className="font-mono text-sm font-black text-emerald-700">{selectedCells.length} / {requiredCells}</span></div>
+          {loading ? <p className="p-8 text-center text-xs text-slate-500">Loading floor-stock cells...</p> : <div className="grid gap-3 p-5 md:grid-cols-2 xl:grid-cols-4">{selectedCells.map((cell, index) => <div key={cell.id} className="rounded-xl border border-emerald-200 bg-emerald-50 p-3"><div className="flex items-center justify-between"><span className="text-[10px] font-black text-emerald-700">SLOT {index + 1}</span><button type="button" onClick={() => setSelectedCellIds(current => current.filter(id => id !== cell.id))} className="text-slate-400 hover:text-red-600" title="Remove cell"><Trash2 className="h-4 w-4" /></button></div><p className="mt-2 truncate font-mono text-xs font-bold text-slate-900">{cell.internalSerial}</p><p className="mt-1 text-[10px] text-slate-500">{cell.supplierBarcode || 'No supplier barcode'} · FLOOR_STOCK</p></div>)}{selectedCells.length === 0 && <p className="col-span-full py-8 text-center text-xs text-slate-500">No cells selected. Scan or paste cells from floor stock.</p>}</div>}
+          {!draftModule && <div className="flex items-center justify-between border-t border-slate-100 p-5"><p className="text-xs text-slate-500">The first step creates a module draft. Tests are required before completion.</p><button type="button" onClick={() => void createModule()} disabled={saving || selectedCells.length !== requiredCells} className="rounded-lg bg-slate-900 px-5 py-2.5 text-xs font-bold text-white disabled:bg-slate-300">{saving ? 'Creating draft...' : `Start ${moduleType} module`}</button></div>}
+        </section>
+
+        {draftModule && <section className="rounded-2xl border border-amber-200 bg-white shadow-sm">
+          <div className="border-b border-amber-100 bg-amber-50 p-5">
+            <p className="text-[10px] font-black uppercase tracking-widest text-amber-700">Module quality workflow</p>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <h2 className="text-base font-black text-slate-900">Complete {draftModule.serial_number}</h2>
+              <div className="flex flex-wrap items-center gap-2">
+                <label className="flex items-center gap-2 text-[10px] font-black uppercase tracking-wide text-slate-600">Laser Welding<select value={weldingStatus} onChange={event => setWeldingStatus(event.target.value as 'PASSED' | 'FAILED')} className="rounded border border-slate-200 bg-white px-2 py-1 text-[10px] font-bold normal-case tracking-normal"><option value="PASSED">PASS</option><option value="FAILED">FAIL</option></select></label>
+                <span className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[10px] font-black uppercase tracking-wide ${weldingStatus === 'PASSED' ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-red-200 bg-red-50 text-red-700'}`}>
+                  Welding Status: {weldingStatus === 'PASSED' ? 'WELDED' : 'FAILED'}
+                </span>
+              </div>
             </div>
-            <h1 className="text-2xl font-black text-slate-900 tracking-tight">
-              MODULE ASSEMBLY & LASER WELDING QC
-            </h1>
+            <p className="mt-1 text-xs text-slate-600">Acknowledgement, OCV/IR, grading, damage history, and welding status are shown before completion.</p>
           </div>
-
-          <div className="flex flex-wrap gap-2 text-xs">
-            <div className="px-3 py-1.5 bg-slate-100 rounded-lg border border-slate-200">
-              <span className="text-slate-400 font-bold block text-[10px] uppercase">Battery</span>
-              <span className="font-mono font-bold text-slate-800">{battery.serialNumber}</span>
-            </div>
-            <div className="px-3 py-1.5 bg-emerald-50 rounded-lg border border-emerald-200">
-              <span className="text-emerald-600 font-bold block text-[10px] uppercase">Total Modules</span>
-              <span className="font-mono font-bold text-emerald-800">{modules.length} Modules</span>
-            </div>
-          </div>
-        </div>
-
-        {/* Action Toolbar */}
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white p-4 rounded-xl border border-slate-200 shadow-xs">
-          <div className="flex items-center space-x-2 text-xs text-slate-600">
-            <Zap className="w-4 h-4 text-emerald-600 shrink-0" />
-            <span>
-              Verify laser busbar welding integrity, physical visual inspection, and inter-cell voltage metrics for each module.
-            </span>
-          </div>
-          <button
-            type="button"
-            onClick={handlePassAllModules}
-            className="px-3 py-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 text-xs font-bold rounded-lg border border-emerald-200 transition-colors flex items-center space-x-1 shrink-0"
-          >
-            <Check className="w-3.5 h-3.5" />
-            <span>Pass All Modules (Batch QC)</span>
-          </button>
-        </div>
-
-        {/* Modules Table */}
-        <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse">
-              <thead>
-                <tr className="bg-slate-900 text-white text-xs uppercase tracking-wider">
-                  <th className="px-4 py-3.5 font-semibold text-center w-16">Mod</th>
-                  <th className="px-4 py-3.5 font-semibold">Module Serial</th>
-                  <th className="px-4 py-3.5 font-semibold text-center">Cells</th>
-                  <th className="px-4 py-3.5 font-semibold">Laser Welding</th>
-                  <th className="px-4 py-3.5 font-semibold text-center">Physical Busbar QC</th>
-                  <th className="px-4 py-3.5 font-semibold text-center">Voltage & Insulation QC</th>
-                  <th className="px-4 py-3.5 font-semibold text-center">Module Status</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {modules.map((mod, idx) => {
-                  const s = moduleStates[mod.id] || {
-                    moduleId: mod.id,
-                    weldingStatus: 'PASSED',
-                    physicalVisualOk: true,
-                    voltageQcOk: true,
-                    laserPowerWatts: 2800,
-                    weldTimeMs: 4200,
-                    pullForceKg: 18.5,
-                    busbarResistanceMilliOhm: 0.18,
-                    packVoltageV: 26.4,
-                    insulationResistanceMOhm: 520,
-                    notes: '',
-                  };
-
-                  const isWeldPass = s.weldingStatus === 'PASSED';
-                  const isOverallPass = isWeldPass && s.physicalVisualOk && s.voltageQcOk;
-
-                  return (
-                    <tr key={mod.id} className="hover:bg-slate-50/80 transition-colors">
-                      <td className="px-4 py-4 text-sm font-bold text-slate-800 text-center whitespace-nowrap bg-slate-50/50">
-                        M{(idx + 1).toString().padStart(2, '0')}
-                      </td>
-                      <td className="px-4 py-4 whitespace-nowrap">
-                        <span className="font-mono font-bold text-xs text-slate-800 block">
-                          {mod.serialNumber}
-                        </span>
-                        <span className="text-[10px] text-slate-400 font-mono">
-                          QR: {mod.qrCode || `QR-${mod.serialNumber}`}
-                        </span>
-                        <div className="mt-3 space-y-1.5 border-t border-slate-100 pt-2">
-                          <span className="block text-[9px] font-black uppercase tracking-wider text-slate-400">
-                            Assigned Cells
-                          </span>
-                            {(mod.cells || []).length > 0 ? (
-                              mod.cells.map((cell, cellIndex) => {
-                                const cellSlotIndex = cell.moduleSlotIndex ?? cellIndex;
-                                return (
-                                  <div
-                                    key={cell.id || `${mod.id}-cell-${cellIndex}`}
-                                    draggable={!movingCell}
-                                    onDragStart={(event) => {
-                                      setDraggedCell({ moduleIndex: mod.moduleIndex ?? idx, cellSlotIndex, cellId: cell.id });
-                                      event.dataTransfer.effectAllowed = 'move';
-                                      event.dataTransfer.setData('text/plain', cell.id);
-                                    }}
-                                    onDragEnd={() => setDraggedCell(null)}
-                                    onDragOver={(event) => event.preventDefault()}
-                                    onDrop={(event) => {
-                                      event.preventDefault();
-                                      void handleCellDrop(mod.moduleIndex ?? idx, cellSlotIndex);
-                                    }}
-                                    className={`group rounded-md bg-slate-50 px-2 py-1.5 text-[10px] leading-tight border border-transparent hover:border-emerald-300 cursor-grab active:cursor-grabbing ${draggedCell?.cellId === cell.id ? 'opacity-50 ring-2 ring-emerald-300' : ''}`}
-                                    title="Drag this cell onto another cell to swap slots, or onto an empty slot in the builder"
-                                  >
-                                    <span className="flex items-center gap-1 font-mono font-bold text-slate-700">
-                                      <GripVertical className="w-3 h-3 text-slate-400 shrink-0" />
-                                      Slot {cellSlotIndex + 1}: {cell.internalSerial}
-                                    </span>
-                                    <span className="block font-mono text-slate-400 pl-4">
-                                      Barcode: {cell.supplierBarcode}
-                                    </span>
-                                  </div>
-                                );
-                              })
-                          ) : (
-                            <span className="text-[10px] text-slate-400">No cells assigned</span>
-                          )}
-                        </div>
-                      </td>
-                      <td className="px-4 py-4 text-center whitespace-nowrap">
-                        <span className="px-2.5 py-1 bg-slate-100 rounded-md font-mono text-xs font-bold text-slate-700">
-                          {mod.cells?.length || 8}
-                        </span>
-                      </td>
-                      <td className="px-4 py-4 whitespace-nowrap">
-                        <div className="flex items-center space-x-2">
-                          <div className="inline-flex rounded-lg p-0.5 bg-slate-100 border border-slate-200">
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setModuleStates(prev => ({
-                                  ...prev,
-                                  [mod.id]: { ...prev[mod.id], weldingStatus: 'PASSED' }
-                                }));
-                              }}
-                              className={`px-2.5 py-1 text-xs font-bold rounded-md transition-all ${
-                                isWeldPass
-                                  ? 'bg-emerald-600 text-white shadow-xs'
-                                  : 'text-slate-600 hover:text-slate-900'
-                              }`}
-                            >
-                              PASS
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setModuleStates(prev => ({
-                                  ...prev,
-                                  [mod.id]: { ...prev[mod.id], weldingStatus: 'FAILED' }
-                                }));
-                              }}
-                              className={`px-2.5 py-1 text-xs font-bold rounded-md transition-all ${
-                                !isWeldPass
-                                  ? 'bg-red-600 text-white shadow-xs'
-                                  : 'text-slate-600 hover:text-red-700'
-                              }`}
-                            >
-                              FAIL
-                            </button>
-                          </div>
-                          <span className="text-[10px] text-slate-400 font-mono">
-                            {s.laserPowerWatts}W / {s.pullForceKg}kg
-                          </span>
-                        </div>
-                      </td>
-                      <td className="px-4 py-4 text-center whitespace-nowrap">
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setModuleStates(prev => ({
-                              ...prev,
-                              [mod.id]: { ...prev[mod.id], physicalVisualOk: !s.physicalVisualOk }
-                            }));
-                          }}
-                          className={`px-3 py-1 rounded-lg text-xs font-bold transition-colors inline-flex items-center space-x-1 ${
-                            s.physicalVisualOk
-                              ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
-                              : 'bg-red-50 text-red-700 border border-red-200'
-                          }`}
-                        >
-                          {s.physicalVisualOk ? <Check className="w-3.5 h-3.5" /> : <AlertTriangle className="w-3.5 h-3.5" />}
-                          <span>{s.physicalVisualOk ? 'VISUAL OK' : 'DEFECT'}</span>
-                        </button>
-                      </td>
-                      <td className="px-4 py-4 text-center whitespace-nowrap">
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setModuleStates(prev => ({
-                              ...prev,
-                              [mod.id]: { ...prev[mod.id], voltageQcOk: !s.voltageQcOk }
-                            }));
-                          }}
-                          className={`px-3 py-1 rounded-lg text-xs font-bold transition-colors inline-flex items-center space-x-1 ${
-                            s.voltageQcOk
-                              ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
-                              : 'bg-red-50 text-red-700 border border-red-200'
-                          }`}
-                        >
-                          {s.voltageQcOk ? <Check className="w-3.5 h-3.5" /> : <AlertTriangle className="w-3.5 h-3.5" />}
-                          <span>{s.voltageQcOk ? '26.4V / >500MΩ' : 'VOLTAGE FAIL'}</span>
-                        </button>
-                      </td>
-                      <td className="px-4 py-4 text-center whitespace-nowrap">
-                        {isOverallPass ? (
-                          <span className="inline-flex items-center space-x-1 text-xs font-bold text-emerald-700 bg-emerald-100/80 px-2.5 py-1 rounded-full">
-                            <Check className="w-3 h-3" />
-                            <span>READY</span>
-                          </span>
-                        ) : (
-                          <span className="inline-flex items-center space-x-1 text-xs font-bold text-red-700 bg-red-100/80 px-2.5 py-1 rounded-full">
-                            <ShieldAlert className="w-3 h-3" />
-                            <span>SCRAP</span>
-                          </span>
-                        )}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        </div>
-
-        {/* Footer */}
-        <div className="flex justify-between items-center bg-white p-4 rounded-2xl border border-slate-200 shadow-xs">
-          <button
-            type="button"
-            onClick={() => setActiveView('workflow-cell')}
-            className="px-5 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl text-xs transition-colors"
-          >
-            ← Back to Cell Workflow
-          </button>
-          <button
-            onClick={handleContinueToPack}
-            disabled={submitting || modules.length === 0}
-            className="px-8 py-3.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-xl shadow-xs transition-colors flex items-center space-x-2 text-sm disabled:opacity-50"
-          >
-            <span>{submitting ? 'SAVING MODULE DATA...' : 'CONTINUE TO BATTERY PACK'}</span>
-            <ArrowRight className="w-4 h-4" />
-          </button>
-        </div>
-
+          <label className="m-5 flex items-center gap-2 rounded-lg border border-slate-200 p-3 text-xs font-bold text-slate-700"><input type="checkbox" checked={acknowledged} onChange={event => setAcknowledged(event.target.checked)} /> I acknowledge the module cells are correctly assigned.</label>
+          <div className="space-y-3 px-5 pb-5">{testRows.map((row, index) => { const cell = selectedCells.find(item => item.id === row.cellId); return <div key={row.cellId} className="grid gap-2 rounded-xl border border-slate-200 p-3 md:grid-cols-[1.3fr_0.7fr_0.7fr_0.8fr_1fr_1.2fr]"><div><span className="block text-[10px] font-black text-slate-500">CELL {index + 1}</span><span className="font-mono text-xs font-bold">{cell?.internalSerial || row.cellId}</span></div><input type="number" step="0.001" placeholder="OCV V" value={row.ocvV} onChange={event => updateTestRow(row.cellId, { ocvV: event.target.value })} className="rounded border border-slate-200 px-2 py-2 text-xs" /><input type="number" step="0.001" placeholder="IR mΩ" value={row.irMilliOhm} onChange={event => updateTestRow(row.cellId, { irMilliOhm: event.target.value })} className="rounded border border-slate-200 px-2 py-2 text-xs" /><select value={row.grade} onChange={event => updateTestRow(row.cellId, { grade: event.target.value })} className="rounded border border-slate-200 px-2 py-2 text-xs"><option value="A+">A+</option><option value="A">A</option><option value="REJECT">Reject</option></select><select value={row.damageCondition} onChange={event => updateTestRow(row.cellId, { damageCondition: event.target.value as 'GOOD' | 'DAMAGED' })} className="rounded border border-slate-200 px-2 py-2 text-xs"><option value="GOOD">Damage: Good</option><option value="DAMAGED">Damage: Damaged</option></select><input value={row.damageRemarks} onChange={event => updateTestRow(row.cellId, { damageRemarks: event.target.value })} placeholder="Damage history / remarks" className="rounded border border-slate-200 px-2 py-2 text-xs" /></div>; })}</div>
+          <div className="flex justify-end border-t border-amber-100 p-5"><button type="button" onClick={() => void completeModule()} disabled={saving || !acknowledged || testRows.some(row => !row.ocvV || !row.irMilliOhm || !row.grade || row.damageCondition !== 'GOOD')} className="rounded-lg bg-emerald-600 px-5 py-2.5 text-xs font-bold text-white disabled:bg-slate-300">{saving ? 'Completing workflow...' : 'Complete module and issue QR'}</button></div>
+        </section>}
       </div>
+      {draftModule && <div className="mx-auto mt-4 max-w-6xl rounded-xl border border-slate-200 bg-slate-50 p-3"><div className="mb-2 flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-slate-500"><GripVertical className="h-4 w-4" />Drag cells to reorder module slots</div><div className="flex flex-wrap gap-2">{testRows.map((row, index) => { const cell = selectedCells.find(item => item.id === row.cellId); return <div key={row.cellId} draggable onDragStart={() => setDraggedCellId(row.cellId)} onDragOver={event => event.preventDefault()} onDrop={() => { if (draggedCellId) moveCellBefore(draggedCellId, row.cellId); setDraggedCellId(null); }} className="cursor-grab rounded-lg border border-emerald-200 bg-white px-3 py-2 text-[10px] font-bold text-slate-700 active:cursor-grabbing"><span className="mr-1 text-emerald-600">{index + 1}.</span>{cell?.internalSerial || row.cellId}</div>; })}</div></div>}
+      <ScannerModal isOpen={scannerOpen} onClose={() => setScannerOpen(false)} onScan={barcode => { setScannerOpen(false); addCellByBarcode(barcode); }} title="Scan floor-stock cell" subtitle="Only cells currently in FLOOR_STOCK can be assigned to this module" />
+      <QRCodeModal isOpen={Boolean(qrModule)} onClose={() => setQrModule(null)} title="Module Traceability QR" qrPayload={qrModule?.qr_code || qrModule?.qrCode || `${qrModule?.serial_number}|MODULE:${qrModule?.id}` || ''} serialNumber={qrModule?.serial_number || 'MODULE'} itemType="MODULE" metadata={{ type: qrModule?.module_type || moduleType, status: qrModule?.status || 'CELLS_ASSIGNED' }} />
     </div>
   );
 };

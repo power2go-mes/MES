@@ -123,6 +123,7 @@ export interface ProductTemplate {
   numModules: number;
   cellsPerModule: number;
   totalCells: number;
+  moduleConfigurations?: Array<{ type: string; quantity: number; cellsPerModule: number }>;
   bmsModel: string;
   bmsProtocol: 'CAN_2.0B' | 'RS485' | 'MODBUS';
   bmsConfig: BMSConfig;

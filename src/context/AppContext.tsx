@@ -14,7 +14,6 @@ export type NavView =
   | 'inventory'
   | 'traceability'
   | 'supplier'
-  | 'machines'
   | 'products'
   | 'quarantine'
   | 'scrap'
@@ -38,8 +37,10 @@ interface AppContextType {
   setActiveBatteryId: (id: string | null) => void;
   activeOrderId: string | null;
   setActiveOrderId: (id: string | null) => void;
-  inventoryTab: 'CELLS' | 'BMS' | 'BMU' | 'MODULES' | 'BATTERIES';
-  setInventoryTab: (tab: 'CELLS' | 'BMS' | 'BMU' | 'MODULES' | 'BATTERIES') => void;
+  activeModuleId: string | null;
+  setActiveModuleId: (id: string | null) => void;
+  inventoryTab: 'CELLS' | 'BMS' | 'BMU' | 'MODULES' | 'BATTERIES' | 'RACKS';
+  setInventoryTab: (tab: 'CELLS' | 'BMS' | 'BMU' | 'MODULES' | 'BATTERIES' | 'RACKS') => void;
   notifications: AppNotification[];
   addNotification: (type: 'success' | 'error' | 'warning' | 'info', title: string, message: string) => void;
   dismissNotification: (id: string) => void;
@@ -79,7 +80,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [activeView, setActiveView] = useLocalStorage<NavView>('p2g_activeView', 'production-flow');
   const [activeBatteryId, setActiveBatteryId] = useLocalStorage<string | null>('p2g_activeBatteryId', null);
   const [activeOrderId, setActiveOrderId] = useLocalStorage<string | null>('p2g_activeOrderId', null);
-  const [inventoryTab, setInventoryTab] = useState<'CELLS' | 'BMS' | 'BMU' | 'MODULES' | 'BATTERIES'>('CELLS');
+  const [activeModuleId, setActiveModuleId] = useState<string | null>(null);
+  const [inventoryTab, setInventoryTab] = useState<'CELLS' | 'BMS' | 'BMU' | 'MODULES' | 'BATTERIES' | 'RACKS'>('CELLS');
 
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
   const notificationTimers = useRef<Set<number>>(new Set());
@@ -120,6 +122,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setActiveBatteryId,
     activeOrderId,
     setActiveOrderId,
+    activeModuleId,
+    setActiveModuleId,
     inventoryTab,
     setInventoryTab,
     notifications,
@@ -133,6 +137,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     activeView,
     activeBatteryId,
     activeOrderId,
+    activeModuleId,
     inventoryTab,
     notifications,
     addNotification,

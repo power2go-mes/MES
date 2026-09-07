@@ -8,7 +8,7 @@ interface QRCodeModalProps {
   title: string;
   qrPayload: string;
   serialNumber: string;
-  itemType: 'CELL' | 'MODULE' | 'BATTERY' | 'BMS' | 'BMU' | 'ORDER';
+  itemType: 'CELL' | 'MODULE' | 'BATTERY' | 'BMS' | 'BMU' | 'RACK' | 'ORDER';
   metadata?: Record<string, any>;
 }
 

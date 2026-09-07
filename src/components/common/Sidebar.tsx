@@ -38,12 +38,12 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
     setOpenSections(previous => ({ ...previous, [section]: !previous[section] }));
   };
 
-  const handleInventoryClick = (tab: 'CELLS' | 'BMS' | 'BMU' | 'MODULES' | 'BATTERIES') => {
+  const handleInventoryClick = (tab: 'CELLS' | 'BMS' | 'BMU' | 'MODULES' | 'BATTERIES' | 'RACKS') => {
     setInventoryTab(tab);
     setActiveView('inventory');
   };
 
-  const isInventoryActive = (tab: 'CELLS' | 'BMS' | 'BMU' | 'MODULES' | 'BATTERIES') => {
+  const isInventoryActive = (tab: 'CELLS' | 'BMS' | 'BMU' | 'MODULES' | 'BATTERIES' | 'RACKS') => {
     return activeView === 'inventory' && inventoryTab === tab;
   };
 
@@ -110,118 +110,17 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
           </button>}
         </div>
 
-        {/* PRODUCTION */}
+        {/* FOUR-STAGE PRODUCTION */}
         <div>
-          <button type="button" onClick={() => toggleSection('production')} aria-expanded={Boolean(openSections.production)} className="w-full flex items-center justify-between px-3 mb-1.5 text-left">
-            <span className="text-[9px] font-black uppercase tracking-widest text-slate-400">Production</span>
-            {openSections.production ? <ChevronDown className="w-3.5 h-3.5 text-slate-400" /> : <ChevronRight className="w-3.5 h-3.5 text-slate-400" />}
-          </button>
-          {openSections.production && <div className="space-y-0.5">
-            <button
-              onClick={() => setActiveView('container-floor')}
-              className={`w-full flex items-center space-x-2.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
-                activeView === 'container-floor' ? 'bg-emerald-600 text-white shadow-xs' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
-              }`}
-            >
-              <Truck className="w-3.5 h-3.5" />
-              <span>Container to Floor</span>
-            </button>
-            <button
-              onClick={() => setActiveView('planning')}
-              className={`w-full flex items-center space-x-2.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
-                activeView === 'planning'
-                  ? 'bg-emerald-600 text-white shadow-xs'
-                  : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
-              }`}
-            >
-              <CalendarCheck className="w-3.5 h-3.5" />
-              <span>New Production</span>
-            </button>
-
-            <button
-              onClick={() => setActiveView('production')}
-              className={`w-full flex items-center space-x-2.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
-                activeView === 'production'
-                  ? 'bg-emerald-600 text-white shadow-xs'
-                  : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
-              }`}
-            >
-              <Layers className="w-3.5 h-3.5" />
-              <span>Active Production</span>
-            </button>
-          </div>}
-        </div>
-
-        {/* CELLS */}
-        <div>
-          <button type="button" onClick={() => toggleSection('cells')} aria-expanded={Boolean(openSections.cells)} className="w-full flex items-center justify-between px-3 mb-1.5 text-left">
-            <span className="text-[9px] font-black uppercase tracking-widest text-slate-400">Cells</span>
-            {openSections.cells ? <ChevronDown className="w-3.5 h-3.5 text-slate-400" /> : <ChevronRight className="w-3.5 h-3.5 text-slate-400" />}
-          </button>
-          {openSections.cells && <div className="space-y-0.5">
-            {['Acknowledgment', 'OCV', 'Grading', 'Damage History'].map((step, idx) => (
-              <button
-                key={idx}
-                onClick={() => setActiveView('workflow-cell')}
-                className={`w-full flex items-center space-x-2.5 px-3 py-2 rounded-lg text-xs font-medium transition-all ${
-                  activeView === 'workflow-cell'
-                    ? 'text-emerald-700 bg-emerald-50/50 font-semibold'
-                    : 'text-slate-500 hover:bg-slate-50 hover:text-slate-900'
-                }`}
-              >
-                <div className={`w-1.5 h-1.5 rounded-full ${activeView === 'workflow-cell' ? 'bg-emerald-600' : 'bg-slate-300'}`} />
-                <span>{step}</span>
-              </button>
-            ))}
-          </div>}
-        </div>
-
-        {/* MODULES */}
-        <div>
-          <button type="button" onClick={() => toggleSection('modules')} aria-expanded={Boolean(openSections.modules)} className="w-full flex items-center justify-between px-3 mb-1.5 text-left">
-            <span className="text-[9px] font-black uppercase tracking-widest text-slate-400">Modules</span>
-            {openSections.modules ? <ChevronDown className="w-3.5 h-3.5 text-slate-400" /> : <ChevronRight className="w-3.5 h-3.5 text-slate-400" />}
-          </button>
-          {openSections.modules && <div className="space-y-0.5">
-            {['Assembly', 'Laser Welding', 'QC Physical', 'QC Voltage'].map((step, idx) => (
-              <button
-                key={idx}
-                onClick={() => setActiveView('workflow-module')}
-                className={`w-full flex items-center space-x-2.5 px-3 py-2 rounded-lg text-xs font-medium transition-all ${
-                  activeView === 'workflow-module'
-                    ? 'text-emerald-700 bg-emerald-50/50 font-semibold'
-                    : 'text-slate-500 hover:bg-slate-50 hover:text-slate-900'
-                }`}
-              >
-                <div className={`w-1.5 h-1.5 rounded-full ${activeView === 'workflow-module' ? 'bg-emerald-600' : 'bg-slate-300'}`} />
-                <span>{step}</span>
-              </button>
-            ))}
-          </div>}
-        </div>
-
-        {/* BATTERY PACK */}
-        <div>
-          <button type="button" onClick={() => toggleSection('battery-pack')} aria-expanded={Boolean(openSections['battery-pack'])} className="w-full flex items-center justify-between px-3 mb-1.5 text-left">
-            <span className="text-[9px] font-black uppercase tracking-widest text-slate-400">Battery Pack</span>
-            {openSections['battery-pack'] ? <ChevronDown className="w-3.5 h-3.5 text-slate-400" /> : <ChevronRight className="w-3.5 h-3.5 text-slate-400" />}
-          </button>
-          {openSections['battery-pack'] && <div className="space-y-0.5">
-            {['Assembly', 'IR Testing', 'Final QC'].map((step, idx) => (
-              <button
-                key={idx}
-                onClick={() => setActiveView('workflow-pack')}
-                className={`w-full flex items-center space-x-2.5 px-3 py-2 rounded-lg text-xs font-medium transition-all ${
-                  activeView === 'workflow-pack'
-                    ? 'text-emerald-700 bg-emerald-50/50 font-semibold'
-                    : 'text-slate-500 hover:bg-slate-50 hover:text-slate-900'
-                }`}
-              >
-                <div className={`w-1.5 h-1.5 rounded-full ${activeView === 'workflow-pack' ? 'bg-emerald-600' : 'bg-slate-300'}`} />
-                <span>{step}</span>
-              </button>
-            ))}
-          </div>}
+          <div className="mb-1.5 px-3 text-[9px] font-black uppercase tracking-widest text-slate-400">Production workflow</div>
+          <div className="space-y-0.5">
+            {[
+              ['container-floor', 'Container to Floor', Truck],
+              ['workflow-module', 'Module Assembly', Layers],
+              ['workflow-pack', 'Pack Assembly', Boxes],
+              ['rack-assembly', 'Rack Assembly', PackageCheck],
+            ].map(([view, label, Icon]) => <button key={String(view)} onClick={() => setActiveView(view as any)} className={`w-full flex items-center space-x-2.5 px-3 py-2 rounded-lg text-xs font-semibold transition-all ${activeView === view ? 'bg-emerald-600 text-white shadow-xs' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'}`}><Icon className="w-3.5 h-3.5" /><span>{String(label)}</span></button>)}
+          </div>
         </div>
 
         {/* INVENTORY */}
@@ -291,6 +190,17 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
               <span>Battery Inventory</span>
             </button>
             <button
+              onClick={() => handleInventoryClick('RACKS')}
+              className={`w-full flex items-center space-x-2.5 px-3 py-2 rounded-lg text-xs transition-all ${
+                isInventoryActive('RACKS')
+                  ? 'bg-slate-100 text-slate-900 font-bold'
+                  : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
+              }`}
+            >
+              <PackageCheck className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+              <span>Rack Inventory</span>
+            </button>
+            <button
               onClick={() => setActiveView('warehouse')}
               className={`w-full flex items-center space-x-2.5 px-3 py-2 rounded-lg text-xs transition-all ${
                 activeView === 'warehouse'
@@ -300,15 +210,6 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
             >
               <PackageCheck className="w-3.5 h-3.5 text-slate-400 shrink-0" />
               <span>Warehouse &amp; Dispatch</span>
-            </button>
-            <button
-              onClick={() => setActiveView('rack-assembly')}
-              className={`w-full flex items-center space-x-2.5 px-3 py-2 rounded-lg text-xs transition-all ${
-                activeView === 'rack-assembly' ? 'bg-slate-100 text-slate-900 font-bold' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
-              }`}
-            >
-              <PackageCheck className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-              <span>Rack Assembly</span>
             </button>
           </div>}
         </div>

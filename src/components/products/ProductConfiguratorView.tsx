@@ -32,8 +32,13 @@ export const ProductConfiguratorView: React.FC = () => {
   const [capacityKwh, setCapacityKwh] = useState(10.0);
   const [nominalVoltageV, setNominalVoltageV] = useState(51.2);
   const [totalCapacityAh, setTotalCapacityAh] = useState(200);
-  const [numModules, setNumModules] = useState(2);
   const [cellsPerModule, setCellsPerModule] = useState(8);
+  const [moduleConfigurations, setModuleConfigurations] = useState<Array<{ type: string; quantity: number; cellsPerModule: number }>>([
+    { type: '8S', quantity: 2, cellsPerModule: 8 },
+  ]);
+
+  const configuredModuleCount = moduleConfigurations.reduce((sum, item) => sum + item.quantity, 0);
+  const configuredCellCount = moduleConfigurations.reduce((sum, item) => sum + item.quantity * item.cellsPerModule, 0);
 
   useEffect(() => {
     loadProducts();
@@ -62,9 +67,10 @@ export const ProductConfiguratorView: React.FC = () => {
         capacityKwh,
         nominalVoltageV,
         totalCapacityAh,
-        numModules,
-        cellsPerModule,
-        totalCells: numModules * cellsPerModule,
+        numModules: configuredModuleCount,
+        cellsPerModule: moduleConfigurations[0]?.cellsPerModule || cellsPerModule,
+        totalCells: configuredCellCount,
+        moduleConfigurations,
         bmuConfig: {
           required: false,
         },
@@ -320,30 +326,33 @@ export const ProductConfiguratorView: React.FC = () => {
 
               <div className="grid grid-cols-2 gap-3 bg-slate-50/70 p-3.5 rounded-xl border border-slate-200">
                 <div>
-                  <label className="block font-bold text-slate-700 mb-1">Number of Modules</label>
-                  <input
-                    type="number"
-                    min="1"
-                    max="10"
-                    value={numModules}
-                    onChange={e => setNumModules(parseInt(e.target.value) || 1)}
-                    className="w-full px-3.5 py-2.5 bg-white border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500 font-mono"
-                  />
+                  <span className="block font-bold text-slate-700 mb-1">Number of Modules</span>
+                  <div className="w-full px-3.5 py-2.5 bg-white border border-slate-200 rounded-xl font-mono">{configuredModuleCount}</div>
                 </div>
                 <div>
-                  <label className="block font-bold text-slate-700 mb-1">Cells Per Module</label>
-                  <input
-                    type="number"
-                    min="4"
-                    max="32"
-                    value={cellsPerModule}
-                    onChange={e => setCellsPerModule(parseInt(e.target.value) || 4)}
-                    className="w-full px-3.5 py-2.5 bg-white border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500 font-mono"
-                  />
+                  <span className="block font-bold text-slate-700 mb-1">Cells Per Module</span>
+                  <div className="w-full px-3.5 py-2.5 bg-white border border-slate-200 rounded-xl font-mono">{moduleConfigurations[0]?.cellsPerModule || cellsPerModule}</div>
                 </div>
                 <div className="col-span-2 text-center text-slate-600 font-mono text-[11px]">
-                  Total Calculated Cells: <strong>{numModules * cellsPerModule} cells</strong>
+                  Total Calculated Cells: <strong>{configuredCellCount} cells</strong>
                 </div>
+              </div>
+
+              <div className="space-y-3 rounded-xl border border-emerald-200 bg-emerald-50/40 p-3.5">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <label className="block font-black text-emerald-800">Module Types in This Product</label>
+                    <p className="mt-0.5 text-[10px] text-slate-500">Define each module configuration operators can select during Module Assembly.</p>
+                  </div>
+                  <button type="button" onClick={() => setModuleConfigurations(current => [...current, { type: '12S', quantity: 1, cellsPerModule: 12 }])} className="inline-flex items-center gap-1 rounded-lg border border-emerald-200 bg-white px-2.5 py-1.5 text-[10px] font-bold text-emerald-700"><Plus className="h-3.5 w-3.5" /> Add type</button>
+                </div>
+                {moduleConfigurations.map((configuration, index) => <div key={`${configuration.type}-${index}`} className="grid grid-cols-[1fr_0.8fr_1fr_auto] items-end gap-2">
+                  <label className="text-[10px] font-bold text-slate-600">Module type<select value={configuration.type} onChange={event => setModuleConfigurations(current => current.map((item, itemIndex) => itemIndex === index ? { ...item, type: event.target.value } : item))} className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-2.5 py-2 font-mono text-xs"><option value="8S">8S</option><option value="12S">12S</option><option value="CUSTOM">Custom</option></select></label>
+                  <label className="text-[10px] font-bold text-slate-600">Quantity<input type="number" min="1" value={configuration.quantity} onChange={event => setModuleConfigurations(current => current.map((item, itemIndex) => itemIndex === index ? { ...item, quantity: Math.max(1, Number(event.target.value) || 1) } : item))} className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-2.5 py-2 font-mono text-xs" /></label>
+                  <label className="text-[10px] font-bold text-slate-600">Cells / module<input type="number" min="1" value={configuration.cellsPerModule} onChange={event => setModuleConfigurations(current => current.map((item, itemIndex) => itemIndex === index ? { ...item, cellsPerModule: Math.max(1, Number(event.target.value) || 1) } : item))} className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-2.5 py-2 font-mono text-xs" /></label>
+                  {moduleConfigurations.length > 1 && <button type="button" onClick={() => setModuleConfigurations(current => current.filter((_, itemIndex) => itemIndex !== index))} className="mb-1 rounded-lg p-2 text-slate-400 hover:bg-white hover:text-red-600" title="Remove module type"><X className="h-4 w-4" /></button>}
+                </div>)}
+                <div className="border-t border-emerald-100 pt-2 text-[10px] font-mono text-emerald-800">Configured modules: <strong>{configuredModuleCount}</strong> · Configured cells: <strong>{configuredCellCount}</strong></div>
               </div>
 
               <div className="flex justify-end space-x-2 pt-3 border-t border-slate-100">

@@ -174,6 +174,7 @@ create table if not exists public.product_templates (
 );
 
 alter table public.product_templates add column if not exists battery_name text;
+alter table public.product_templates add column if not exists module_configurations_json jsonb not null default '[]'::jsonb;
 alter table public.product_templates add column if not exists product_model text;
 alter table public.product_templates add column if not exists voltage_type text;
 update public.product_templates set product_model = coalesce(nullif(product_model, ''), sku) where product_model is null or product_model = '';
@@ -335,6 +336,7 @@ alter table public.modules add column if not exists welding_result_json jsonb;
 alter table public.modules add column if not exists qc_result_json jsonb;
 alter table public.modules add column if not exists matching_score numeric;
 alter table public.modules add column if not exists matching_metrics jsonb;
+alter table public.modules add column if not exists module_type text;
 update public.modules set matching_score = coalesce(matching_score, 0) where matching_score is null;
 update public.modules set matching_metrics = coalesce(matching_metrics, '{}'::jsonb) where matching_metrics is null;
 alter table public.modules alter column matching_score set default 0;
@@ -671,6 +673,171 @@ begin
     );
 end;
 $$ language plpgsql security definer;
+
+-- CREATE A STANDALONE MODULE FROM FLOOR STOCK CELLS
+create or replace function public.create_standalone_module_transaction(
+    p_module_type text,
+    p_cell_barcodes text[]
+) returns jsonb as $$
+declare
+    v_module_id text := 'mod-' || gen_random_uuid()::text;
+    v_serial text := 'MOD-' || upper(replace(p_module_type, ' ', '')) || '-' || to_char(now(), 'YYYYMMDDHH24MISSMS');
+    v_required integer;
+    v_cells jsonb;
+    v_cell record;
+    v_index integer := 0;
+begin
+    perform public.require_permission('MANAGE_PRODUCTION');
+    if upper(p_module_type) not in ('8S', '12S') then
+        raise exception 'Module type must be 8S or 12S';
+    end if;
+    v_required := case when upper(p_module_type) = '8S' then 8 else 12 end;
+    if coalesce(array_length(p_cell_barcodes, 1), 0) <> v_required then
+        raise exception 'A % module requires exactly % cells', upper(p_module_type), v_required;
+    end if;
+    if (select count(distinct value) from unnest(p_cell_barcodes) as value) <> v_required then
+        raise exception 'Duplicate cell barcodes are not allowed';
+    end if;
+
+    select jsonb_agg(to_jsonb(c) order by array_position(p_cell_barcodes, coalesce(c.internal_serial, c.id)))
+      into v_cells
+      from public.cells c
+     where coalesce(c.internal_serial, c.id) = any(p_cell_barcodes)
+       and c.status not in ('QUARANTINED', 'REJECTED')
+       and c.lifecycle_status = 'FLOOR_STOCK'
+       and c.reserved_for_order_id is null
+       and c.reserved_for_battery_id is null;
+
+    if coalesce(jsonb_array_length(v_cells), 0) <> v_required then
+        raise exception 'Every scanned cell must be unique and in FLOOR_STOCK';
+    end if;
+
+    insert into public.modules (id, battery_id, production_order_id, module_index, serial_number, module_type, status, lifecycle_status, matching_score, matching_metrics)
+    values (v_module_id, null, null, null, v_serial, upper(p_module_type), 'CELLS_ASSIGNED', 'IN_STOCK', 0, '{}'::jsonb);
+
+    for v_cell in
+        select c.id, row_number() over (order by array_position(p_cell_barcodes, coalesce(c.internal_serial, c.id))) - 1 as slot
+          from public.cells c
+         where coalesce(c.internal_serial, c.id) = any(p_cell_barcodes)
+    loop
+        insert into public.module_cells (module_id, cell_id, cell_slot_index)
+        values (v_module_id, v_cell.id, v_cell.slot);
+        update public.cells
+           set status = 'MODULE_ASSIGNED', lifecycle_status = 'IN_MODULE', updated_at = now()
+         where id = v_cell.id;
+                perform public.record_genealogy_event(
+                        'CELL', v_cell.id, 'ASSIGNED_TO_MODULE', 'MODULE', v_module_id,
+                        jsonb_build_object('module_type', upper(p_module_type), 'cell_slot_index', v_cell.slot)
+                );
+    end loop;
+
+    insert into public.audit_logs (entity_type, entity_id, action, actor, result, details)
+    values ('MODULE', v_module_id, 'CREATE_STANDALONE_MODULE', coalesce(auth.uid()::text, 'SYSTEM'), 'SUCCESS', upper(p_module_type) || ' module created from floor-stock cells');
+
+    insert into public.qr_registry (qr_code, entity_type, entity_id)
+    values (v_serial || '|MODULE:' || v_module_id, 'MODULE', v_module_id)
+    on conflict (qr_code) do nothing;
+
+    return jsonb_build_object(
+        'module', jsonb_build_object('id', v_module_id, 'serial_number', v_serial, 'module_type', upper(p_module_type), 'status', 'CELLS_ASSIGNED', 'qr_code', v_serial || '|MODULE:' || v_module_id),
+        'cells', v_cells
+    );
+end;
+$$ language plpgsql security definer;
+
+grant execute on function public.create_standalone_module_transaction(text, text[]) to authenticated;
+
+-- COMPLETE A STANDALONE MODULE QUALITY WORKFLOW
+create or replace function public.complete_standalone_module_transaction(
+    p_module_id text,
+    p_acknowledged boolean,
+    p_cells jsonb
+) returns jsonb as $$
+declare
+    v_module record;
+    v_cell record;
+    v_cell_count integer;
+    v_test_count integer := 0;
+begin
+    perform public.require_permission('MANAGE_PRODUCTION');
+    if not p_acknowledged then
+        raise exception 'Module build acknowledgement is required';
+    end if;
+
+    select * into v_module from public.modules where id = p_module_id for update;
+    if not found then
+        raise exception 'Module % not found', p_module_id;
+    end if;
+
+    select count(*) into v_cell_count from public.module_cells where module_id = p_module_id;
+    if v_cell_count not in (8, 12) then
+        raise exception 'Module must contain exactly 8 or 12 cells';
+    end if;
+    if coalesce(jsonb_array_length(p_cells), 0) <> v_cell_count then
+        raise exception 'Complete OCV, grading, and damage history for every module cell';
+    end if;
+
+    for v_cell in select * from jsonb_to_recordset(p_cells) as x(
+        cell_id text,
+        ocv_v numeric,
+        ir_mohm numeric,
+        grade text,
+        damage_condition text,
+        damage_remarks text
+    ) loop
+        if v_cell.ocv_v is null or v_cell.ir_mohm is null then
+            raise exception 'OCV and IR are required for every cell';
+        end if;
+        if nullif(trim(v_cell.grade), '') is null then
+            raise exception 'A grade is required for every cell';
+        end if;
+        if upper(coalesce(v_cell.damage_condition, '')) not in ('GOOD', 'OK') then
+            raise exception 'Damaged cells cannot complete module assembly';
+        end if;
+        if not exists (
+            select 1 from public.module_cells
+            where module_id = p_module_id and cell_id = v_cell.cell_id
+        ) then
+            raise exception 'Cell % is not assigned to this module', v_cell.cell_id;
+        end if;
+
+        update public.cells
+        set production_ocv_v = v_cell.ocv_v,
+            production_ir_mohm = v_cell.ir_mohm,
+            grade = v_cell.grade,
+            tested_at = now(),
+            status = 'PASSED',
+            lifecycle_status = 'IN_MODULE',
+            updated_at = now()
+        where id = v_cell.cell_id;
+
+        insert into public.cell_tests (id, cell_id, battery_id, test_type, ocv_v, ir_mohm, grade, passed, remarks, tested_by, tested_at)
+        values ('ctest-' || gen_random_uuid()::text, v_cell.cell_id, null, 'OCV_IR', v_cell.ocv_v, v_cell.ir_mohm, null, true, v_cell.damage_remarks, auth.uid(), now());
+        insert into public.cell_tests (id, cell_id, battery_id, test_type, grade, passed, remarks, tested_by, tested_at)
+        values ('ctest-' || gen_random_uuid()::text, v_cell.cell_id, null, 'GRADING', v_cell.grade, true, v_cell.damage_remarks, auth.uid(), now());
+        insert into public.audit_logs (entity_type, entity_id, action, actor, result, details)
+        values ('CELL', v_cell.cell_id, 'MODULE_DAMAGE_HISTORY', coalesce(auth.uid()::text, 'SYSTEM'), 'SUCCESS', 'Condition: ' || v_cell.damage_condition || coalesce('; ' || v_cell.damage_remarks, ''));
+        v_test_count := v_test_count + 1;
+    end loop;
+
+    update public.modules
+    set status = 'PASSED',
+        lifecycle_status = 'IN_STOCK',
+        matching_score = 100,
+        matching_metrics = jsonb_build_object('cellCount', v_test_count, 'acknowledged', true, 'qualityWorkflow', 'PASSED'),
+        qc_result_json = jsonb_build_object('status', 'PASSED', 'acknowledgedAt', now(), 'completedBy', auth.uid(), 'cellCount', v_test_count),
+        updated_at = now()
+    where id = p_module_id;
+
+    insert into public.audit_logs (entity_type, entity_id, action, actor, result, details)
+    values ('MODULE', p_module_id, 'COMPLETE_STANDALONE_MODULE', coalesce(auth.uid()::text, 'SYSTEM'), 'SUCCESS', 'Acknowledgement, OCV/IR, grading, and damage history completed');
+
+    select * into v_module from public.modules where id = p_module_id;
+    return jsonb_build_object('module', to_jsonb(v_module), 'success', true);
+end;
+$$ language plpgsql security definer;
+
+grant execute on function public.complete_standalone_module_transaction(text, boolean, jsonb) to authenticated;
 
 -- GET DASHBOARD SUMMARY
 create or replace function public.get_dashboard_summary()
@@ -1900,6 +2067,7 @@ begin
 
         update public.modules
         set status = 'CELLS_ASSIGNED',
+            lifecycle_status = 'IN_PACK',
             matching_score = v_avg_score,
             matching_metrics = jsonb_build_object(
                 'avgCapacityAh', 108.0,
@@ -1952,12 +2120,18 @@ begin
     perform public.require_permission('MANAGE_PRODUCTION');
     update public.cells
     set status = 'AVAILABLE',
+        lifecycle_status = 'FLOOR_STOCK',
         reserved_for_battery_id = null,
-        reserved_for_order_id = null
+        reserved_for_order_id = null,
+        updated_at = now()
     where id in (select cell_id from public.module_cells where module_id = p_module_id);
 
     delete from public.module_cells where module_id = p_module_id;
+    delete from public.qr_registry where entity_type = 'MODULE' and entity_id = p_module_id;
     delete from public.modules where id = p_module_id;
+
+    insert into public.audit_logs (entity_type, entity_id, action, actor, result, details)
+    values ('MODULE', p_module_id, 'DELETE_MODULE', coalesce(auth.uid()::text, 'SYSTEM'), 'SUCCESS', 'Module deleted and cells returned to FLOOR_STOCK');
 end;
 $$ language plpgsql security definer;
 
@@ -2174,8 +2348,17 @@ begin
         values ('READ_MES', 'Read MES Data', 'Read manufacturing and inventory data', 'MES', 'READ');
     end if;
 
+    if not exists (select 1 from public.permissions where id = 'MANAGE_PRODUCTION') then
+        insert into public.permissions (id, name, description, resource, action)
+        values ('MANAGE_PRODUCTION', 'Manage Production', 'Create and process modules and production work', 'PRODUCTION', 'MANAGE');
+    end if;
+
     insert into public.role_permissions (role_id, permission_id)
     values ('role-operator', 'READ_MES')
+    on conflict (role_id, permission_id) do nothing;
+
+    insert into public.role_permissions (role_id, permission_id)
+    values ('role-operator', 'MANAGE_PRODUCTION')
     on conflict (role_id, permission_id) do nothing;
 
     -- 3. Link permission to role
@@ -2307,7 +2490,7 @@ end where lifecycle_status is null;
 
 alter table public.modules add column if not exists module_type text;
 alter table public.modules add column if not exists lifecycle_status text default 'IN_MODULE';
-do $$ begin alter table public.modules add constraint modules_lifecycle_status_check check (lifecycle_status in ('IN_MODULE','IN_PACK','IN_RACK','SOLD','SCRAP')); exception when duplicate_object then null; end $$;
+do $$ begin alter table public.modules drop constraint if exists modules_lifecycle_status_check; alter table public.modules add constraint modules_lifecycle_status_check check (lifecycle_status in ('IN_STOCK','IN_MODULE','IN_PACK','IN_RACK','SOLD','SCRAP')); exception when duplicate_object then null; end $$;
 update public.modules set module_type = case when coalesce((select p.cells_per_module from public.product_templates p join public.batteries b on b.product_id = p.id where b.id = modules.battery_id), 8) = 12 then '12S' else '8S' end where module_type is null;
 update public.modules set lifecycle_status = 'IN_MODULE' where lifecycle_status is null;
 
@@ -2364,7 +2547,7 @@ begin
     select count(*) into v_count from public.cells where pallet_number = v_pallet.pallet_number;
     if v_count <> v_pallet.expected_cell_count then raise exception 'Pallet % contains % cells; expected %', v_pallet.pallet_number, v_count, v_pallet.expected_cell_count; end if;
     update public.pallets set status = 'FLOOR_STOCK', location = coalesce(nullif(trim(p_location), ''), 'PRODUCTION_FLOOR'), actual_cell_count = v_count, updated_at = now() where id = v_pallet.id;
-    update public.cells set lifecycle_status = 'FLOOR_STOCK', updated_at = now() where pallet_number = v_pallet.pallet_number and lifecycle_status = 'IN_STOCK';
+    update public.cells set status = 'AVAILABLE', lifecycle_status = 'FLOOR_STOCK', updated_at = now() where pallet_number = v_pallet.pallet_number and lifecycle_status = 'IN_STOCK';
     insert into public.lifecycle_events(entity_type, entity_id, from_status, to_status, reason, recorded_by) values ('PALLET', v_pallet.id, 'IN_STOCK', 'FLOOR_STOCK', 'Pallet scanned to floor', auth.uid());
     return jsonb_build_object('palletId', v_pallet.id, 'palletNumber', v_pallet.pallet_number, 'cellCount', v_count, 'status', 'FLOOR_STOCK');
 end $$;
@@ -2551,6 +2734,13 @@ where reserved_for_battery_id is not null and reserved_for_battery_id not in (se
 update public.cells c set status = 'AVAILABLE', lifecycle_status = 'FLOOR_STOCK', reserved_for_battery_id = null, reserved_for_order_id = null, updated_at = now()
 where c.id in (select mc.cell_id from public.module_cells mc left join public.modules m on m.id = mc.module_id left join public.batteries b on b.id = m.battery_id where m.id is null or b.id is null);
 
+-- Return cells left behind by deleted standalone modules to floor stock.
+update public.cells c
+set status = 'AVAILABLE', lifecycle_status = 'FLOOR_STOCK', updated_at = now()
+where c.lifecycle_status = 'IN_MODULE'
+    and c.reserved_for_battery_id is null
+    and not exists (select 1 from public.module_cells mc where mc.cell_id = c.id);
+
 -- Reconcile bulk imports created before bulk orders were finalized correctly.
 update public.production_orders o
 set quantity_completed = (select count(*) from public.batteries b where b.production_order_id = o.id),
@@ -2609,13 +2799,30 @@ with cell_counts as (
     from public.machine_configurations
 ), quality_counts as (
     select count(*) filter (where passed = true)::int as passed, count(*)::int as total from public.battery_tests
+), production_counts as (
+    select
+        (select coalesce(sum(case when b.status in ('FINISHED','RELEASED','DISPATCHED','WAREHOUSE') then p.capacity_kwh else 0 end), 0)::numeric from public.batteries b join public.product_templates p on p.id = b.product_id) as capacity_produced_kwh,
+        (select count(*)::int from public.batteries b where b.status in ('FINISHED','RELEASED','DISPATCHED','WAREHOUSE')) as completed_batteries,
+        coalesce(sum(o.target_quantity), 0)::int as target_batteries,
+        coalesce(sum(o.quantity_completed), 0)::int as completed_order_batteries,
+        coalesce(sum(o.target_quantity * p.capacity_kwh), 0)::numeric as target_capacity_kwh
+    from public.production_orders o
+    join public.product_templates p on p.id = o.product_id
+), attention_counts as (
+    select
+        (select count(*)::int from public.quarantine_records where status = 'OPEN') as open_quarantines,
+        (select count(*)::int from public.machine_configurations where status not in ('ONLINE','BUSY')) as offline_machines,
+        (select count(*)::int from public.production_orders where status = 'IN_PROCESS' and quantity_in_process > 0 and updated_at < now() - interval '24 hours') as delayed_orders,
+        (select count(*)::int from public.battery_tests where passed = false) + (select count(*)::int from public.module_tests where passed = false) as qc_issues
 ), summary as (
     select c.total, c.available, c.in_stock, c.floor_stock, c.assembled, c.in_pack, c.in_rack, c.sold, c.quarantined, c.reserved, c.in_process,
         b.finished, b.in_process as batteries_in_process,
         o.total as orders_total, o.in_process as orders_in_process, o.completed as orders_completed, o.planned as orders_planned,
         m.total as machines_total, m.online as machines_online,
-        q.passed as quality_passed, q.total as quality_total
-    from cell_counts c, battery_counts b, order_counts o, machine_counts m, quality_counts q
+        q.passed as quality_passed, q.total as quality_total,
+        pc.capacity_produced_kwh, pc.completed_batteries, pc.target_batteries, pc.completed_order_batteries, pc.target_capacity_kwh,
+        ac.open_quarantines, ac.offline_machines, ac.delayed_orders, ac.qc_issues
+    from cell_counts c, battery_counts b, order_counts o, machine_counts m, quality_counts q, production_counts pc, attention_counts ac
 )
 select jsonb_build_object(
     'inventory', jsonb_build_object(
@@ -2626,8 +2833,22 @@ select jsonb_build_object(
         'availableBmu', (select count(*) from public.bmu_units where status = 'AVAILABLE' and reserved_for_battery_id is null),
         'totalBms', (select count(*) from public.bms_units), 'totalBmu', (select count(*) from public.bmu_units)
     ),
-    'quality', jsonb_build_object('firstPassYieldPercent', coalesce(round(100.0 * quality_passed / nullif(quality_total, 0), 1), 0), 'quarantinedCount', (select count(*)::int from public.quarantine_records where status = 'OPEN')),
+    'quality', jsonb_build_object('firstPassYieldPercent', coalesce(round(100.0 * quality_passed / nullif(quality_total, 0), 1), 0), 'passedTests', quality_passed, 'totalTests', quality_total, 'quarantinedCount', (select count(*)::int from public.quarantine_records where status = 'OPEN')),
     'orders', jsonb_build_object('total', orders_total, 'inProcess', orders_in_process, 'completed', orders_completed, 'planned', orders_planned),
+    'production', jsonb_build_object(
+        'capacityProducedKwh', capacity_produced_kwh,
+        'targetCapacityKwh', target_capacity_kwh,
+        'completedBatteries', completed_batteries,
+        'targetBatteries', target_batteries,
+        'completedOrderBatteries', completed_order_batteries
+    ),
+    'attention', jsonb_build_object(
+        'openQuarantines', open_quarantines,
+        'offlineMachines', offline_machines,
+        'delayedOrders', delayed_orders,
+        'qcIssues', qc_issues
+    ),
+    'updatedAt', now(),
     'kpis', jsonb_build_object('totalCellsInInventory', total, 'availableCells', available, 'usedCells', total - available, 'reservedCells', reserved, 'inProcessCells', in_process, 'assembledCells', assembled, 'quarantinedCells', quarantined, 'totalBatteriesCompleted', finished, 'batteriesInProduction', batteries_in_process, 'activeOrders', orders_in_process, 'firstPassYield', coalesce(round(100.0 * quality_passed / nullif(quality_total, 0), 1), 0), 'onlineMachines', machines_online, 'totalMachines', machines_total),
     'machines', coalesce((select jsonb_agg(to_jsonb(m) - 'created_at' - 'updated_at' order by m.name) from public.machine_configurations m), '[]'::jsonb),
     'cellBuckets', jsonb_build_array(jsonb_build_object('label','In Stock','value',in_stock), jsonb_build_object('label','Floor Stock','value',floor_stock), jsonb_build_object('label','In Module','value',assembled), jsonb_build_object('label','In Pack','value',in_pack), jsonb_build_object('label','In Rack','value',in_rack), jsonb_build_object('label','Sold','value',sold), jsonb_build_object('label','Scrap','value',quarantined)),
@@ -2733,3 +2954,26 @@ grant execute on function public.reset_operational_data() to authenticated;
 -- ================================================================
 -- END OF AUTHORITATIVE SCHEMA
 -- ================================================================
+
+-- Keep module lifecycle status aligned with battery assignment.
+update public.modules
+set lifecycle_status = case when battery_id is null then 'IN_STOCK' else 'IN_PACK' end,
+    updated_at = now()
+where lifecycle_status = 'IN_MODULE';
+
+create or replace function public.sync_module_lifecycle_status()
+returns trigger language plpgsql security definer set search_path = public as $$
+begin
+    if new.battery_id is null and coalesce(new.lifecycle_status, '') = 'IN_MODULE' then
+        new.lifecycle_status := 'IN_STOCK';
+    elsif new.battery_id is not null and coalesce(new.lifecycle_status, '') in ('IN_STOCK', 'IN_MODULE') then
+        new.lifecycle_status := 'IN_PACK';
+    end if;
+    return new;
+end;
+$$;
+
+drop trigger if exists trg_sync_module_lifecycle_status on public.modules;
+create trigger trg_sync_module_lifecycle_status
+before insert or update of battery_id, lifecycle_status on public.modules
+for each row execute function public.sync_module_lifecycle_status();

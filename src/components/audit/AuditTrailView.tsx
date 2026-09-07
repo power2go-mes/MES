@@ -48,12 +48,13 @@ export const AuditTrailView: React.FC = () => {
   });
 
   const exportCsv = () => {
+    const csvCell = (value: unknown) => `"${String(value ?? '').replace(/"/g, '""')}"`;
     const csvContent =
       'data:text/csv;charset=utf-8,' +
       ['Timestamp,Action,Entity Type,Entity ID,User,Role,Reason,New Value']
         .concat(
           filteredLogs.map(l =>
-            `"${l.timestamp}","${l.action}","${l.entityType}","${l.entityId}","${l.userName}","${l.userRole}","${l.reason || ''}","${l.newValue || ''}"`
+            [l.timestamp, l.action, l.entityType, l.entityId, l.userName, l.userRole, l.reason, l.newValue].map(csvCell).join(',')
           )
         )
         .join('\n');

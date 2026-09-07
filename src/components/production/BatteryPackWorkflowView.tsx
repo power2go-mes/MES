@@ -4,6 +4,7 @@ import { useAuth } from '../../context/AuthContext';
 import { api } from '../../services/api';
 import { BatteryUnit, ProductTemplate } from '../../types';
 import { ReleasedBatteryQrModal } from '../common/ReleasedBatteryQrModal';
+import { ScannerModal } from '../common/ScannerModal';
 import {
   CheckCircle2,
   AlertTriangle,
@@ -21,11 +22,15 @@ import {
 } from 'lucide-react';
 
 export const BatteryPackWorkflowView: React.FC = () => {
-  const { activeBatteryId, setActiveView, addNotification, refreshKey, triggerRefresh } = useApp();
+  const { activeBatteryId, setActiveBatteryId, addNotification, refreshKey, triggerRefresh } = useApp();
   const { currentUser } = useAuth();
 
   const [battery, setBattery] = useState<BatteryUnit | null>(null);
   const [product, setProduct] = useState<ProductTemplate | null>(null);
+  const [products, setProducts] = useState<ProductTemplate[]>([]);
+  const [selectedProductId, setSelectedProductId] = useState('');
+  const [builderOpen, setBuilderOpen] = useState(false);
+  const [creatingBattery, setCreatingBattery] = useState(false);
   const [loading, setLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [qrPassportOpen, setQrPassportOpen] = useState(false);
@@ -33,8 +38,16 @@ export const BatteryPackWorkflowView: React.FC = () => {
   // Form values for Pack IR and Final Testing
   const [packIrMohm, setPackIrMohm] = useState('0');
   const [qcTesting, setQcTesting] = useState<'PASSED' | 'FAILED'>('PASSED');
+  const [scannerOpen, setScannerOpen] = useState(false);
+  const [scanTarget, setScanTarget] = useState<'BMS' | 'BMU' | 'MODULE'>('BMS');
+  const [scannedControllerType, setScannedControllerType] = useState<'BMS' | 'BMU' | null>(null);
+  const [moduleScan, setModuleScan] = useState('');
+  const [scannedModuleIds, setScannedModuleIds] = useState<string[]>([]);
 
   useEffect(() => {
+    void api.getProducts().then(productRows => {
+      setProducts(productRows);
+    }).catch((err: any) => addNotification('error', 'Pack Setup Unavailable', err.message || 'Could not load product templates and batteries.'));
     if (activeBatteryId) {
       loadBattery(activeBatteryId);
     }
@@ -46,6 +59,7 @@ export const BatteryPackWorkflowView: React.FC = () => {
       const res = await api.getBattery(id);
       setBattery(res.battery);
       setProduct(res.product);
+      setSelectedProductId(res.product?.id || '');
 
       if (res.battery.finalQcResult) {
         setPackIrMohm(res.battery.finalQcResult.internalResistanceMilliOhm?.toString() || '0');
@@ -117,20 +131,99 @@ export const BatteryPackWorkflowView: React.FC = () => {
     }
   };
 
-  if (!activeBatteryId || !battery) {
+  const handlePackScan = async (barcode: string) => {
+    if (!battery || !barcode.trim()) return;
+    try {
+      if (scanTarget === 'MODULE') {
+        const match = (battery.modules || []).find(module => [module.id, module.serialNumber, module.qrCode].filter(Boolean).some(value => String(value).toLowerCase() === barcode.trim().toLowerCase()));
+        if (!match) throw new Error(`Module '${barcode}' is not assigned to this battery.`);
+        setModuleScan(match.serialNumber);
+        setScannedModuleIds(current => current.includes(match.id) ? current : [...current, match.id]);
+        addNotification('success', 'Module Verified', `${match.serialNumber} is assigned to this pack.`);
+      } else {
+        await api.scanComponent(battery.id, { barcode: barcode.trim(), slotType: scanTarget, userId: currentUser.id });
+        setScannedControllerType(scanTarget);
+        await loadBattery(battery.id);
+        addNotification('success', `${scanTarget} Scanned`, `${scanTarget} was assigned to the battery pack.`);
+      }
+      setScannerOpen(false);
+    } catch (err: any) {
+      addNotification('error', 'Pack Scan Failed', err.message || 'Unable to verify this component.');
+    }
+  };
+
+  const handleTemplateSelection = async (productId: string) => {
+    setSelectedProductId(productId);
+    setBuilderOpen(false);
+    setScannedControllerType(null);
+    setScannedModuleIds([]);
+    if (!productId) return;
+    await createBatteryFromTemplateFor(productId);
+  };
+
+  const createBatteryFromTemplateFor = async (productId: string) => {
+    setCreatingBattery(true);
+    try {
+      const result = await api.createProductionOrder({
+        productId,
+        quantity: 1,
+        orderNumber: `PO-PACK-${Date.now()}`,
+      });
+      const newBatteryId = result.batteryIds[0];
+      if (!newBatteryId) throw new Error('The new battery was not returned by production setup.');
+      setActiveBatteryId(newBatteryId);
+      await loadBattery(newBatteryId);
+      setBuilderOpen(true);
+      addNotification('success', 'Battery Created', 'The new battery is ready in the 2D Battery Builder.');
+    } catch (error: any) {
+      addNotification('error', 'Battery Creation Failed', error.message || 'Could not create the battery from this template.');
+    } finally {
+      setCreatingBattery(false);
+    }
+  };
+
+  const requiredModuleCount = 2;
+  const controllerReady = scannedControllerType !== null;
+  const setupReady = Boolean(battery && product && scannedModuleIds.length === requiredModuleCount && controllerReady);
+
+  if (!activeBatteryId || !battery || !product || !setupReady) {
     return (
       <div className="flex-1 p-8 bg-slate-50 flex items-center justify-center">
-        <div className="max-w-md w-full bg-white p-8 rounded-2xl border border-slate-200 shadow-sm text-center">
+        <div className="max-w-2xl w-full bg-white p-8 rounded-2xl border border-slate-200 shadow-sm">
           <Layers className="w-12 h-12 text-slate-400 mx-auto mb-3" />
-          <h2 className="text-xl font-black text-slate-800 mb-2">NO ACTIVE BATTERY</h2>
-          <p className="text-sm text-slate-500 mb-6">Select a battery in the 2D Builder or Production Orders.</p>
-          <button
-            onClick={() => setActiveView('production')}
-            className="w-full py-3 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-xl text-sm transition-colors"
-          >
-            Go to 2D Battery Builder
-          </button>
+          <h2 className="text-xl font-black text-slate-800 mb-2 text-center">SELECT PACK TO ASSEMBLE</h2>
+          <p className="text-sm text-slate-500 mb-6 text-center">Select the battery template, choose the battery, then scan one BMS or BMU and both modules in the 2D battery builder.</p>
+          <div className="grid gap-3 md:grid-cols-2">
+            <label className="text-xs font-bold text-slate-600">Battery template<select value={selectedProductId} onChange={event => { void handleTemplateSelection(event.target.value); }} disabled={creatingBattery} className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2.5 text-sm"><option value="">Select product template</option>{products.map(item => <option key={item.id} value={item.id}>{item.name} · 2 modules</option>)}</select></label>
+            <div className="rounded-lg border border-emerald-100 bg-emerald-50 px-3 py-2.5 text-xs text-emerald-900"><strong>New battery:</strong><span className="block mt-1 text-[11px] text-emerald-700">A new unit will be created from the selected template.</span></div>
+          </div>
+          {builderOpen && <>
+          {battery && <div className="mt-5 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"><div className="flex items-center justify-between border-b border-slate-100 pb-4"><div><p className="text-[10px] font-black uppercase tracking-widest text-emerald-600">2D Battery Builder</p><h3 className="text-lg font-black text-slate-900">Physical Component Layout</h3><p className="text-xs text-slate-500">Scan or verify the controller and both module positions.</p></div><span className="rounded-lg bg-slate-100 px-3 py-2 text-xs font-mono font-bold text-slate-700">{battery.serialNumber}</span></div><div className="mt-4 rounded-xl border border-blue-200 bg-blue-50 p-4"><div className="flex items-center justify-between"><div><p className="text-[10px] font-black uppercase tracking-widest text-blue-700">Controller</p><p className="mt-1 text-sm font-bold text-slate-900">{scannedControllerType ? `${scannedControllerType} verified` : 'Scan BMS or BMU'}</p></div><button type="button" onClick={() => { setScanTarget(scannedControllerType || 'BMS'); setScannerOpen(true); }} className="rounded-lg bg-blue-600 px-3 py-2 text-xs font-bold text-white">{scannedControllerType ? 'Rescan' : 'Scan controller'}</button></div></div><div className="mt-4 grid gap-4 md:grid-cols-2">{[0, 1].map(moduleIndex => { const module = battery.modules?.[moduleIndex]; const scanned = Boolean(module && scannedModuleIds.includes(module.id)); return <div key={moduleIndex} className="rounded-xl border border-emerald-200 bg-emerald-50/60 p-4"><div className="flex items-center justify-between"><div><p className="text-[10px] font-black uppercase tracking-widest text-emerald-700">Module {String(moduleIndex + 1).padStart(2, '0')}</p><p className="mt-1 font-mono text-xs font-bold text-slate-900">{module?.serialNumber || 'Module slot not assigned'}</p></div><button type="button" onClick={() => { setScanTarget('MODULE'); setScannerOpen(true); }} disabled={scanned} className="rounded-lg border border-emerald-300 bg-white px-3 py-2 text-xs font-bold text-emerald-800 disabled:opacity-60">{scanned ? 'Verified' : 'Scan module'}</button></div><div className="mt-3 grid grid-cols-4 gap-2">{(module?.cells || []).map((cell, cellIndex) => <div key={cell.id} className="rounded-lg border border-emerald-200 bg-white p-2 text-center"><span className="block text-[9px] font-black text-emerald-700">S{cellIndex + 1}</span><span className="mt-1 block truncate font-mono text-[9px] text-slate-600">{cell.internalSerial || cell.supplierBarcode || cell.id}</span></div>)}{!module?.cells?.length && <div className="col-span-4 rounded-lg border border-dashed border-emerald-300 bg-white/70 p-4 text-center text-[10px] text-slate-500">Cells appear after the module is assigned.</div>}</div></div>; })}</div></div>}
+          {battery && <div className="mt-4 grid gap-3 md:grid-cols-3 text-xs"><div className="rounded-xl border border-slate-200 bg-slate-50 p-3"><strong>Modules required</strong><span className="block mt-1 font-mono">{scannedModuleIds.length} / {requiredModuleCount} scanned</span></div><div className="rounded-xl border border-slate-200 bg-slate-50 p-3"><strong>Controller required</strong><span className="block mt-1 font-mono">{controllerReady ? (scannedControllerType || 'Controller') + ' scanned' : 'Scan BMS or BMU'}</span></div><div className="rounded-xl border border-slate-200 bg-slate-50 p-3"><strong>2D builder</strong><span className="block mt-1 font-mono">{setupReady ? 'Ready for testing' : 'Scan controller + 2 modules'}</span></div></div>}
+          <div className="mt-6 grid gap-2 md:grid-cols-3">
+            {(['BMS', 'BMU', 'MODULE'] as const).map(target => {
+              const complete = target === 'BMS' || target === 'BMU'
+                ? scannedControllerType === target
+                : scannedModuleIds.length >= requiredModuleCount;
+              return <button key={target} onClick={() => { setScanTarget(target); setScannerOpen(true); }} disabled={!battery || complete} className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-3 text-xs font-bold text-emerald-800 disabled:bg-slate-100 disabled:text-slate-400">{complete ? `${target} verified` : `Scan ${target}`}</button>;
+            })}
+          </div>
+          <p className={`mt-4 text-center text-xs font-bold ${setupReady ? 'text-emerald-700' : 'text-amber-700'}`}>{setupReady ? '2D battery builder complete. Continue to pack testing.' : 'Select a template and battery, then scan one BMS or BMU and 2 modules.'}</p>
+          <ScannerModal isOpen={scannerOpen} onClose={() => setScannerOpen(false)} onScan={handlePackScan} title={`Scan ${scanTarget}`} subtitle="Scan the component barcode assigned to this battery pack" />
+          </>}
         </div>
+
+        {builderOpen && <div className="grid gap-3 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm md:grid-cols-3">
+          {(['BMS', 'BMU', 'MODULE'] as const).map(target => (
+            <div key={target} className="rounded-xl border border-slate-100 bg-slate-50 p-3">
+              <div className="mb-2 text-[10px] font-black uppercase tracking-widest text-slate-500">Scan {target}</div>
+              <div className="flex gap-2">
+                <input value={target === 'MODULE' ? moduleScan : ''} onChange={event => target === 'MODULE' && setModuleScan(event.target.value)} placeholder={`${target} barcode`} className="min-w-0 flex-1 rounded-lg border border-slate-200 bg-white px-2 py-2 text-xs font-mono" />
+                <button type="button" onClick={() => { setScanTarget(target); setScannerOpen(true); }} className="rounded-lg bg-emerald-600 px-3 py-2 text-[10px] font-bold text-white"><QrCode className="h-3.5 w-3.5" /></button>
+              </div>
+            </div>
+          ))}
+        </div>}
       </div>
     );
   }
@@ -173,6 +266,10 @@ export const BatteryPackWorkflowView: React.FC = () => {
             <div className="px-3 py-1.5 bg-emerald-50 rounded-lg border border-emerald-200">
               <span className="text-emerald-600 font-bold block text-[10px] uppercase">Status</span>
               <span className="font-bold text-emerald-800">{battery.status}</span>
+            </div>
+            <div className="px-3 py-1.5 bg-blue-50 rounded-lg border border-blue-200">
+              <span className="text-blue-600 font-bold block text-[10px] uppercase">Modules Scanned</span>
+              <span className="font-mono font-bold text-blue-800">{scannedModuleIds.length} / {requiredModuleCount}</span>
             </div>
           </div>
         </div>
@@ -430,6 +527,7 @@ export const BatteryPackWorkflowView: React.FC = () => {
         onClose={() => setQrPassportOpen(false)}
         battery={battery}
       />
+      <ScannerModal isOpen={scannerOpen} onClose={() => setScannerOpen(false)} onScan={handlePackScan} title={`Scan ${scanTarget}`} subtitle="Scan or enter the component barcode for this battery pack" />
     </div>
   );
 };
