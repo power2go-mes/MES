@@ -13,6 +13,7 @@ import {
   SupplierImportSummary,
   User,
   Role,
+  RackUnit,
   AuditLog as AuditLogType,
 } from '../types';
 
@@ -725,6 +726,10 @@ async getUsers(): Promise<User[]> {
     if (error) throw error;
     return (data || []).map((product: any) => ({
       ...product,
+      productModel: product.productModel || product.product_model || product.sku,
+      batteryName: product.batteryName || product.battery_name || product.name,
+      voltageType: product.voltageType || product.voltage_type || 'LV',
+      bmsProtocol: product.bmsProtocol === 'CAN_2.0B' ? 'CAN_2.0B' : (product.bmsProtocol || 'CAN_2_0B'),
       moduleConfigurations: product.moduleConfigurations || product.module_configurations_json || [],
     }));
   },
@@ -1480,9 +1485,34 @@ async getUsers(): Promise<User[]> {
   },
 
   async getCellInventoryBuckets(): Promise<Array<{ cellId: string; bucket: 'AVAILABLE' | 'RESERVED' | 'IN_PROCESS' | 'DAMAGE'; batteryId?: string; moduleId?: string; reason?: string }>> {
-    const { data, error } = await supabase.from('cell_inventory_buckets').select('*');
-    if (error) throw error;
-    return data || [];
+    if (!rawSupabase) throw new Error('Supabase is not configured.');
+    const [{ data: cells, error: cellsError }, { data: assignments, error: assignmentsError }, { data: quarantines, error: quarantineError }] = await Promise.all([
+      rawSupabase.from('cells').select('id,status,lifecycle_status,reserved_for_order_id,reserved_for_battery_id'),
+      rawSupabase.from('module_cells').select('cell_id,module_id,module:modules(battery_id)'),
+      rawSupabase.from('quarantine_records').select('entity_id,reason').eq('entity_type', 'CELL').eq('status', 'OPEN'),
+    ]);
+    if (cellsError) throw cellsError;
+    if (assignmentsError) throw assignmentsError;
+    if (quarantineError) throw quarantineError;
+
+    const assignmentByCell = new Map<string, { moduleId?: string; batteryId?: string }>();
+    (assignments || []).forEach((assignment: any) => {
+      assignmentByCell.set(assignment.cell_id, { moduleId: assignment.module_id, batteryId: assignment.module?.battery_id });
+    });
+    const quarantineByCell = new Map((quarantines || []).map((record: any) => [record.entity_id, record.reason]));
+    return (cells || []).map((cell: any) => {
+      const assignment = assignmentByCell.get(cell.id);
+      const batteryId = cell.reserved_for_battery_id || assignment?.batteryId;
+      const isDamage = quarantineByCell.has(cell.id) || ['SCRAP', 'QUARANTINED', 'REJECTED'].includes(String(cell.lifecycle_status || cell.status || '').toUpperCase());
+      const isInProcess = Boolean(assignment?.moduleId) || ['IN_MODULE', 'IN_PACK', 'IN_RACK'].includes(String(cell.lifecycle_status || '').toUpperCase()) || ['IN_PROCESS', 'VALIDATING', 'TESTING', 'SCANNED', 'PASSED', 'ASSEMBLED'].includes(String(cell.status || '').toUpperCase());
+      return {
+        cellId: cell.id,
+        bucket: isDamage ? 'DAMAGE' : cell.reserved_for_order_id || batteryId ? 'RESERVED' : isInProcess ? 'IN_PROCESS' : 'AVAILABLE',
+        batteryId,
+        moduleId: assignment?.moduleId,
+        reason: quarantineByCell.get(cell.id),
+      };
+    });
   },
 
   async getBmsUnits(): Promise<BMSItem[]> {
@@ -3354,13 +3384,21 @@ async getUsers(): Promise<User[]> {
     return { movedCount: eligible.length, requestedCount: barcodes.length || eligible.length };
   },
 
-  async getRacks(): Promise<any[]> {
+  async getRacks(): Promise<RackUnit[]> {
     const { data, error } = await supabase.from('racks').select('*, rack_packs(battery_id, pack_slot_index)').order('created_at', { ascending: false });
     if (error) throw error;
     return (data || []).map((rack: any) => ({
       ...rack,
-      batteryIds: (rack.rackPacks || []).sort((a: any, b: any) => a.packSlotIndex - b.packSlotIndex).map((item: any) => item.batteryId),
-    }));
+      id: rack.id,
+      serialNumber: rack.serialNumber || rack.serial_number,
+      qrCode: rack.qrCode || rack.qr_code,
+      rackTemplateCode: rack.rackTemplateCode || rack.rack_template_code,
+      requiredPackCount: rack.requiredPackCount || rack.required_pack_count,
+      requiredPackTemplateCode: rack.requiredPackTemplateCode || rack.required_pack_template_code,
+      batteryIds: (rack.rackPacks || rack.rack_packs || [])
+        .sort((a: any, b: any) => (a.packSlotIndex ?? a.pack_slot_index) - (b.packSlotIndex ?? b.pack_slot_index))
+        .map((item: any) => item.batteryId || item.battery_id),
+    })) as RackUnit[];
   },
 
   async assembleRack(templateCode: 'RACK_25KWH' | 'RACK_75KWH', batteryIds: string[], location?: string): Promise<any> {

@@ -332,6 +332,14 @@ create table if not exists public.modules (
     unique (battery_id, module_index)
 );
 
+alter table public.modules add column if not exists module_type text;
+alter table public.modules add column if not exists lifecycle_status text default 'IN_MODULE';
+do $$ begin
+    alter table public.modules add constraint modules_lifecycle_status_check
+        check (lifecycle_status in ('IN_STOCK','IN_MODULE','IN_PACK','IN_RACK','SOLD','SCRAP'));
+exception when duplicate_object then null;
+end $$;
+
 alter table public.modules add column if not exists welding_result_json jsonb;
 alter table public.modules add column if not exists qc_result_json jsonb;
 alter table public.modules add column if not exists matching_score numeric;

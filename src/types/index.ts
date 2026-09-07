@@ -46,6 +46,12 @@ export interface User {
 export type ComponentStatus =
   | 'EMPTY'
   | 'RECEIVED'
+  | 'IN_STOCK'
+  | 'FLOOR_STOCK'
+  | 'IN_MODULE'
+  | 'IN_PACK'
+  | 'IN_RACK'
+  | 'SOLD'
   | 'AVAILABLE'
   | 'RESERVED'
   | 'IN_PROCESS'
@@ -125,7 +131,7 @@ export interface ProductTemplate {
   totalCells: number;
   moduleConfigurations?: Array<{ type: string; quantity: number; cellsPerModule: number }>;
   bmsModel: string;
-  bmsProtocol: 'CAN_2.0B' | 'RS485' | 'MODBUS';
+  bmsProtocol: 'CAN_2.0B' | 'CAN_2_0B' | 'RS485' | 'MODBUS';
   bmsConfig: BMSConfig;
   bmuConfig: BMUConfig;
   gradingRules: GradingRules;
