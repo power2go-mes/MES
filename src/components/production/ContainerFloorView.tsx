@@ -44,7 +44,7 @@ export const ContainerFloorView: React.FC = () => {
         boxNumber: box,
         barcodes: barcodes.split(/[\n,;\t]+/).map(value => value.trim()).filter(Boolean),
       });
-      addNotification('success', 'Cells Moved to Floor', `${result.movedCount} cells are now FLOOR STOCK.`);
+      addNotification('success', 'Cells Moved to Floor', `${result.movedCount} cells moved; ${result.skippedCount} already in FLOOR STOCK.`);
       setPallet(''); setBox(''); setBarcodes('');
     } catch (error: any) {
       addNotification('error', 'Cell Move Failed', error.message || 'Could not move cells to floor stock.');

@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useApp } from '../../context/AppContext';
 import { api } from '../../services/api';
 import { CellItem, BMSItem, BMUItem, ModuleItem, BatteryUnit } from '../../types';
+import { downloadBatteryReport, downloadCellReport, downloadRackReport } from '../../lib/cellReportExport';
 import { QRCodeModal } from '../common/QRCodeModal';
 import { ScannerModal } from '../common/ScannerModal';
 import { BatteryReportModal } from '../common/BatteryReportModal';
@@ -49,6 +50,9 @@ export const InventoryView: React.FC = () => {
   const [batteries, setBatteries] = useState<BatteryUnit[]>([]);
   const [racks, setRacks] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [exportingCells, setExportingCells] = useState(false);
+  const [exportingBatteryReport, setExportingBatteryReport] = useState(false);
+  const [exportingRackReport, setExportingRackReport] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Record<Tab, string[]>>({
     CELLS: [],
     BMS: [],
@@ -179,6 +183,45 @@ export const InventoryView: React.FC = () => {
         seen.add(key);
         return true;
       });
+  };
+
+  const exportCellReport = async () => {
+    setExportingCells(true);
+    try {
+      const [exportCells, counts] = await Promise.all([api.getCells(), api.getCellCounts()]);
+      downloadCellReport(exportCells);
+      addNotification('success', 'Cell report exported', `${counts.total.toLocaleString()} cell records were exported.`);
+    } catch (error: any) {
+      addNotification('error', 'Cell export failed', error?.message || 'Unable to export the cell inventory report.');
+    } finally {
+      setExportingCells(false);
+    }
+  };
+
+  const exportBatteryReport = async () => {
+    setExportingBatteryReport(true);
+    try {
+      const exportBatteries = await api.getBatteries();
+      downloadBatteryReport(exportBatteries);
+      addNotification('success', 'Battery report exported', `${exportBatteries.length.toLocaleString()} battery records were exported.`);
+    } catch (error: any) {
+      addNotification('error', 'Battery export failed', error?.message || 'Unable to export the battery report.');
+    } finally {
+      setExportingBatteryReport(false);
+    }
+  };
+
+  const exportRackReport = async () => {
+    setExportingRackReport(true);
+    try {
+      const exportRacks = await api.getRacks();
+      downloadRackReport(exportRacks);
+      addNotification('success', 'Rack report exported', `${exportRacks.length.toLocaleString()} rack records were exported.`);
+    } catch (error: any) {
+      addNotification('error', 'Rack export failed', error?.message || 'Unable to export the rack report.');
+    } finally {
+      setExportingRackReport(false);
+    }
   };
 
   const handleIngestBmu = async (e: React.FormEvent) => {
@@ -422,6 +465,31 @@ export const InventoryView: React.FC = () => {
             className="px-3.5 py-2.5 text-xs font-semibold bg-slate-50/70 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500"
           >
             <option value="">All Statuses</option>
+
+        {activeTab === 'BATTERIES' && (
+          <button
+            type="button"
+            onClick={() => void exportBatteryReport()}
+            disabled={exportingBatteryReport}
+            className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-xs font-bold text-slate-700 shadow-sm transition-colors hover:border-emerald-200 hover:bg-emerald-50 hover:text-emerald-700 disabled:cursor-wait disabled:opacity-60"
+            title="Export battery inventory to Excel"
+          >
+            <Download className="h-3.5 w-3.5" />
+            {exportingBatteryReport ? 'Exporting...' : 'Export Battery Report'}
+          </button>
+        )}
+        {activeTab === 'RACKS' && (
+          <button
+            type="button"
+            onClick={() => void exportRackReport()}
+            disabled={exportingRackReport}
+            className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-xs font-bold text-slate-700 shadow-sm transition-colors hover:border-emerald-200 hover:bg-emerald-50 hover:text-emerald-700 disabled:cursor-wait disabled:opacity-60"
+            title="Export rack inventory to Excel"
+          >
+            <Download className="h-3.5 w-3.5" />
+            {exportingRackReport ? 'Exporting...' : 'Export Rack Report'}
+          </button>
+        )}
             {activeTab === 'CELLS' ? (
               cellStatuses.map(status => <option key={status} value={status}>{status}</option>)
             ) : (
@@ -485,7 +553,7 @@ export const InventoryView: React.FC = () => {
       {activeTab === 'CELLS' && (
         <div className="space-y-4">
           {/* Sub-tab toggle */}
-          <div className="flex items-center gap-3">
+          <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="flex bg-slate-100 p-1 rounded-xl text-xs font-semibold border border-slate-200">
               <button
                 onClick={() => { setCellsView('ALL'); setStatusFilter(''); }}
@@ -508,6 +576,16 @@ export const InventoryView: React.FC = () => {
             {cellsView === 'USED' && (
               <span className="text-xs text-slate-400 font-medium">Showing cells reserved for an order or assigned to production.</span>
             )}
+            <button
+              type="button"
+              onClick={() => void exportCellReport()}
+              disabled={exportingCells}
+              className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-700 shadow-sm transition-colors hover:border-emerald-200 hover:bg-emerald-50 hover:text-emerald-700 disabled:cursor-wait disabled:opacity-60"
+              title="Export all cell statuses, barcodes, and serial numbers to Excel"
+            >
+              <Download className="h-3.5 w-3.5" />
+              {exportingCells ? 'Exporting...' : 'Export Cell Report'}
+            </button>
           </div>
 
           {/* Used cells breakdown tiles */}

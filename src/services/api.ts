@@ -373,8 +373,17 @@ async getUsers(): Promise<User[]> {
     if (!rawSupabase) throw new Error('Supabase is not configured.');
     
     try {
+      const applyDateRange = (query: any, field = 'created_at') => {
+        let scopedQuery = query;
+        if (startDate) scopedQuery = scopedQuery.gte(field, `${startDate}T00:00:00.000Z`);
+        if (endDate) scopedQuery = scopedQuery.lte(field, `${endDate}T23:59:59.999Z`);
+        return scopedQuery;
+      };
       // Use RPC for dashboard summary (much faster than loading all cells)
-      const { data, error } = await rawSupabase.rpc('get_dashboard_summary');
+      const { data, error } = await rawSupabase.rpc('get_dashboard_summary', {
+        p_start_date: startDate || null,
+        p_end_date: endDate || null,
+      });
       
       if (error) {
         console.warn('Dashboard RPC error:', error.message);
@@ -382,9 +391,9 @@ async getUsers(): Promise<User[]> {
       }
 
       const [{ data: liveModules }, { data: liveBatteries }, { data: liveRacks }] = await Promise.all([
-        rawSupabase.from('modules').select('module_type,created_at,battery:batteries(product_templates(capacity_kwh,num_modules))'),
-        rawSupabase.from('batteries').select('id,bms_id,bmu_id,progress_percent,status,created_at,product_id,product_templates(name,capacity_kwh)'),
-        rawSupabase.from('racks').select('status,rack_template_code,required_pack_count,required_pack_template_code,created_at'),
+        applyDateRange(rawSupabase.from('modules').select('module_type,created_at,battery:batteries(product_templates(capacity_kwh,num_modules))')),
+        applyDateRange(rawSupabase.from('batteries').select('id,bms_id,bmu_id,progress_percent,status,created_at,product_id,product_templates(name,capacity_kwh)')),
+        applyDateRange(rawSupabase.from('racks').select('status,rack_template_code,required_pack_count,required_pack_template_code,created_at')),
       ]);
       const moduleCellPageSize = 1000;
       const { data: firstModuleCellPage, count: moduleCellCount, error: moduleCellError } = await rawSupabase
@@ -497,14 +506,14 @@ async getUsers(): Promise<User[]> {
       const cellQuery = rawSupabase
         .from('cells')
         .select('id,status,lifecycle_status,reserved_for_battery_id,reserved_for_order_id,created_at', { count: 'exact' });
-      const { data: firstCellPage, count: cellCount, error: cellPageError } = await cellQuery
+      const { data: firstCellPage, count: cellCount, error: cellPageError } = await applyDateRange(cellQuery)
         .range(0, cellPageSize - 1);
       const liveCells: any[] = firstCellPage || [];
       if (!cellPageError && (cellCount || 0) > cellPageSize) {
         const remainingCellPages = await Promise.all(
-          Array.from({ length: Math.ceil((cellCount || 0) / cellPageSize) - 1 }, (_, pageIndex) => rawSupabase!
+          Array.from({ length: Math.ceil((cellCount || 0) / cellPageSize) - 1 }, (_, pageIndex) => applyDateRange(rawSupabase!
             .from('cells')
-            .select('id,status,lifecycle_status,reserved_for_battery_id,reserved_for_order_id,created_at')
+            .select('id,status,lifecycle_status,reserved_for_battery_id,reserved_for_order_id,created_at'))
             .range((pageIndex + 1) * cellPageSize, (pageIndex + 2) * cellPageSize - 1)),
         );
         remainingCellPages.forEach(({ data: page }) => liveCells.push(...(page || [])));
@@ -3515,35 +3524,49 @@ async getUsers(): Promise<User[]> {
     return toAppValue(data);
   },
 
-  async moveCellsToFloor(params: { palletNumber?: string; boxNumber?: string; barcodes?: string[]; location?: string }): Promise<{ movedCount: number; requestedCount: number }> {
+  async moveCellsToFloor(params: { palletNumber?: string; boxNumber?: string; barcodes?: string[]; location?: string }): Promise<{ movedCount: number; skippedCount: number; requestedCount: number }> {
     const palletNumber = String(params.palletNumber || '').trim();
     const boxNumber = String(params.boxNumber || '').trim();
     const barcodes = Array.from(new Set((params.barcodes || []).map(value => String(value).trim()).filter(Boolean)));
     if (!palletNumber && !boxNumber && barcodes.length === 0) throw new Error('Enter a pallet, box, or at least one cell barcode.');
 
-    let query = supabase.from('cells').select('id,lifecycle_status,status').limit(10000);
+    let cells: any[] = [];
     if (barcodes.length > 0) {
-      query = query.or(`id.in.(${barcodes.join(',')}),internal_serial.in.(${barcodes.join(',')}),supplier_barcode.in.(${barcodes.join(',')}),qr_code.in.(${barcodes.join(',')})`);
-    } else if (palletNumber && boxNumber) {
-      query = query.eq('pallet_number', palletNumber).eq('box_number', boxNumber);
-    } else if (palletNumber) {
-      query = query.eq('pallet_number', palletNumber);
+      const [idResult, internalResult, supplierResult, qrResult] = await Promise.all([
+        supabase.from('cells').select('id,lifecycle_status,status').in('id', barcodes),
+        supabase.from('cells').select('id,lifecycle_status,status').in('internal_serial', barcodes),
+        supabase.from('cells').select('id,lifecycle_status,status').in('supplier_barcode', barcodes),
+        supabase.from('cells').select('id,lifecycle_status,status').in('qr_code', barcodes),
+      ]);
+      const lookupError = [idResult, internalResult, supplierResult, qrResult].find(result => result.error)?.error;
+      if (lookupError) throw lookupError;
+      cells = Array.from(new Map(
+        [idResult.data, internalResult.data, supplierResult.data, qrResult.data]
+          .flat()
+          .map(cell => [cell.id, cell]),
+      ).values());
     } else {
-      query = query.eq('box_number', boxNumber);
+      let query = supabase.from('cells').select('id,lifecycle_status,status');
+      if (palletNumber && boxNumber) query = query.eq('pallet_number', palletNumber).eq('box_number', boxNumber);
+      else if (palletNumber) query = query.eq('pallet_number', palletNumber);
+      else query = query.eq('box_number', boxNumber);
+      const result = await query.limit(10000);
+      if (result.error) throw result.error;
+      cells = result.data || [];
     }
-    const { data: cells, error: lookupError } = await query;
-    if (lookupError) throw lookupError;
-    const eligible = (cells || []).filter((cell: any) => !['SCRAP', 'SOLD', 'IN_MODULE', 'IN_PACK', 'IN_RACK'].includes(String(cell.lifecycle_status || '').toUpperCase()) && !['QUARANTINED', 'REJECTED'].includes(String(cell.status || '').toUpperCase()));
-    if (eligible.length === 0) throw new Error('No eligible cells were found for the supplied pallet, box, or barcode values.');
+    const alreadyFloorStock = cells.filter((cell: any) => String(cell.lifecycle_status || '').toUpperCase() === 'FLOOR_STOCK');
+    const eligible = cells.filter((cell: any) => !['SCRAP', 'SOLD', 'IN_MODULE', 'IN_PACK', 'IN_RACK', 'FLOOR_STOCK'].includes(String(cell.lifecycle_status || '').toUpperCase()) && !['QUARANTINED', 'REJECTED'].includes(String(cell.status || '').toUpperCase()));
+    if (cells.length === 0) throw new Error('No matching cells were found for the supplied pallet, box, or barcode values.');
+    if (eligible.length === 0) return { movedCount: 0, skippedCount: alreadyFloorStock.length, requestedCount: barcodes.length || cells.length };
     const { error: updateError } = await supabase.from('cells').update({
       status: 'AVAILABLE',
       lifecycle_status: 'FLOOR_STOCK',
-      reservedForOrderId: null,
-      reservedForBatteryId: null,
-      updatedAt: new Date().toISOString(),
+      reserved_for_order_id: null,
+      reserved_for_battery_id: null,
+      updated_at: new Date().toISOString(),
     }).in('id', eligible.map((cell: any) => cell.id));
     if (updateError) throw updateError;
-    return { movedCount: eligible.length, requestedCount: barcodes.length || eligible.length };
+    return { movedCount: eligible.length, skippedCount: alreadyFloorStock.length, requestedCount: barcodes.length || cells.length };
   },
 
   async getRacks(): Promise<RackUnit[]> {

@@ -1,8 +1,9 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { jsPDF } from 'jspdf';
-import { Activity, AlertTriangle, Boxes, Download, Factory, Gauge, PackageCheck, ShieldCheck, Truck, Wrench, Zap } from 'lucide-react';
+import { Activity, AlertTriangle, Boxes, Download, Factory, PackageCheck, Truck, Zap } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
 import { api } from '../../services/api';
+import { downloadBatteryReport, downloadCellReport, downloadRackReport } from '../../lib/cellReportExport';
 import { buildDashboardDistribution, DashboardDistribution, DashboardChartRow } from '../../lib/dashboardCharts';
 
 const numberOr = (value: any, fallback = 0) => {
@@ -31,7 +32,7 @@ const reportDarkGrey = '#374151';
 const reportGreen = '#16a34a';
 type ChartRow = DashboardChartRow;
 
-const DistributionDonut: React.FC<{ distribution: DashboardDistribution; ariaLabel: string }> = ({ distribution, ariaLabel }) => {
+const DistributionDonut: React.FC<{ distribution: DashboardDistribution; ariaLabel: string; showShare?: boolean }> = ({ distribution, ariaLabel, showShare = true }) => {
   const visible = distribution.rows.filter((row) => row.value > 0 && row.share > 0);
   let offset = 0;
   return (
@@ -46,7 +47,7 @@ const DistributionDonut: React.FC<{ distribution: DashboardDistribution; ariaLab
             const gap = visible.length > 1 ? 0.7 : 0;
             const segmentLength = Math.max(0, (row.share / 100) * circumference - gap);
             const dashOffset = -((start / 100) * circumference + gap / 2);
-            return <circle className="chart-donut-segment" key={row.label} cx="50" cy="50" r="35" fill="none" stroke={row.color} strokeWidth="14" strokeDasharray={`${segmentLength} ${circumference - segmentLength}`} strokeDashoffset={dashOffset} transform="rotate(-90 50 50)" strokeLinecap="butt"><title>{`${row.label}: ${formatNumber(row.value)} (${row.share.toFixed(2)}%)`}</title></circle>;
+            return <circle className="chart-donut-segment" key={row.label} cx="50" cy="50" r="35" fill="none" stroke={row.color} strokeWidth="14" strokeDasharray={`${segmentLength} ${circumference - segmentLength}`} strokeDashoffset={dashOffset} transform="rotate(-90 50 50)" strokeLinecap="butt"><title>{`${row.label}: ${formatNumber(row.value)}${showShare ? ` (${row.share.toFixed(2)}%)` : ''}`}</title></circle>;
           })}
           <circle cx="50" cy="50" r="22" fill="white" />
           <text x="50" y="49" textAnchor="middle" fontSize="9" fontWeight="700" fill="#111111">{formatNumber(distribution.total)}</text>
@@ -54,7 +55,7 @@ const DistributionDonut: React.FC<{ distribution: DashboardDistribution; ariaLab
         </svg>}
       </div>
       <div className="min-w-0 flex-1 space-y-2.5 py-2">
-        {distribution.rows.map((row) => <div key={row.label} className="flex items-center justify-between gap-3 text-[12px]"><div className="flex items-center gap-2 text-slate-600"><span className="h-2.5 w-2.5 rounded-sm" style={{ backgroundColor: row.color }} />{row.label}</div><span className="font-semibold text-slate-900">{formatNumber(row.value)} <span className="font-normal text-slate-400">({row.share.toFixed(2)}%)</span></span></div>)}
+        {distribution.rows.map((row) => <div key={row.label} className="flex items-center justify-between gap-3 text-[12px]"><div className="flex items-center gap-2 text-slate-600"><span className="h-2.5 w-2.5 rounded-sm" style={{ backgroundColor: row.color }} />{row.label}</div><span className="font-semibold text-slate-900">{formatNumber(row.value)}{showShare && <span className="font-normal text-slate-400"> ({row.share.toFixed(2)}%)</span>}</span></div>)}
       </div>
     </div>
   );
@@ -77,46 +78,28 @@ const DistributionBars: React.FC<{ distribution: DashboardDistribution; colors?:
 
 const formatNumber = (value: number) => new Intl.NumberFormat('en-US').format(value);
 const formatMwh = (capacityKwh: number) => `${(capacityKwh / 1000).toFixed(2)} MWh`;
+const formatCellTotalMwh = (capacityKwh: number) => `${(Math.ceil((capacityKwh / 1000) * 10) / 10).toFixed(1)}MWh`;
+const formatCellRowMwh = (capacityKwh: number) => `${(capacityKwh / 1000).toFixed(2)}MWh`;
 const formatShare = (value: number, total: number) => `${((value / Math.max(1, total)) * 100).toFixed(2)}%`;
-
-const dateInputValue = (date: Date) => {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, '0');
-  const day = String(date.getDate()).padStart(2, '0');
-  return `${year}-${month}-${day}`;
-};
-
-const todayInputValue = dateInputValue(new Date());
-const defaultStartInputValue = dateInputValue(new Date(Date.now() - 6 * 86400000));
-
 export const CEOMonitoringView: React.FC = () => {
   const { refreshKey, addNotification } = useApp();
   const [stats, setStats] = useState<any | null>(null);
   const [loading, setLoading] = useState(true);
   const [exporting, setExporting] = useState(false);
+  const [exportingCells, setExportingCells] = useState(false);
+  const [exportingBatteryReport, setExportingBatteryReport] = useState(false);
+  const [exportingRackReport, setExportingRackReport] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [activeRange, setActiveRange] = useState<'Today' | 'This Week' | 'This Month' | 'Custom Range'>('Today');
   const [selectedCellStatus, setSelectedCellStatus] = useState<'All' | string>('All');
   const [selectedPackType, setSelectedPackType] = useState('All');
   const [selectedRackType, setSelectedRackType] = useState('All');
   const [selectedModuleConfig, setSelectedModuleConfig] = useState('All');
-  const [customStartDate, setCustomStartDate] = useState(defaultStartInputValue);
-  const [customEndDate, setCustomEndDate] = useState(todayInputValue);
-  const dashboardStartDate = activeRange === 'Custom Range'
-    ? customStartDate
-    : activeRange === 'Today'
-      ? todayInputValue
-      : activeRange === 'This Week'
-        ? dateInputValue(new Date(Date.now() - 6 * 86400000))
-        : dateInputValue(new Date(new Date().getFullYear(), new Date().getMonth(), 1));
-  const dashboardEndDate = activeRange === 'Custom Range' ? customEndDate : todayInputValue;
-
   useEffect(() => {
     let cancelled = false;
 
     const refresh = async () => {
       try {
-        const res = await api.getDashboardStats(dashboardStartDate, dashboardEndDate);
+        const res = await api.getDashboardStats();
         if (!cancelled) {
           setStats(res);
           setLoadError(null);
@@ -145,7 +128,7 @@ export const CEOMonitoringView: React.FC = () => {
       window.clearInterval(interval);
       document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
-  }, [dashboardEndDate, dashboardStartDate, refreshKey]);
+  }, [refreshKey]);
 
   const source = stats ?? {};
   const inventory = source.inventory ?? {};
@@ -155,36 +138,19 @@ export const CEOMonitoringView: React.FC = () => {
   const attention = source.attention ?? {};
   const kpis = source.kpis ?? {};
 
-  const customStartTimestamp = Date.parse(`${customStartDate}T12:00:00`);
-  const customEndTimestamp = Date.parse(`${customEndDate}T12:00:00`);
-  const customRangeDays = Number.isFinite(customStartTimestamp) && Number.isFinite(customEndTimestamp)
-    ? Math.max(1, Math.round((customEndTimestamp - customStartTimestamp) / 86400000) + 1)
-    : 1;
   const scaleValue = (value: number) => Math.max(0, Math.round(value));
 
   const capacityProduced = numberOr(production.capacityProducedKwh);
   const completedBatteries = numberOr(source.completedBatteriesTotal ?? production.completedBatteries ?? inventory.finishedBatteries);
   const targetBatteries = numberOr(production.targetBatteries);
   const batteryProgress = targetBatteries > 0 ? clamp((completedBatteries / targetBatteries) * 100, 0, 100) : null;
-  const passRate = clamp(numberOr(quality.firstPassYieldPercent), 0, 100);
-  const scrapCells = numberOr(inventory.scrapCells ?? inventory.quarantinedCells);
-  const scrapRate = clamp((scrapCells / Math.max(1, numberOr(inventory.totalCells))) * 100, 0, 100);
-  const totalCells = Math.max(1, scaleValue(numberOr(inventory.totalCells)));
   const scopedAvailableCells = (source.cellBuckets || [])
     .filter((row: any) => row.label === 'In Stock' || row.label === 'Floor Stock')
     .reduce((sum: number, row: any) => sum + scaleValue(numberOr(row.value)), 0);
-  const consumedCells = scaleValue(numberOr(inventory.usedCells));
-  const consumedCellShare = clamp((consumedCells / totalCells) * 100, 0, 100);
   const completedOrders = scaleValue(numberOr(orders.completed));
   const totalOrders = scaleValue(numberOr(orders.total));
   const remainingOrders = Math.max(0, totalOrders - completedOrders);
   const orderCompletion = totalOrders > 0 ? clamp((completedOrders / totalOrders) * 100, 0, 100) : 0;
-  const requiredControllers = Math.max(0, scaleValue(numberOr(source.batteryPackTotal ?? completedBatteries)));
-  const availableBms = scaleValue(numberOr(source.controllerInventory?.availableBms));
-  const availableBmu = scaleValue(numberOr(source.controllerInventory?.availableBmu));
-  const controllerReadiness = requiredControllers > 0
-    ? clamp((Math.min(availableBms, availableBmu) / requiredControllers) * 100, 0, 100)
-    : 0;
   const openRisks = scaleValue(numberOr(attention.openQuarantines ?? source.quarantineOpenCount ?? quality.quarantinedCount));
   const delayedOrders = scaleValue(numberOr(attention.delayedOrders));
   const qcIssues = scaleValue(numberOr(attention.qcIssues));
@@ -195,7 +161,7 @@ export const CEOMonitoringView: React.FC = () => {
   ].filter(Boolean).join(' · ') || 'No active risks';
   const lastUpdated = source.updatedAt ? new Date(source.updatedAt).toLocaleString() : 'Live';
 
-  const cellRows = useMemo<ChartRow[]>(() => (source.cellBuckets || []).map((row: any) => ({ label: String(row.label || ''), value: numberOr(row.value), color: statusColors[row.label] || '#64748b' })), [source.cellBuckets, activeRange]);
+  const cellRows = useMemo<ChartRow[]>(() => (source.cellBuckets || []).map((row: any) => ({ label: String(row.label || ''), value: numberOr(row.value), color: statusColors[row.label] || '#64748b' })), [source.cellBuckets]);
   const filteredCellRows = selectedCellStatus === 'All' ? cellRows : cellRows.filter((row) => row.label === selectedCellStatus);
   const cellDistribution = useMemo(() => buildDashboardDistribution(
     filteredCellRows,
@@ -242,7 +208,7 @@ export const CEOMonitoringView: React.FC = () => {
       });
     });
     return rows;
-  }, [source.rackStatusBuckets, activeRange]);
+  }, [source.rackStatusBuckets]);
   const filteredRackRows = selectedRackType === 'All' ? rackData : rackData.filter((row) => row.label === selectedRackType);
   const rackDistribution = useMemo(() => buildDashboardDistribution(
     filteredRackRows,
@@ -256,17 +222,52 @@ export const CEOMonitoringView: React.FC = () => {
     { label: 'Battery Packs Produced', value: formatNumber(scaleValue(completedBatteries)), delta: releaseTrendChange === null ? (targetBatteries > 0 ? `${batteryProgress?.toFixed(1)}% of target` : 'Produced/warehouse · Live') : `${releaseTrendChange >= 0 ? '+' : ''}${releaseTrendChange.toFixed(1)}% vs prior 7 days`, positive: releaseTrendChange === null || releaseTrendChange >= 0, icon: <Factory className="h-5 w-5 text-blue-600" />, bg: '#eff6ff' },
     { label: 'Racks Produced', value: formatNumber(rackTotal), delta: 'Live database value', positive: true, icon: <PackageCheck className="h-5 w-5 text-violet-600" />, bg: '#f5f3ff' },
     { label: 'Available Cells', value: formatNumber(scopedAvailableCells), delta: 'Inventory · In stock + floor stock', positive: true, icon: <Boxes className="h-5 w-5 text-amber-600" />, bg: '#fff7ed' },
-    { label: 'First-Pass Quality Yield', value: `${passRate.toFixed(1)}%`, delta: `${formatNumber(numberOr(quality.passedTests))} passed / ${formatNumber(numberOr(quality.totalTests))} tests`, positive: true, icon: <ShieldCheck className="h-5 w-5 text-emerald-600" />, bg: '#f0fdf4' },
-    { label: 'Cell Scrap / Recycle Rate', value: `${scrapRate.toFixed(1)}%`, delta: `${formatNumber(scrapCells)} scrap / recycle / ${formatNumber(numberOr(inventory.totalCells))} cells`, positive: scrapRate < 1, icon: <AlertTriangle className="h-5 w-5 text-rose-600" />, bg: '#fef2f2' },
   ];
+
+  const exportCellReport = async () => {
+    setExportingCells(true);
+    try {
+      const [cells, counts] = await Promise.all([api.getCells(), api.getCellCounts()]);
+      downloadCellReport(cells);
+      addNotification('success', 'Cell report exported', `${counts.total.toLocaleString()} cell records were exported.`);
+    } catch (error: any) {
+      addNotification('error', 'Cell export failed', error?.message || 'Unable to export the cell inventory report.');
+    } finally {
+      setExportingCells(false);
+    }
+  };
+
+  const exportBatteryReport = async () => {
+    setExportingBatteryReport(true);
+    try {
+      const batteries = await api.getBatteries();
+      downloadBatteryReport(batteries);
+      addNotification('success', 'Battery report exported', `${batteries.length.toLocaleString()} battery records were exported.`);
+    } catch (error: any) {
+      addNotification('error', 'Battery export failed', error?.message || 'Unable to export the battery report.');
+    } finally {
+      setExportingBatteryReport(false);
+    }
+  };
+
+  const exportRackReport = async () => {
+    setExportingRackReport(true);
+    try {
+      const racks = await api.getRacks();
+      downloadRackReport(racks);
+      addNotification('success', 'Rack report exported', `${racks.length.toLocaleString()} rack records were exported.`);
+    } catch (error: any) {
+      addNotification('error', 'Rack export failed', error?.message || 'Unable to export the rack report.');
+    } finally {
+      setExportingRackReport(false);
+    }
+  };
 
   const exportReport = () => {
     setExporting(true);
     try {
       const reportDate = new Date().toISOString().slice(0, 10);
-      const rangeLabel = activeRange === 'Custom Range'
-        ? `${customStartDate} to ${customEndDate}`
-        : activeRange;
+      const rangeLabel = 'All available data';
       const statusRows = (statuses: string[], sourceRows: any[], colorMap: Record<string, string>, defaultCapacityKwh: (status: string) => number = () => 0) => {
         const values = new Map((sourceRows || []).map((row: any) => [String(row.label).replace(/_/g, ' ').toUpperCase(), { value: numberOr(row.value), capacityKwh: numberOr(row.capacityKwh) }]));
         return statuses.map((status) => ({
@@ -303,7 +304,7 @@ export const CEOMonitoringView: React.FC = () => {
         const typeRows = Array.isArray(row.rackTypes) ? row.rackTypes : [];
         const formatRackLabel = (rackStatus: string, rackType: string) => {
           const formattedStatus = rackStatus.toLowerCase().replace(/\b\w/g, (letter) => letter.toUpperCase());
-          const formattedType = rackType.replace(/^RACK_/i, 'Rack ').replace(/_/g, ' ').replace(/(\d+(?:\.\d+)?)KWH/i, '$1 kWh').replace(/\b\w/g, (letter) => letter.toUpperCase());
+          const formattedType = rackType.replace(/^RACK_/i, 'Rack ').replace(/_/g, ' ').replace(/(\d+(?:\.\d+)?)KWH/i, '$1 kWh').replace(/\b\w/g, (letter) => letter.toUpperCase()).replace(/KWh/g, 'kWh');
           return `${formattedStatus} — ${formattedType}`;
         };
         if (typeRows.length === 0) return [{ label: status, value: numberOr(row.value), capacityKwh: numberOr(row.capacityKwh), color }];
@@ -347,6 +348,7 @@ export const CEOMonitoringView: React.FC = () => {
         const value = hex.replace('#', '');
         return [parseInt(value.slice(0, 2), 16), parseInt(value.slice(2, 4), 16), parseInt(value.slice(4, 6), 16)];
       };
+      const reportFontSize = (size: number) => doc.setFontSize(size * 1.08);
       const drawTitle = (title: string, subtitle: string) => {
         doc.setFillColor(...ink);
         doc.rect(0, 0, pageWidth, 25, 'F');
@@ -354,23 +356,23 @@ export const CEOMonitoringView: React.FC = () => {
         doc.rect(0, 24, pageWidth, 1, 'F');
         doc.setTextColor(255, 255, 255);
         doc.setFont('helvetica', 'bold');
-        doc.setFontSize(18);
+        reportFontSize(18);
         doc.text(title, margin, 11);
         doc.setFont('helvetica', 'normal');
-        doc.setFontSize(8);
+        reportFontSize(8);
         doc.text(subtitle, margin, 18);
         doc.setTextColor(...ink);
       };
-      const drawDonut = (x: number, y: number, radius: number, rows: { label: string; value: number; capacityKwh: number; color: string }[], title: string, legendOnRight = false, legendRightX = pageWidth - margin) => {
+      const drawDonut = (x: number, y: number, radius: number, rows: { label: string; value: number; capacityKwh: number; color: string }[], title: string, legendOnRight = false, legendRightX = pageWidth - margin, showShare = true, capacityFormatter = formatMwh, includeValueInLegend = false) => {
         const total = rows.reduce((sum, row) => sum + row.value, 0);
         const totalCapacityKwh = rows.reduce((sum, row) => sum + row.capacityKwh, 0);
         if (total === 0) {
           doc.setFont('helvetica', 'bold');
-          doc.setFontSize(9);
+          reportFontSize(9);
           doc.setTextColor(...ink);
           doc.text(title, x - radius, y - radius - 10);
           doc.setFont('helvetica', 'normal');
-          doc.setFontSize(8);
+          reportFontSize(8);
           doc.setTextColor(...muted);
           doc.text('No recorded data', x, y, { align: 'center' });
           return;
@@ -378,7 +380,7 @@ export const CEOMonitoringView: React.FC = () => {
         const chartTotal = total;
         let start = -Math.PI / 2;
         doc.setFont('helvetica', 'bold');
-        doc.setFontSize(9);
+        reportFontSize(9);
         doc.text(title, x - radius, y - radius - 10);
         rows.forEach((row) => {
           const end = start + (row.value / chartTotal) * Math.PI * 2;
@@ -394,29 +396,33 @@ export const CEOMonitoringView: React.FC = () => {
         doc.circle(x, y, radius * 0.58, 'F');
         doc.setTextColor(...ink);
         doc.setFont('helvetica', 'bold');
-        doc.setFontSize(13);
+        reportFontSize(13);
         doc.text(formatNumber(total), x, y + 2, { align: 'center' });
         doc.setFont('helvetica', 'normal');
-        doc.setFontSize(6);
+        reportFontSize(6);
         doc.text('TOTAL', x, y + 7, { align: 'center' });
-        doc.setFontSize(5);
-        doc.text(formatMwh(totalCapacityKwh), x, y + 11, { align: 'center' });
+        reportFontSize(5);
+        doc.text(capacityFormatter(totalCapacityKwh), x, y + 25, { align: 'center' });
         rows.slice(0, 8).forEach((row, index) => {
           if (legendOnRight) {
             const legendX = x + radius + 4;
-            const legendY = y - 25 + index * 8;
+            const legendY = y - 25 + index * 10;
             doc.setFillColor(...hexRgb(row.color));
             doc.roundedRect(legendX, legendY - 3, 2.5, 2.5, 0.5, 0.5, 'F');
             doc.setFont('helvetica', 'normal');
-            doc.setFontSize(5.8);
+            reportFontSize(includeValueInLegend ? 5.4 : 5.8);
             doc.setTextColor(...muted);
+            if (includeValueInLegend) {
+              doc.text(`${row.label} (${formatCellRowMwh(row.capacityKwh)}) ${formatNumber(row.value)}`, legendX + 5, legendY, { maxWidth: legendRightX - legendX - 7 });
+              return;
+            }
             doc.text(row.label, legendX + 5, legendY);
             doc.setFont('helvetica', 'bold');
             doc.setTextColor(...ink);
-            doc.text(`${formatNumber(row.value)}`, legendRightX - 18, legendY, { align: 'right' });
+            doc.text(formatNumber(row.value), legendRightX - 23, legendY + 1, { align: 'right' });
             doc.setFont('helvetica', 'normal');
             doc.setTextColor(...muted);
-            doc.text(`(${formatShare(row.value, total)})`, legendRightX, legendY, { align: 'right' });
+            doc.text(formatMwh(row.capacityKwh), legendRightX, legendY + 1, { align: 'right' });
             return;
           }
           const legendColumn = index < 4 ? 0 : 1;
@@ -426,58 +432,67 @@ export const CEOMonitoringView: React.FC = () => {
           doc.setFillColor(...hexRgb(row.color));
           doc.rect(legendX, legendY - 3, 2, 2, 'F');
           doc.setFont('helvetica', 'normal');
-          doc.setFontSize(5.2);
+          reportFontSize(5.2);
           doc.setTextColor(...muted);
           doc.text(`${row.label} ${formatNumber(row.value)} · ${formatMwh(row.capacityKwh)}`, legendX + 3, legendY);
         });
       };
       const drawBars = (x: number, y: number, width: number, height: number, rows: { label: string; value: number; capacityKwh: number; color: string }[], title: string, compactSingle = false, showEnergy = true, preserveOrder = false) => {
         doc.setFont('helvetica', 'bold');
-        doc.setFontSize(9);
+        reportFontSize(9);
         doc.setTextColor(...ink);
         doc.text(title, x, y - 16);
         const visibleRows = (preserveOrder ? [...rows] : [...rows].sort((left, right) => right.value - left.value)).slice(0, 6);
         if (!visibleRows.length || visibleRows.every((row) => row.value <= 0)) {
           doc.setFont('helvetica', 'normal');
-          doc.setFontSize(8);
+          reportFontSize(8);
           doc.setTextColor(...muted);
           doc.text('No recorded data', x, y + height / 2);
           return;
         }
         const max = Math.max(...visibleRows.map((row) => row.value), 1);
         const singleRecord = compactSingle && visibleRows.length === 1;
-        const barWidth = singleRecord ? Math.min(28, width * 0.32) : Math.min(18, (width - Math.max(visibleRows.length - 1, 0) * 5) / Math.max(visibleRows.length, 1));
-        const plotHeight = singleRecord ? Math.min(height, 22) : height;
+        const gridColumns = !singleRecord && visibleRows.length > 4 ? 3 : visibleRows.length;
+        const gridRows = Math.ceil(visibleRows.length / Math.max(gridColumns, 1));
+        const cellWidth = width / Math.max(gridColumns, 1);
+        const cellHeight = height / Math.max(gridRows, 1);
+        const barWidth = singleRecord ? Math.min(28, width * 0.32) : Math.min(18, cellWidth - 5);
+        const plotHeight = singleRecord ? Math.min(height, 22) : Math.max(8, cellHeight - 12);
         visibleRows.forEach((row, index) => {
           const hasValue = row.value > 0;
           const barHeight = hasValue ? Math.max((row.value / max) * plotHeight, 1.5) : 1.2;
-          const barX = singleRecord ? x + (width - barWidth) / 2 : x + index * (barWidth + 5);
+          const gridColumn = index % gridColumns;
+          const gridRow = Math.floor(index / gridColumns);
+          const cellX = x + gridColumn * cellWidth;
+          const cellY = y + gridRow * cellHeight;
+          const barX = singleRecord ? x + (width - barWidth) / 2 : cellX + (cellWidth - barWidth) / 2;
+          const baseline = singleRecord ? y + height : cellY + cellHeight - 12;
           doc.setFillColor(...hexRgb(hasValue ? row.color : '#e2e8f0'));
-          doc.roundedRect(barX, y + height - barHeight, barWidth, barHeight, 1.5, 1.5, 'F');
-          const barTop = y + height - barHeight;
+          doc.roundedRect(barX, baseline - barHeight, barWidth, barHeight, 1.5, 1.5, 'F');
+          const barTop = baseline - barHeight;
           doc.setFont('helvetica', 'bold');
-          doc.setFontSize(7);
+          reportFontSize(7);
           doc.setTextColor(...muted);
-          doc.text(formatNumber(row.value), barX + barWidth / 2, barTop - 7, { align: 'center' });
+          doc.text(formatNumber(row.value), barX + barWidth / 2, barTop - 6, { align: 'center' });
           if (showEnergy) {
             doc.setFont('helvetica', 'normal');
-            doc.setFontSize(5);
-            doc.text(formatMwh(row.capacityKwh), barX + barWidth / 2, barTop - 3, { align: 'center' });
+            reportFontSize(5);
+            doc.text(formatMwh(row.capacityKwh), barX + barWidth / 2, barTop - 2, { align: 'center' });
           }
-          doc.setFontSize(5.8);
-          const labelLines = doc.splitTextToSize(row.label, Math.max(27, barWidth + 10));
-          doc.text(labelLines, barX + barWidth / 2, y + height + 7, { align: 'center', lineHeightFactor: 1.15 });
+          reportFontSize(5.8);
+          const labelLines = doc.splitTextToSize(row.label, Math.max(16, cellWidth - 3));
+          doc.text(labelLines, cellX + cellWidth / 2, baseline + 4, { align: 'center', lineHeightFactor: 1.05 });
         });
       };
       const drawSingleKpi = (x: number, y: number, width: number, rows: { label: string; value: number; capacityKwh: number; color: string }[], title: string) => {
         const row = rows[0];
         doc.setFont('helvetica', 'bold');
-        doc.setFontSize(9);
+        reportFontSize(9);
         doc.setTextColor(...ink);
         doc.text(title, x, y - 16);
         if (!row) {
           doc.setFont('helvetica', 'normal');
-          doc.setFontSize(7);
+          reportFontSize(7);
           doc.setTextColor(...muted);
           doc.text('No recorded data', x + width / 2, y + 10, { align: 'center' });
           return;
@@ -485,46 +500,60 @@ export const CEOMonitoringView: React.FC = () => {
         doc.setFillColor(...light);
         doc.roundedRect(x, y - 8, width, 25, 2, 2, 'F');
         doc.setFont('helvetica', 'bold');
-        doc.setFontSize(16);
+        reportFontSize(16);
         doc.setTextColor(...ink);
         doc.text(formatNumber(row.value), x + 8, y + 3);
         doc.setFont('helvetica', 'normal');
-        doc.setFontSize(6.5);
+        reportFontSize(6.5);
         doc.setTextColor(...muted);
         doc.text(row.label, x + 8, y + 10, { maxWidth: width - 16 });
-        doc.setFontSize(6);
+        reportFontSize(6);
         doc.text(formatMwh(row.capacityKwh), x + width - 8, y + 3, { align: 'right' });
-        doc.setFontSize(5.8);
+        reportFontSize(5.8);
         doc.text('Nominal capacity', x + width - 8, y + 10, { align: 'right' });
       };
       const drawTable = (title: string, columns: string[], rows: string[][], y: number, x = margin, tableWidth = pageWidth - margin * 2, compact = false) => {
         doc.setFont('helvetica', 'bold');
-        doc.setFontSize(compact ? 7.5 : 10);
+        reportFontSize(compact ? 7.5 : 10);
         doc.setTextColor(...ink);
         if (title) doc.text(title, x, y);
-        const rowHeight = compact ? 4.8 : 7;
-        const columnWidth = tableWidth / columns.length;
+        const columnWidths = columns.length === 3
+          ? [tableWidth * 0.5, tableWidth * 0.2, tableWidth * 0.3]
+          : columns.map(() => tableWidth / columns.length);
+        const rowText = rows.map((row) => row.map((value, index) => doc.splitTextToSize(String(value), columnWidths[index] - 4)));
+        const rowHeights = rowText.map((row) => compact ? Math.max(4.8, Math.min(9.6, Math.max(...row.map((lines) => lines.length)) * 4.8)) : 7);
+        const headerHeight = compact ? 4.8 : 7;
         doc.setFillColor(...ink);
-        doc.rect(x, y + 3, tableWidth, rowHeight, 'F');
-        doc.setFontSize(compact ? 5.8 : 7);
+        doc.rect(x, y + 3, tableWidth, headerHeight, 'F');
+        reportFontSize(compact ? 5.8 : 7);
         doc.setTextColor(255, 255, 255);
-        columns.forEach((column, index) => doc.text(column, x + index * columnWidth + 2, y + (compact ? 6 : 8)));
-        rows.forEach((row, rowIndex) => {
-          const rowY = y + (compact ? 7 : 10) + rowIndex * rowHeight;
+        let columnOffset = 0;
+        columns.forEach((column, index) => {
+          doc.text(column, x + columnOffset + 2, y + (compact ? 6 : 8));
+          columnOffset += columnWidths[index];
+        });
+        let rowY = y + (compact ? 7 : 10);
+        rowText.forEach((row, rowIndex) => {
+          const rowHeight = rowHeights[rowIndex];
           const rowColor: [number, number, number] = rowIndex % 2 ? [250, 250, 250] : [255, 255, 255];
           doc.setFillColor(...rowColor);
           doc.rect(x, rowY, tableWidth, rowHeight, 'F');
           doc.setTextColor(...muted);
-          row.forEach((value, index) => doc.text(String(value), x + index * columnWidth + 2, rowY + (compact ? 3.2 : 5)));
+          let cellOffset = 0;
+          row.forEach((lines, index) => {
+            doc.text(lines, x + cellOffset + 2, rowY + (compact ? 3.2 : 5), { lineHeightFactor: 1.05 });
+            cellOffset += columnWidths[index];
+          });
+          rowY += rowHeight;
         });
         doc.setDrawColor(...border);
         doc.setLineWidth(0.2);
-        doc.rect(x, y + 3, tableWidth, rowHeight + rows.length * rowHeight);
+        doc.rect(x, y + 3, tableWidth, headerHeight + rowHeights.reduce((sum, rowHeight) => sum + rowHeight, 0));
       };
 
       drawTitle('POWER2GO MES | CEO PERFORMANCE REPORT', `Reporting range: ${rangeLabel}   |   Generated: ${reportDate}`);
       doc.setFont('helvetica', 'bold');
-      doc.setFontSize(9);
+      reportFontSize(9);
       doc.setTextColor(...green);
       doc.text('EXECUTIVE SNAPSHOT', margin, 34);
       kpiCards.filter((card) => !['First-Pass Quality Yield', 'Cell Scrap / Recycle Rate'].includes(card.label)).forEach((card, index) => {
@@ -535,84 +564,52 @@ export const CEOMonitoringView: React.FC = () => {
         doc.roundedRect(x, y, cardWidth, 20, 2, 2, 'F');
         doc.setTextColor(...muted);
         doc.setFont('helvetica', 'normal');
-        doc.setFontSize(7);
+        reportFontSize(7);
         doc.text(card.label, x + 3, y + 7, { maxWidth: cardWidth - 6 });
         doc.setTextColor(...ink);
         doc.setFont('helvetica', 'bold');
-        doc.setFontSize(12);
+        reportFontSize(12);
         doc.text(card.value, x + 3, y + 15);
       });
       doc.setFont('helvetica', 'bold');
-      doc.setFontSize(9);
+      reportFontSize(9);
       doc.setTextColor(...green);
-      doc.text('INVENTORY DISTRIBUTIONS', margin, 112);
-      drawDonut(leftChartX + 23, 150, 20, cellReportRows, 'CELL INVENTORY', true, leftChartX + chartWidth);
-      drawBars(rightChartX, 136, chartWidth, 26, moduleReportRows, 'MODULE CONFIGURATION');
-      drawBars(leftChartX, 207, chartWidth, 26, batteryReportRows, 'BATTERY PACK MODEL');
-      if (rackReportRows.length === 1) drawSingleKpi(rightChartX, 207, chartWidth, rackReportRows, 'RACK STATUS');
-      else drawBars(rightChartX, 207, chartWidth, 26, rackReportRows, 'RACK STATUS');
+      doc.text('INVENTORY DISTRIBUTIONS', margin, 109);
+      drawDonut(leftChartX + 23, 150, 20, cellReportRows, 'CELL INVENTORY', true, leftChartX + chartWidth, false, formatCellTotalMwh, true);
+      drawBars(rightChartX, 136, chartWidth, 36, moduleReportRows, 'MODULE CONFIGURATION');
+      drawBars(leftChartX, 214, chartWidth, 36, batteryReportRows, 'BATTERY PACK MODEL');
+      if (rackReportRows.length === 1) drawSingleKpi(rightChartX, 214, chartWidth, rackReportRows, 'RACK STATUS');
+      else drawBars(rightChartX, 214, chartWidth, rackReportRows.length > 4 ? 52 : 36, rackReportRows, 'RACK STATUS');
       doc.addPage();
       drawTitle('POWER2GO MES | CEO PERFORMANCE REPORT', `Operational detail   |   ${rangeLabel}   |   ${reportDate}`);
-      doc.setFont('helvetica', 'bold');
-      doc.setFontSize(8);
-      doc.setTextColor(...green);
-      doc.text('EXECUTIVE PULSE', margin, 34);
-      const pulseRows = [
-        ['BMS/BMU readiness', `${controllerReadiness.toFixed(1)}%`, `BMS ${formatNumber(availableBms)}/${formatNumber(requiredControllers)} · BMU ${formatNumber(availableBmu)}/${formatNumber(requiredControllers)}`],
-        ['Cells Processed / Consumed', `${consumedCellShare.toFixed(1)}%`, `${formatNumber(consumedCells)} of ${formatNumber(totalCells)} cells`],
-      ];
-      const pulseWidth = (pageWidth - margin * 2 - 6) / 2;
-      pulseRows.forEach((row, index) => {
-        const x = margin + (index % 2) * (pulseWidth + 6);
-        const y = 39 + Math.floor(index / 2) * 28;
-        doc.setFillColor(...light);
-        doc.roundedRect(x, y, pulseWidth, 23, 2, 2, 'F');
-        doc.setFont('helvetica', 'normal');
-        doc.setFontSize(6.5);
-        doc.setTextColor(...muted);
-        doc.text(row[0], x + 3, y + 7, { maxWidth: pulseWidth - 6 });
-        doc.setFont('helvetica', 'bold');
-        doc.setFontSize(10);
-        doc.setTextColor(...ink);
-        doc.text(row[1], x + 3, y + 15);
-        doc.setFont('helvetica', 'normal');
-        doc.setFontSize(6);
-        doc.setTextColor(...muted);
-        doc.text(row[2], x + 3, y + 20, { maxWidth: pulseWidth - 6 });
-      });
       const rackWord = rackTotal === 1 ? 'rack' : 'racks';
       doc.setFillColor(...light);
-      doc.roundedRect(margin, 198, pageWidth - margin * 2, 38, 2, 2, 'F');
-      drawBars(leftChartX, 204, chartWidth, 20, bmsReportRows, 'BMS INVENTORY - TOTAL / AVAILABLE / USED', false, false, true);
-      drawBars(rightChartX, 204, chartWidth, 20, bmuReportRows, 'BMU INVENTORY - TOTAL / AVAILABLE / USED', false, false, true);
+      doc.roundedRect(margin, 134, pageWidth - margin * 2, 32, 2, 2, 'F');
+      drawBars(leftChartX, 140, chartWidth, 18, bmsReportRows, 'BMS INVENTORY - TOTAL / AVAILABLE / USED', false, false, true);
+      drawBars(rightChartX, 140, chartWidth, 18, bmuReportRows, 'BMU INVENTORY - TOTAL / AVAILABLE / USED', false, false, true);
       doc.setFillColor(...light);
-      doc.roundedRect(margin, 240, pageWidth - margin * 2, 39, 2, 2, 'F');
+      doc.roundedRect(margin, 176, pageWidth - margin * 2, 34, 2, 2, 'F');
       doc.setFont('helvetica', 'bold');
-      doc.setFontSize(8);
+      reportFontSize(8);
       doc.setTextColor(...green);
-      doc.text('KEY OBSERVATIONS', margin + 4, 247);
+      doc.text('KEY OBSERVATIONS', margin + 4, 183);
       doc.setFont('helvetica', 'normal');
-      doc.setFontSize(7);
+      reportFontSize(7);
       doc.setTextColor(...muted);
-      doc.text(`Nominal Capacity Produced: ${formatNumber(capacityProduced)} kWh (${formatMwh(capacityProduced)}).`, margin + 4, 254);
-      doc.text(`Output includes ${formatNumber(reportBatteryTotal)} battery packs and ${formatNumber(rackTotal)} ${rackWord}.`, margin + 4, 262);
-      doc.text(`Cell utilization is ${consumedCellShare.toFixed(1)}% (${formatNumber(consumedCells)} of ${formatNumber(totalCells)} cells).`, margin + 4, 270);
-      doc.setFontSize(7);
-      doc.setFont('helvetica', 'normal');
-      doc.setTextColor(...muted);
-      const shareRows = (rows: { label: string; value: number; capacityKwh: number }[]) => {
-        const total = rows.reduce((sum, item) => sum + item.value, 0);
-        return rows.map((row) => [row.label, formatNumber(row.value), formatMwh(row.capacityKwh), formatShare(row.value, total)]);
+      doc.text(`Nominal Capacity Produced: ${formatNumber(capacityProduced)} kWh (${formatMwh(capacityProduced)}).`, margin + 4, 190);
+      doc.text(`Output includes ${formatNumber(reportBatteryTotal)} battery packs and ${formatNumber(rackTotal)} ${rackWord}.`, margin + 4, 198);
+      const reportRows = (rows: { label: string; value: number; capacityKwh: number }[]) => {
+        return rows.map((row) => [row.label, formatNumber(row.value), formatMwh(row.capacityKwh)]);
       };
       const detailWidth = (pageWidth - margin * 2 - 6) / 2;
-      drawTable('CELL INVENTORY', ['Status', 'Qty', 'Energy', 'Share'], shareRows(cellReportRows), 96, margin, detailWidth, true);
-      drawTable('MODULE CONFIGURATION', ['Type', 'Qty', 'Energy', 'Share'], shareRows(moduleReportRows), 96, margin + detailWidth + 6, detailWidth, true);
-      drawTable('BATTERY PACK MODEL', ['Model', 'Qty', 'Energy', 'Share'], shareRows(batteryReportRows), 151, margin, detailWidth, true);
-      drawTable('RACK STATUS', ['Status', 'Qty', 'Energy', 'Share'], shareRows(rackReportRows), 151, margin + detailWidth + 6, detailWidth, true);
-      doc.setFontSize(7);
+      drawTable('CELL INVENTORY', ['Status', 'Qty', 'Capacity'], reportRows(cellReportRows), 45, margin, detailWidth, true);
+      drawTable('MODULE CONFIGURATION', ['Type', 'Qty', 'Capacity'], reportRows(moduleReportRows), 45, margin + detailWidth + 6, detailWidth, true);
+      drawTable('BATTERY PACK MODEL', ['Model', 'Qty', 'Capacity'], reportRows(batteryReportRows), 90, margin, detailWidth, true);
+      drawTable('RACK STATUS', ['Status', 'Qty', 'Capacity'], reportRows(rackReportRows), 90, margin + detailWidth + 6, detailWidth, true);
+      reportFontSize(7);
       doc.setFont('helvetica', 'normal');
       doc.setTextColor(...muted);
-      doc.text(`Active filters: Cells ${selectedCellStatus} | Packs ${selectedPackType} | Racks ${selectedRackType} | Modules ${selectedModuleConfig}`, margin, pageHeight - 8);
+      doc.text(`Active filters: Cells ${selectedCellStatus} | Packs ${selectedPackType} | Racks ${selectedRackType} | Modules ${selectedModuleConfig}`, margin, pageHeight - 12);
 
       doc.save(`power2go-ceo-report-${reportDate}.pdf`);
       addNotification('success', 'Report exported', 'The CEO monitoring report has been downloaded.');
@@ -666,49 +663,37 @@ export const CEOMonitoringView: React.FC = () => {
                 <Download className="h-3.5 w-3.5" />
                 {exporting ? 'Exporting...' : 'Export Report'}
               </button>
-              <div className="flex items-center gap-1 rounded-lg border border-slate-200 bg-white p-1 shadow-sm">
-              {['Today', 'This Week', 'This Month', 'Custom Range'].map((tab) => (
-                <button
-                  key={tab}
-                  type="button"
-                  onClick={() => setActiveRange(tab as any)}
-                  className="rounded-md px-3 py-1.5 text-xs font-medium transition-all"
-                  style={{
-                    background: activeRange === tab ? '#16a34a' : 'transparent',
-                    color: activeRange === tab ? '#ffffff' : '#6b7280',
-                  }}
-                >
-                  {tab}
-                </button>
-              ))}
-              </div>
+              <button
+                type="button"
+                onClick={() => void exportCellReport()}
+                disabled={exportingCells}
+                className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-700 shadow-sm transition-colors hover:border-emerald-200 hover:bg-emerald-50 hover:text-emerald-700 disabled:cursor-wait disabled:opacity-60"
+                title="Export detailed cell inventory to Excel"
+              >
+                <Download className="h-3.5 w-3.5" />
+                {exportingCells ? 'Exporting Cells...' : 'Export Cell Report'}
+              </button>
+              <button
+                type="button"
+                onClick={() => void exportBatteryReport()}
+                disabled={exportingBatteryReport}
+                className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-700 shadow-sm transition-colors hover:border-emerald-200 hover:bg-emerald-50 hover:text-emerald-700 disabled:cursor-wait disabled:opacity-60"
+                title="Export battery inventory to Excel"
+              >
+                <Download className="h-3.5 w-3.5" />
+                {exportingBatteryReport ? 'Exporting Batteries...' : 'Export Battery Report'}
+              </button>
+              <button
+                type="button"
+                onClick={() => void exportRackReport()}
+                disabled={exportingRackReport}
+                className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-700 shadow-sm transition-colors hover:border-emerald-200 hover:bg-emerald-50 hover:text-emerald-700 disabled:cursor-wait disabled:opacity-60"
+                title="Export rack inventory to Excel"
+              >
+                <Download className="h-3.5 w-3.5" />
+                {exportingRackReport ? 'Exporting Racks...' : 'Export Rack Report'}
+              </button>
             </div>
-            {activeRange === 'Custom Range' && (
-              <div className="flex flex-wrap items-center justify-end gap-2 text-xs text-slate-500">
-                <label className="flex items-center gap-1.5">
-                  <span>From</span>
-                  <input
-                    type="date"
-                    value={customStartDate}
-                    max={customEndDate}
-                    onChange={(event) => setCustomStartDate(event.target.value)}
-                    className="rounded-md border border-slate-200 bg-white px-2 py-1.5 text-slate-700 shadow-sm outline-none focus:border-emerald-500"
-                  />
-                </label>
-                <label className="flex items-center gap-1.5">
-                  <span>To</span>
-                  <input
-                    type="date"
-                    value={customEndDate}
-                    min={customStartDate}
-                    max={todayInputValue}
-                    onChange={(event) => setCustomEndDate(event.target.value)}
-                    className="rounded-md border border-slate-200 bg-white px-2 py-1.5 text-slate-700 shadow-sm outline-none focus:border-emerald-500"
-                  />
-                </label>
-                <span className="font-medium text-slate-400">{customRangeDays} day{customRangeDays === 1 ? '' : 's'}</span>
-              </div>
-            )}
           </div>
         </div>
 
@@ -723,27 +708,6 @@ export const CEOMonitoringView: React.FC = () => {
               </div>
               <div className="text-[24px] font-extrabold tracking-[-0.04em] text-slate-900">{card.value}</div>
               <div className={`mt-1 text-[11px] font-semibold ${card.positive ? 'text-emerald-600' : 'text-red-500'}`}>{card.delta}</div>
-            </div>
-          ))}
-        </div>
-
-        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-          {[
-            { label: 'Cells Processed / Consumed', value: `${consumedCellShare.toFixed(1)}%`, detail: `${formatNumber(consumedCells)} of ${formatNumber(totalCells)} cells`, icon: <Gauge className="h-4 w-4 text-emerald-600" />, color: '#16a34a', progress: consumedCellShare },
-            { label: 'BMS/BMU Readiness', value: requiredControllers > 0 ? `${controllerReadiness.toFixed(1)}%` : 'No requirement', detail: `BMS ${formatNumber(availableBms)}/${formatNumber(requiredControllers)} · BMU ${formatNumber(availableBmu)}/${formatNumber(requiredControllers)}`, icon: <Wrench className="h-4 w-4 text-amber-600" />, color: '#f59e0b', progress: controllerReadiness },
-          ].map((pulse) => (
-            <div key={pulse.label} className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-              <div className="flex items-center justify-between gap-3">
-                <div className="flex items-center gap-2">
-                  <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-slate-50">{pulse.icon}</div>
-                  <span className="text-[11px] font-semibold text-slate-500">{pulse.label}</span>
-                </div>
-                <span className="text-[20px] font-extrabold text-slate-900">{pulse.value}</span>
-              </div>
-              <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-slate-100">
-                <div className="h-full rounded-full transition-all duration-500" style={{ width: `${pulse.progress}%`, backgroundColor: pulse.color }} />
-              </div>
-              <div className="mt-2 text-[10px] text-slate-400">{pulse.detail}</div>
             </div>
           ))}
         </div>
@@ -789,7 +753,7 @@ export const CEOMonitoringView: React.FC = () => {
               ))}
             </div>
 
-            <DistributionDonut distribution={cellDistribution} ariaLabel="Cells distribution" />
+            <DistributionDonut distribution={cellDistribution} ariaLabel="Cells distribution" showShare={false} />
           </div>
 
           <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">

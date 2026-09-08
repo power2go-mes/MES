@@ -3057,7 +3057,7 @@ alter table public.cells add column if not exists lifecycle_status text default 
 alter table public.modules add column if not exists lifecycle_status text default 'IN_MODULE';
 alter table public.batteries add column if not exists lifecycle_status text default 'IN_PACK';
 
-create or replace function public.get_dashboard_summary()
+create or replace function public.get_dashboard_summary(p_start_date date default null, p_end_date date default null)
 returns jsonb language sql security definer set search_path = public as $$
 with cell_counts as (
     select
@@ -3078,18 +3078,24 @@ with cell_counts as (
         count(*) filter (where lifecycle_status = 'SCRAP' or status in ('QUARANTINED','REJECTED'))::int as quarantined,
         count(*) filter (where status = 'RESERVED' or reserved_for_order_id is not null or reserved_for_battery_id is not null)::int as reserved,
         count(*) filter (where status in ('IN_PROCESS','VALIDATING','TESTING','SCANNED','PASSED'))::int as in_process
-    from public.cells
+        from public.cells
+        where (p_start_date is null or created_at::date >= p_start_date)
+            and (p_end_date is null or created_at::date <= p_end_date)
 ), battery_counts as (
     select
         count(*) filter (where status in ('FINISHED','RELEASED','DISPATCHED'))::int as finished,
         count(*) filter (where status in ('CREATED','ASSEMBLY','TESTING','QC','IN_PROCESS'))::int as in_process
-    from public.batteries
+        from public.batteries
+        where (p_start_date is null or created_at::date >= p_start_date)
+            and (p_end_date is null or created_at::date <= p_end_date)
 ), order_counts as (
     select count(*)::int as total,
         count(*) filter (where status = 'IN_PROCESS')::int as in_process,
         count(*) filter (where status = 'COMPLETED')::int as completed,
         count(*) filter (where status = 'PLANNED')::int as planned
-    from public.production_orders
+        from public.production_orders
+        where (p_start_date is null or created_at::date >= p_start_date)
+            and (p_end_date is null or created_at::date <= p_end_date)
 ), machine_counts as (
     select count(*)::int as total, count(*) filter (where status in ('ONLINE','BUSY'))::int as online
     from public.machine_configurations
@@ -3190,7 +3196,10 @@ select jsonb_build_object(
 $$;
 revoke all on function public.get_dashboard_summary() from public;
 revoke all on function public.get_dashboard_summary() from anon;
+revoke all on function public.get_dashboard_summary(date, date) from public;
+revoke all on function public.get_dashboard_summary(date, date) from anon;
 grant execute on function public.get_dashboard_summary() to authenticated;
+grant execute on function public.get_dashboard_summary(date, date) to authenticated;
 
 -- Release cell reservations before a battery delete removes the foreign-key reference.
 create or replace function public.release_deleted_battery_cells()
