@@ -18,6 +18,7 @@ import {
   XCircle
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
+import { parseModuleImportGroups } from '../../lib/moduleImportParser';
 
 interface ParsedRow {
   index: number;
@@ -46,6 +47,13 @@ interface ParsedBatteryRow {
   errors: string[];
 }
 
+interface ParsedModuleGroup {
+  moduleNumber: string;
+  qrCodes: string[];
+  isValid: boolean;
+  errors: string[];
+}
+
 export const SupplierImportView: React.FC = () => {
   const { addNotification, triggerRefresh, refreshKey } = useApp();
   const { currentUser } = useAuth();
@@ -70,6 +78,11 @@ export const SupplierImportView: React.FC = () => {
   const [batteryParsedRows, setBatteryParsedRows] = useState<ParsedBatteryRow[]>([]);
   const [batteryPreviewMode, setBatteryPreviewMode] = useState(false);
   const [batteryImportResult, setBatteryImportResult] = useState<any>(null);
+  const [moduleImportFileName, setModuleImportFileName] = useState('');
+  const [moduleParsedGroups, setModuleParsedGroups] = useState<ParsedModuleGroup[]>([]);
+  const [modulePreviewMode, setModulePreviewMode] = useState(false);
+  const [moduleImporting, setModuleImporting] = useState(false);
+  const [moduleImportType, setModuleImportType] = useState<'8S' | '12S'>('8S');
 
   useEffect(() => {
     loadData();
@@ -251,6 +264,62 @@ export const SupplierImportView: React.FC = () => {
       addNotification('error', 'Import Failed', err.message);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleModuleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    setLoading(true);
+    setModuleImportFileName(file.name);
+    setModulePreviewMode(false);
+    const reader = new FileReader();
+    reader.onload = () => {
+      try {
+        const workbook = XLSX.read(reader.result, { type: 'binary' });
+        const sheet = workbook.Sheets[workbook.SheetNames[0]];
+        const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' }) as any[][];
+        if (rows.length < 2) throw new Error('Module file is empty or missing data rows.');
+
+        let parsed = parseModuleImportGroups(rows, moduleImportType === '8S' ? 8 : 12);
+        const isHomogeneous12SFile = moduleImportType === '8S'
+          && parsed.length > 0
+          && parsed.every(group => group.qrCodes.length === 12);
+        if (isHomogeneous12SFile) {
+          setModuleImportType('12S');
+          parsed = parseModuleImportGroups(rows, 12);
+        }
+        if (parsed.length === 0) {
+          throw new Error('The file must contain QR Code and Module columns.');
+        }
+        setModuleParsedGroups(parsed);
+        setModulePreviewMode(true);
+      } catch (error: any) {
+        addNotification('error', 'Module File Parse Failed', error.message || 'Could not parse the module workbook.');
+      } finally {
+        setLoading(false);
+        event.target.value = '';
+      }
+    };
+    reader.readAsBinaryString(file);
+  };
+
+  const confirmModuleImport = async () => {
+    const validGroups = moduleParsedGroups.filter(group => group.isValid);
+    if (validGroups.length === 0) return;
+    setModuleImporting(true);
+    try {
+      for (const group of validGroups) {
+        await api.createStandaloneModule(moduleImportType, group.qrCodes);
+      }
+      addNotification('success', 'Modules Imported', `Created ${validGroups.length} ${moduleImportType} modules from ${moduleImportFileName}.`);
+      setModuleParsedGroups([]);
+      setModulePreviewMode(false);
+      triggerRefresh();
+    } catch (error: any) {
+      addNotification('error', 'Module Import Failed', error.message || 'Some modules could not be created.');
+    } finally {
+      setModuleImporting(false);
     }
   };
 
@@ -654,6 +723,29 @@ export const SupplierImportView: React.FC = () => {
             <p className="text-xs font-bold text-slate-800">Upload Battery Excel / CSV</p>
             <p className="text-[11px] text-slate-400 mt-1">Uses one {controllerType} serial from available inventory for each battery, plus imported cells already in stock.</p>
           </div>
+        </div>
+      )}
+
+      {!modulePreviewMode && (
+        <div className="bg-white rounded-2xl shadow-xs border border-slate-200 p-6 space-y-5">
+          <div className="flex items-center justify-between gap-3">
+            <h2 className="text-sm font-bold text-slate-900">Module Excel Upload</h2>
+            <label className="text-[10px] font-bold text-slate-500">Module type<select value={moduleImportType} onChange={event => setModuleImportType(event.target.value as '8S' | '12S')} className="ml-2 rounded border border-slate-200 bg-white px-2 py-1 text-[10px] font-bold text-slate-700"><option value="8S">8S · 8 cells</option><option value="12S">12S · 12 cells</option></select></label>
+          </div>
+          <div className="border-2 border-dashed border-slate-200 rounded-2xl p-7 text-center relative hover:border-cyan-500">
+            <input type="file" accept=".xlsx,.xls,.csv" onChange={handleModuleFileUpload} className="absolute inset-0 opacity-0 cursor-pointer" />
+            <Boxes className="w-10 h-10 text-cyan-500 mx-auto mb-2 opacity-80" />
+            <p className="text-xs font-bold text-slate-800">Upload Module Excel / CSV</p>
+            <p className="text-[11px] text-slate-400 mt-1">Each merged Module group must contain exactly {moduleImportType === '8S' ? 8 : 12} QR codes for a {moduleImportType} module.</p>
+          </div>
+        </div>
+      )}
+
+      {modulePreviewMode && (
+        <div className="bg-white rounded-2xl shadow-xs border border-slate-200 p-6 space-y-5">
+          <div className="flex items-center justify-between gap-3"><h2 className="text-sm font-bold text-slate-900">Module Import Preview</h2><div className="flex items-center gap-2"><span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">{moduleImportType} · {moduleImportType === '8S' ? 8 : 12} cells</span><button type="button" onClick={() => setModulePreviewMode(false)} className="text-[11px] px-2.5 py-1.5 rounded-lg border border-slate-200 text-slate-600">Close</button></div></div>
+          <div className="max-h-[300px] overflow-auto border border-slate-200 rounded"><table className="w-full text-left text-[11px]"><thead className="bg-slate-50 text-slate-500 sticky top-0"><tr><th className="px-3 py-2">Module</th><th className="px-3 py-2">QR codes</th><th className="px-3 py-2">Status</th></tr></thead><tbody>{moduleParsedGroups.map(group => <tr key={group.moduleNumber} className="border-t border-slate-100"><td className="px-3 py-2 font-bold">{group.moduleNumber}</td><td className="px-3 py-2 font-mono">{group.qrCodes.length}</td><td className={`px-3 py-2 font-bold ${group.isValid ? 'text-emerald-700' : 'text-red-700'}`}>{group.isValid ? `VALID ${moduleImportType}` : group.errors[0]}</td></tr>)}</tbody></table></div>
+          <div className="flex justify-end"><button type="button" onClick={() => void confirmModuleImport()} disabled={moduleImporting || !moduleParsedGroups.some(group => group.isValid)} className="px-4 py-2 bg-cyan-600 text-white text-xs font-bold rounded-xl disabled:opacity-50">{moduleImporting ? 'Creating modules...' : `Create ${moduleParsedGroups.filter(group => group.isValid).length} modules`}</button></div>
         </div>
       )}
 

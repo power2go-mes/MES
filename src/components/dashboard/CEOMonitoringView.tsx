@@ -227,7 +227,21 @@ export const CEOMonitoringView: React.FC = () => {
   const releaseTrendChange = previousTrendTotal > 0 ? ((recentTrendTotal - previousTrendTotal) / previousTrendTotal) * 100 : null;
 
   const rackData = useMemo<ChartRow[]>(() => {
-    return (source.rackStatusBuckets || []).map((row: any) => ({ label: String(row.label).replace(/_/g, ' '), value: numberOr(row.value), color: statusColors[String(row.label).replace(/_/g, ' ')] || '#64748b' }));
+    const rows: ChartRow[] = [];
+    (source.rackStatusBuckets || []).forEach((row: any) => {
+      const status = String(row.label || 'UNKNOWN').replace(/_/g, ' ');
+      const rackTypes = Array.isArray(row.rackTypes) ? row.rackTypes : [];
+      if (rackTypes.length === 0) {
+        rows.push({ label: status, value: numberOr(row.value), color: statusColors[status] || '#64748b' });
+        return;
+      }
+      rackTypes.forEach((type: any) => {
+        const match = String(type.rackType || '').match(/RACK_(\d+(?:\.\d+)?)KWH/i);
+        const capacity = match ? `${match[1]} kWh` : String(type.rackType || 'Unknown rack').replace(/^RACK_/i, '').replace(/_/g, ' ');
+        rows.push({ label: `${status} · ${capacity}`, value: numberOr(type.value), color: statusColors[status] || '#64748b' });
+      });
+    });
+    return rows;
   }, [source.rackStatusBuckets, activeRange]);
   const filteredRackRows = selectedRackType === 'All' ? rackData : rackData.filter((row) => row.label === selectedRackType);
   const rackDistribution = useMemo(() => buildDashboardDistribution(

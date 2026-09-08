@@ -72,7 +72,7 @@ export interface RackUnit {
   id: string;
   serialNumber: string;
   qrCode: string;
-  rackTemplateCode: 'RACK_25KWH' | 'RACK_75KWH';
+  rackTemplateCode: 'RACK_25KWH' | 'RACK_45KWH' | 'RACK_60KWH' | 'RACK_70KWH' | 'RACK_75KWH';
   status: 'IN_STOCK' | 'IN_RACK' | 'SOLD' | 'SCRAP';
   requiredPackCount: number;
   requiredPackTemplateCode: 'PACK_5KWH' | 'PACK_7_5KWH';

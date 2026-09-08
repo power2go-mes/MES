@@ -30,7 +30,7 @@ const cellStatuses = [
 ] as const;
 
 export const InventoryView: React.FC = () => {
-  const { setActiveView, setActiveModuleId, setActiveBatteryId, setQuickSearchQuery, refreshKey, addNotification, triggerRefresh, inventoryTab, setInventoryTab } = useApp();
+  const { setActiveView, setActiveModuleId, setActiveBatteryId, setBatteryBuilderEditRequested, setQuickSearchQuery, refreshKey, addNotification, triggerRefresh, inventoryTab, setInventoryTab } = useApp();
   const activeTab = inventoryTab;
   const setActiveTab = setInventoryTab;
   const [search, setSearch] = useState('');
@@ -76,7 +76,6 @@ export const InventoryView: React.FC = () => {
   const [ingestingBmu, setIngestingBmu] = useState(false);
 
   // Detail Modal & QR Modal
-  const [selectedItem, setSelectedItem] = useState<any | null>(null);
   const [qrModalOpen, setQrModalOpen] = useState(false);
   const [qrData, setQrData] = useState<any | null>(null);
   const [reportBattery, setReportBattery] = useState<BatteryUnit | null>(null);
@@ -361,6 +360,8 @@ export const InventoryView: React.FC = () => {
         await Promise.all(ids.map(id => api.deleteModule(id)));
       } else if (activeTab === 'BATTERIES') {
         await Promise.all(ids.map(id => api.deleteBattery(id)));
+      } else if (activeTab === 'RACKS') {
+        await Promise.all(ids.map(id => api.deleteRack(id)));
       }
 
       setSelectedIds(prev => ({ ...prev, [activeTab]: [] }));
@@ -1032,6 +1033,7 @@ export const InventoryView: React.FC = () => {
                       <button
                         onClick={() => {
                           setActiveBatteryId(b.id);
+                          setBatteryBuilderEditRequested(true);
                           setActiveView('workflow-pack');
                           addNotification('info', 'Battery Assembly Opened', `Opening auto battery pack assembly for ${b.serialNumber}.`);
                         }}
@@ -1065,7 +1067,7 @@ export const InventoryView: React.FC = () => {
           <div className="overflow-x-auto">
             <table className="w-full text-left text-xs">
               <thead className="border-b border-slate-200 bg-slate-50 text-[10px] font-semibold uppercase text-slate-500">
-                <tr><th className="px-5 py-3">Rack Serial</th><th className="px-5 py-3">Template</th><th className="px-5 py-3">Connected Batteries</th><th className="px-5 py-3">Location</th><th className="px-5 py-3">Status</th><th className="px-5 py-3">QR</th></tr>
+                <tr><th className="px-3 py-3 w-10"><input type="checkbox" checked={filteredRacks.length > 0 && filteredRacks.every(item => selectedIds.RACKS.includes(item.id))} onChange={() => toggleSelectAll('RACKS', filteredRacks)} className="h-4 w-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500" /></th><th className="px-5 py-3">Rack Serial</th><th className="px-5 py-3">Template</th><th className="px-5 py-3">Connected Batteries</th><th className="px-5 py-3">Location</th><th className="px-5 py-3">Status</th><th className="px-5 py-3">QR / Actions</th></tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {filteredRacks.map(rack => {
@@ -1073,9 +1075,9 @@ export const InventoryView: React.FC = () => {
                   const template = rack.rackTemplateCode || rack.rack_template_code || '-';
                   const batteryIds = rack.batteryIds || rack.battery_ids || rack.rackPacks?.map((pack: any) => pack.batteryId || pack.battery_id) || [];
                   const status = rack.status || 'UNKNOWN';
-                  return <tr key={rack.id} className="hover:bg-slate-50/70"><td className="px-5 py-3.5 font-mono font-bold text-slate-900">{serial}</td><td className="px-5 py-3.5 font-semibold text-slate-700">{template}</td><td className="px-5 py-3.5">{batteryIds.length} batteries</td><td className="px-5 py-3.5 text-slate-600">{rack.location || '-'}</td><td className="px-5 py-3.5"><span className={`rounded-md border px-2.5 py-0.5 text-[10px] font-bold uppercase ${getStatusBadge(status)}`}>{status}</span></td><td className="px-5 py-3.5 font-mono text-slate-500">{rack.qrCode || rack.qr_code || '-'}</td></tr>;
+                  return <tr key={rack.id} className="hover:bg-slate-50/70"><td className="px-3 py-3.5"><input type="checkbox" checked={selectedIds.RACKS.includes(rack.id)} onChange={() => toggleSelectItem('RACKS', rack.id)} className="h-4 w-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500" /></td><td className="px-5 py-3.5 font-mono font-bold text-slate-900">{serial}</td><td className="px-5 py-3.5 font-semibold text-slate-700">{template}</td><td className="px-5 py-3.5">{batteryIds.length} batteries</td><td className="px-5 py-3.5 text-slate-600">{rack.location || '-'}</td><td className="px-5 py-3.5"><span className={`rounded-md border px-2.5 py-0.5 text-[10px] font-bold uppercase ${getStatusBadge(status)}`}>{status}</span></td><td className="px-5 py-3.5 text-right font-sans space-x-1"><button onClick={() => { setQuickSearchQuery(serial); setActiveView('traceability'); }} className="p-1.5 text-slate-500 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors" title="View rack traceability"><Eye className="w-4 h-4" /></button><button onClick={() => { setQrData({ title: `Rack QR: ${serial}`, qrPayload: rack.qrCode || rack.qr_code || `${serial}|RACK:${rack.id}`, serial, itemType: 'RACK', metadata: { TEMPLATE: template, BATTERIES: batteryIds.length, LOCATION: rack.location || '-', STATUS: status } }); setQrModalOpen(true); }} className="p-1.5 text-slate-500 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors" title="Print QR"><QrCode className="w-4 h-4" /></button><button onClick={() => { setActiveView('rack-assembly'); addNotification('info', 'Rack Assembly Opened', `Open the rack builder to edit ${serial}.`); }} className="p-1.5 text-slate-500 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors" title="Edit rack"><Pencil className="w-4 h-4" /></button><button onClick={async () => { if (!window.confirm(`Delete rack ${serial}? Its connected packs will be returned to inventory.`)) return; try { await api.deleteRack(rack.id); triggerRefresh(); } catch (err: any) { addNotification('error', 'Delete Failed', err.message); } }} className="p-1.5 text-slate-500 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors" title="Delete rack"><Trash2 className="w-4 h-4" /></button></td></tr>;
                 })}
-                {!loading && filteredRacks.length === 0 && <tr><td colSpan={6} className="px-5 py-12 text-center text-xs text-slate-400">No racks recorded.</td></tr>}
+                {!loading && filteredRacks.length === 0 && <tr><td colSpan={7} className="px-5 py-12 text-center text-xs text-slate-400">No racks recorded.</td></tr>}
               </tbody>
             </table>
           </div>

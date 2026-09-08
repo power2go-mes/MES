@@ -67,6 +67,13 @@ function batterySubtree(bat: any, bms: any, bmu: any, modules = bat.modules || [
   return makeNode('battery-' + bat.serialNumber, bat.serialNumber, 'BATTERY', bat, 'Battery Pack', undefined, children);
 }
 
+function rackSubtree(rack: any, batteries: any[] = []): TraceNode {
+  const children = batteries.map((battery: any, index: number) => (
+    batterySubtree(battery, battery.bms, battery.bmu, battery.modules || [])
+  ));
+  return makeNode('rack-' + (rack.serialNumber || rack.id), rack.serialNumber || rack.id, 'RACK', rack, 'Rack', rack.status, children);
+}
+
 function buildTree(t: any): TraceNode[] {
   const type = t.entityType;
   const e = t.entity;
@@ -116,6 +123,10 @@ function buildTree(t: any): TraceNode[] {
     const roots = [batterySubtree(e, t.bms, t.bmu, t.modules || [])];
     if (t.supplier) roots.unshift(makeNode('supplier', t.supplier.name, 'SUPPLIER', t.supplier, 'Supplier'));
     return roots;
+  }
+
+  if (type === 'RACK') {
+    return [rackSubtree({ ...e, batteries: t.batteries || [] }, t.batteries || [])];
   }
 
   if (type === 'BMS' || type === 'BMU') {
@@ -172,6 +183,7 @@ const NODE_ICON: Record<string, React.FC<any>> = {
   RELEASE: CheckCircle2,
   PRODUCTION_ORDER: Factory,
   BATCH: Boxes,
+  RACK: Package,
 };
 
 const TYPE_LABEL: Record<string, string> = {
@@ -185,6 +197,7 @@ const TYPE_LABEL: Record<string, string> = {
   RELEASE: 'RELEASE',
   PRODUCTION_ORDER: 'PRODUCTION ORDER',
   BATCH: 'SUPPLIER BATCH',
+  RACK: 'RACK',
 };
 
 function detailFields(node: TraceNode): { label: string; value: string }[] {
@@ -241,6 +254,22 @@ function detailFields(node: TraceNode): { label: string; value: string }[] {
         { label: 'Final QC Status', value: fmt(d.finalQcResult?.status) },
         { label: 'QR Code', value: fmt(d.qrCode) },
         { label: 'Created', value: fmt(d.createdAt) },
+      ];
+    case 'RACK':
+      return [
+        { label: 'Rack Serial', value: fmt(d.serialNumber) },
+        { label: 'Rack QR Code', value: fmt(d.qrCode || d.qr_code) },
+        { label: 'Template', value: fmt(d.rackTemplateCode || d.rack_template_code) },
+        { label: 'Status', value: fmt(d.status) },
+        { label: 'Location', value: fmt(d.location) },
+        { label: 'Required Packs', value: fmt(d.requiredPackCount || d.required_pack_count) },
+        { label: 'Pack Template', value: fmt(d.requiredPackTemplateCode || d.required_pack_template_code) },
+        { label: 'Connected Batteries', value: fmt((d.batteries || []).length) },
+        ...(d.batteries || []).flatMap((battery: any, index: number) => ([
+          { label: `Battery ${index + 1} Serial`, value: fmt(battery.serialNumber) },
+          { label: `Battery ${index + 1} Status`, value: fmt(battery.status) },
+          { label: `Battery ${index + 1} Product`, value: fmt(battery.productName) },
+        ])),
       ];
     case 'BMS':
     case 'BMU':

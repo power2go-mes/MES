@@ -35,6 +35,8 @@ interface AppContextType {
   setActiveView: (view: NavView) => void;
   activeBatteryId: string | null;
   setActiveBatteryId: (id: string | null) => void;
+  batteryBuilderEditRequested: boolean;
+  setBatteryBuilderEditRequested: (requested: boolean) => void;
   activeOrderId: string | null;
   setActiveOrderId: (id: string | null) => void;
   activeModuleId: string | null;
@@ -79,6 +81,7 @@ const useLocalStorage = <T,>(key: string, initialValue: T): [T, (value: T) => vo
 export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [activeView, setActiveView] = useLocalStorage<NavView>('p2g_activeView', 'production-flow');
   const [activeBatteryId, setActiveBatteryId] = useLocalStorage<string | null>('p2g_activeBatteryId', null);
+  const [batteryBuilderEditRequested, setBatteryBuilderEditRequested] = useState(false);
   const [activeOrderId, setActiveOrderId] = useLocalStorage<string | null>('p2g_activeOrderId', null);
   const [activeModuleId, setActiveModuleId] = useState<string | null>(null);
   const [inventoryTab, setInventoryTab] = useState<'CELLS' | 'BMS' | 'BMU' | 'MODULES' | 'BATTERIES' | 'RACKS'>('CELLS');
@@ -120,6 +123,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setActiveView,
     activeBatteryId,
     setActiveBatteryId,
+    batteryBuilderEditRequested,
+    setBatteryBuilderEditRequested,
     activeOrderId,
     setActiveOrderId,
     activeModuleId,
@@ -136,6 +141,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   }), [
     activeView,
     activeBatteryId,
+    batteryBuilderEditRequested,
     activeOrderId,
     activeModuleId,
     inventoryTab,
