@@ -8,6 +8,11 @@ export function createApiApp() {
   app.use(express.json({ limit: '50mb' }));
   app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
+  // Keep platform health checks independent from the legacy in-memory database.
+  app.get('/api/health', (_req, res) => {
+    res.json({ status: 'ok', timestamp: new Date().toISOString() });
+  });
+
   app.use('/api', async (_req, _res, next) => {
     try {
       await db.ready();

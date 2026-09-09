@@ -407,10 +407,11 @@ async getUsers(): Promise<User[]> {
         throw new Error(`Dashboard summary unavailable: ${error.message}`);
       }
 
-      const [{ data: liveModules }, { data: liveBatteries }, { data: liveRacks }] = await Promise.all([
+      const [{ data: liveModules }, { data: liveBatteries }, { data: liveRacks }, { data: liveRackPacks }] = await Promise.all([
         applyDateRange(rawSupabase.from('modules').select('module_type,created_at,battery:batteries(product_templates(capacity_kwh,num_modules))')),
         applyDateRange(rawSupabase.from('batteries').select('id,bms_id,bmu_id,progress_percent,status,created_at,product_id,product_templates(name,capacity_kwh)')),
-        applyDateRange(rawSupabase.from('racks').select('status,rack_template_code,required_pack_count,required_pack_template_code,created_at')),
+        applyDateRange(rawSupabase.from('racks').select('id,status,rack_template_code,required_pack_count,required_pack_template_code,created_at')),
+        rawSupabase.from('rack_packs').select('rack_id,battery:batteries(product_templates(capacity_kwh))'),
       ]);
       const moduleTypeCounts = new Map<string, number>();
       const moduleTypeCapacity = new Map<string, number>();
@@ -440,6 +441,36 @@ async getUsers(): Promise<User[]> {
       const capacityProducedKwh = (liveBatteries || [])
         .filter((battery: any) => ['FINISHED', 'RELEASED', 'DISPATCHED', 'WAREHOUSE'].includes(String(battery.status || '').toUpperCase()))
         .reduce((total: number, battery: any) => total + (Number(battery.product_templates?.capacity_kwh) || 0), 0);
+      const rackCapacities = new Map<string, Set<number>>();
+      (liveRackPacks || []).forEach((assignment: any) => {
+        const rackId = String(assignment.rack_id || '');
+        const capacity = Number(assignment.battery?.product_templates?.capacity_kwh);
+        if (!rackId || !Number.isFinite(capacity)) return;
+        const capacities = rackCapacities.get(rackId) || new Set<number>();
+        capacities.add(capacity);
+        rackCapacities.set(rackId, capacities);
+      });
+      const rackCategoryCounts = { cabinet: 0, rack: 0 };
+      (liveRacks || []).forEach((rack: any) => {
+        const capacities = rackCapacities.get(String(rack.id || ''));
+        const fallbackCapacity = String(rack.required_pack_template_code || '').toUpperCase() === 'PACK_7_5KWH' ? 7.5 : 5;
+        const usesCabinetBatteries = capacities?.has(7.5) || (!capacities?.size && fallbackCapacity === 7.5);
+        const usesRackBatteries = capacities?.has(5) || (!capacities?.size && fallbackCapacity === 5);
+        if (usesCabinetBatteries) rackCategoryCounts.cabinet += 1;
+        else if (usesRackBatteries) rackCategoryCounts.rack += 1;
+      });
+      const producedCategoryBuckets = [
+        {
+          label: 'Cabinet',
+          value: rackCategoryCounts.cabinet,
+          capacityKwh: 7.5,
+        },
+        {
+          label: 'Rack',
+          value: rackCategoryCounts.rack,
+          capacityKwh: 5,
+        },
+      ];
       const trendDays = Array.from({ length: 30 }, (_, index) => {
         const date = new Date();
         date.setHours(0, 0, 0, 0);
@@ -545,6 +576,7 @@ async getUsers(): Promise<User[]> {
         batteryStatusBuckets: Array.isArray(data?.batteryStatusBuckets) ? data.batteryStatusBuckets : [],
         batteryPackTotal: liveBatteries?.length || 0,
         completedBatteriesTotal: (liveBatteries || []).filter((battery: any) => ['FINISHED', 'RELEASED', 'DISPATCHED', 'WAREHOUSE'].includes(String(battery.status || '').toUpperCase())).length,
+        producedCategoryBuckets,
         batteryPackBuckets: livePackBuckets,
         batteryPackTrend: liveBatteryPackTrend.some((point: any) => point.series.some((item: any) => item.value > 0))
           ? liveBatteryPackTrend

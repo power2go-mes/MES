@@ -144,9 +144,8 @@ export const CEOMonitoringView: React.FC = () => {
   const completedBatteries = numberOr(source.completedBatteriesTotal ?? production.completedBatteries ?? inventory.finishedBatteries);
   const targetBatteries = numberOr(production.targetBatteries);
   const batteryProgress = targetBatteries > 0 ? clamp((completedBatteries / targetBatteries) * 100, 0, 100) : null;
-  const scopedAvailableCells = (source.cellBuckets || [])
-    .filter((row: any) => row.label === 'In Stock' || row.label === 'Floor Stock')
-    .reduce((sum: number, row: any) => sum + scaleValue(numberOr(row.value)), 0);
+  const inStockCells = scaleValue(numberOr(source.cellBuckets?.find((row: any) => row.label === 'In Stock')?.value));
+  const floorStockCells = scaleValue(numberOr(source.cellBuckets?.find((row: any) => row.label === 'Floor Stock')?.value));
   const completedOrders = scaleValue(numberOr(orders.completed));
   const totalOrders = scaleValue(numberOr(orders.total));
   const remainingOrders = Math.max(0, totalOrders - completedOrders);
@@ -202,9 +201,11 @@ export const CEOMonitoringView: React.FC = () => {
         return;
       }
       rackTypes.forEach((type: any) => {
-        const match = String(type.rackType || '').match(/RACK_(\d+(?:\.\d+)?)KWH/i);
-        const capacity = match ? `${match[1]} kWh` : String(type.rackType || 'Unknown rack').replace(/^RACK_/i, '').replace(/_/g, ' ');
-        rows.push({ label: `${status} · ${capacity}`, value: numberOr(type.value), color: statusColors[status] || '#64748b' });
+        const rackType = String(type.rackType || 'UNKNOWN_RACK');
+        const match = rackType.match(/RACK_(\d+(?:\.\d+)?)KWH/i);
+        const capacity = match ? `${match[1]}kWh` : rackType.replace(/^RACK_/i, '').replace(/_/g, ' ');
+        const category = /RACK_25KWH/i.test(rackType) ? 'Rack' : 'Cabinet';
+        rows.push({ label: `Status-${category}-${capacity}`, value: numberOr(type.value), color: category === 'Rack' ? '#16a34a' : '#374151' });
       });
     });
     return rows;
@@ -216,12 +217,17 @@ export const CEOMonitoringView: React.FC = () => {
     selectedRackType === 'All' ? source.rackTotal : undefined,
   ), [filteredRackRows, rackData, selectedRackType, source.rackTotal]);
   const rackTotal = rackDistribution.total;
+  const producedCategoryBuckets = Array.isArray(source.producedCategoryBuckets) ? source.producedCategoryBuckets : [];
+  const cabinetProduced = numberOr(producedCategoryBuckets.find((row: any) => row.label === 'Cabinet')?.value);
+  const rackProduced = numberOr(producedCategoryBuckets.find((row: any) => row.label === 'Rack')?.value);
 
   const kpiCards = [
     { label: 'Nominal Capacity Produced', value: `${formatNumber(capacityProduced)} kWh`, delta: 'Nominal capacity produced · Live', positive: true, icon: <Zap className="h-5 w-5 text-emerald-600" />, bg: '#f0fdf4' },
     { label: 'Battery Packs Produced', value: formatNumber(scaleValue(completedBatteries)), delta: releaseTrendChange === null ? (targetBatteries > 0 ? `${batteryProgress?.toFixed(1)}% of target` : 'Produced/warehouse · Live') : `${releaseTrendChange >= 0 ? '+' : ''}${releaseTrendChange.toFixed(1)}% vs prior 7 days`, positive: releaseTrendChange === null || releaseTrendChange >= 0, icon: <Factory className="h-5 w-5 text-blue-600" />, bg: '#eff6ff' },
-    { label: 'Racks Produced', value: formatNumber(rackTotal), delta: 'Live database value', positive: true, icon: <PackageCheck className="h-5 w-5 text-violet-600" />, bg: '#f5f3ff' },
-    { label: 'Available Cells', value: formatNumber(scopedAvailableCells), delta: 'Inventory · In stock + floor stock', positive: true, icon: <Boxes className="h-5 w-5 text-amber-600" />, bg: '#fff7ed' },
+    { label: 'Cabinet Produced', value: formatNumber(scaleValue(cabinetProduced)), delta: '7.5 kWh battery packs · Live', positive: true, icon: <PackageCheck className="h-5 w-5 text-violet-600" />, bg: '#f5f3ff' },
+    { label: 'Rack Produced', value: formatNumber(scaleValue(rackProduced)), delta: '5 kWh battery packs · Live', positive: true, icon: <PackageCheck className="h-5 w-5 text-cyan-600" />, bg: '#ecfeff' },
+    { label: 'In Stock Cells', value: formatNumber(inStockCells), delta: 'Inventory · In stock · Live', positive: true, icon: <Boxes className="h-5 w-5 text-amber-600" />, bg: '#fff7ed' },
+    { label: 'Floor Stock Cells', value: formatNumber(floorStockCells), delta: 'Inventory · Floor stock · Live', positive: true, icon: <Boxes className="h-5 w-5 text-orange-600" />, bg: '#fff7ed' },
   ];
 
   const exportCellReport = async () => {
@@ -298,21 +304,27 @@ export const CEOMonitoringView: React.FC = () => {
           color: index % 2 === 0 ? reportGreen : reportDarkGrey,
         };
       });
+      const cabinetReportRows = [{
+        label: 'Cabinet · 7.5 kWh batteries',
+        value: cabinetProduced,
+        capacityKwh: cabinetProduced * 7.5,
+        color: reportGreen,
+      }];
       const rackReportRows = (source.rackStatusBuckets || []).flatMap((row: any) => {
         const status = String(row.label || 'UNKNOWN').replace(/_/g, ' ');
-        const color = status === 'IN RACK' ? reportGreen : reportDarkGrey;
         const typeRows = Array.isArray(row.rackTypes) ? row.rackTypes : [];
         const formatRackLabel = (rackStatus: string, rackType: string) => {
-          const formattedStatus = rackStatus.toLowerCase().replace(/\b\w/g, (letter) => letter.toUpperCase());
-          const formattedType = rackType.replace(/^RACK_/i, 'Rack ').replace(/_/g, ' ').replace(/(\d+(?:\.\d+)?)KWH/i, '$1 kWh').replace(/\b\w/g, (letter) => letter.toUpperCase()).replace(/KWh/g, 'kWh');
-          return `${formattedStatus} — ${formattedType}`;
+          const powerMatch = rackType.match(/RACK_(\d+(?:\.\d+)?)KWH/i);
+          const power = powerMatch ? `${powerMatch[1]}kWh` : rackType.replace(/^RACK_/i, '').replace(/_/g, ' ');
+          const category = /RACK_25KWH/i.test(rackType) ? 'Rack' : 'Cabinet';
+          return `Status-${category}-${power}`;
         };
-        if (typeRows.length === 0) return [{ label: status, value: numberOr(row.value), capacityKwh: numberOr(row.capacityKwh), color }];
+        if (typeRows.length === 0) return [{ label: status, value: numberOr(row.value), capacityKwh: numberOr(row.capacityKwh), color: status === 'IN RACK' ? reportGreen : reportDarkGrey }];
         return typeRows.map((type: any) => ({
           label: formatRackLabel(status, String(type.rackType || 'UNKNOWN_RACK')),
           value: numberOr(type.value),
           capacityKwh: numberOr(type.capacityKwh),
-          color,
+          color: /RACK_25KWH/i.test(String(type.rackType || '')) ? reportGreen : reportDarkGrey,
         }));
       });
       const controllerInventory = source.controllerInventory || {};
@@ -574,30 +586,30 @@ export const CEOMonitoringView: React.FC = () => {
       doc.setFont('helvetica', 'bold');
       reportFontSize(9);
       doc.setTextColor(...green);
-      doc.text('INVENTORY DISTRIBUTIONS', margin, 109);
       drawDonut(leftChartX + 23, 150, 20, cellReportRows, 'CELL INVENTORY', true, leftChartX + chartWidth, false, formatCellTotalMwh, true);
       drawBars(rightChartX, 136, chartWidth, 36, moduleReportRows, 'MODULE CONFIGURATION');
       drawBars(leftChartX, 214, chartWidth, 36, batteryReportRows, 'BATTERY PACK MODEL');
-      if (rackReportRows.length === 1) drawSingleKpi(rightChartX, 214, chartWidth, rackReportRows, 'RACK STATUS');
-      else drawBars(rightChartX, 214, chartWidth, rackReportRows.length > 4 ? 52 : 36, rackReportRows, 'RACK STATUS');
+      if (rackReportRows.length === 1) drawSingleKpi(rightChartX, 214, chartWidth, rackReportRows, 'RACK/CABINET STATUS');
+      else drawBars(rightChartX, 214, chartWidth, rackReportRows.length > 4 ? 52 : 36, rackReportRows, 'RACK/CABINET STATUS');
       doc.addPage();
       drawTitle('POWER2GO MES | CEO PERFORMANCE REPORT', `Operational detail   |   ${rangeLabel}   |   ${reportDate}`);
       const rackWord = rackTotal === 1 ? 'rack' : 'racks';
+      drawSingleKpi(leftChartX, 70, chartWidth, cabinetReportRows, 'CABINET STATUS');
       doc.setFillColor(...light);
-      doc.roundedRect(margin, 134, pageWidth - margin * 2, 32, 2, 2, 'F');
-      drawBars(leftChartX, 140, chartWidth, 18, bmsReportRows, 'BMS INVENTORY - TOTAL / AVAILABLE / USED', false, false, true);
-      drawBars(rightChartX, 140, chartWidth, 18, bmuReportRows, 'BMU INVENTORY - TOTAL / AVAILABLE / USED', false, false, true);
+      doc.roundedRect(margin, 150, pageWidth - margin * 2, 38, 2, 2, 'F');
+      drawBars(leftChartX, 156, chartWidth, 24, bmsReportRows, 'BMS INVENTORY - TOTAL / AVAILABLE / USED', false, false, true);
+      drawBars(rightChartX, 156, chartWidth, 24, bmuReportRows, 'BMU INVENTORY - TOTAL / AVAILABLE / USED', false, false, true);
       doc.setFillColor(...light);
-      doc.roundedRect(margin, 176, pageWidth - margin * 2, 34, 2, 2, 'F');
+      doc.roundedRect(margin, 202, pageWidth - margin * 2, 34, 2, 2, 'F');
       doc.setFont('helvetica', 'bold');
       reportFontSize(8);
       doc.setTextColor(...green);
-      doc.text('KEY OBSERVATIONS', margin + 4, 183);
+      doc.text('KEY OBSERVATIONS', margin + 4, 209);
       doc.setFont('helvetica', 'normal');
       reportFontSize(7);
       doc.setTextColor(...muted);
-      doc.text(`Nominal Capacity Produced: ${formatNumber(capacityProduced)} kWh (${formatMwh(capacityProduced)}).`, margin + 4, 190);
-      doc.text(`Output includes ${formatNumber(reportBatteryTotal)} battery packs and ${formatNumber(rackTotal)} ${rackWord}.`, margin + 4, 198);
+      doc.text(`Nominal Capacity Produced: ${formatNumber(capacityProduced)} kWh (${formatMwh(capacityProduced)}).`, margin + 4, 216);
+      doc.text(`Output includes ${formatNumber(reportBatteryTotal)} battery packs and ${formatNumber(rackTotal)} ${rackWord}.`, margin + 4, 224);
       const reportRows = (rows: { label: string; value: number; capacityKwh: number }[]) => {
         return rows.map((row) => [row.label, formatNumber(row.value), formatMwh(row.capacityKwh)]);
       };
@@ -605,7 +617,7 @@ export const CEOMonitoringView: React.FC = () => {
       drawTable('CELL INVENTORY', ['Status', 'Qty', 'Capacity'], reportRows(cellReportRows), 45, margin, detailWidth, true);
       drawTable('MODULE CONFIGURATION', ['Type', 'Qty', 'Capacity'], reportRows(moduleReportRows), 45, margin + detailWidth + 6, detailWidth, true);
       drawTable('BATTERY PACK MODEL', ['Model', 'Qty', 'Capacity'], reportRows(batteryReportRows), 90, margin, detailWidth, true);
-      drawTable('RACK STATUS', ['Status', 'Qty', 'Capacity'], reportRows(rackReportRows), 90, margin + detailWidth + 6, detailWidth, true);
+      drawTable('RACK/CABINET STATUS', ['Status', 'Qty', 'Capacity'], reportRows(rackReportRows), 90, margin + detailWidth + 6, detailWidth, true);
       reportFontSize(7);
       doc.setFont('helvetica', 'normal');
       doc.setTextColor(...muted);
