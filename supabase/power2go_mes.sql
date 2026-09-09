@@ -967,6 +967,115 @@ $$ language plpgsql security definer;
 
 grant execute on function public.complete_standalone_module_transaction(text, boolean, jsonb) to authenticated;
 
+-- REPLACE THE CELL ASSIGNMENTS FOR AN EXISTING MODULE
+create or replace function public.replace_module_cell_assignment_transaction(
+    p_module_id text,
+    p_cell_barcodes text[]
+) returns jsonb as $$
+declare
+    v_module record;
+    v_required integer;
+    v_old_cell_ids text[];
+    v_new_ids text[];
+    v_cells jsonb;
+    v_cell record;
+begin
+    perform public.require_permission('MANAGE_PRODUCTION');
+    select * into v_module from public.modules where id = p_module_id for update;
+    if not found then
+        raise exception 'Module % not found', p_module_id;
+    end if;
+
+    v_required := case when upper(coalesce(v_module.module_type, '8S')) in ('12S', '12') then 12 else 8 end;
+    if coalesce(array_length(p_cell_barcodes, 1), 0) <> v_required then
+        raise exception 'A % module requires exactly % cells', upper(coalesce(v_module.module_type, '8S')), v_required;
+    end if;
+    if (select count(distinct value) from unnest(p_cell_barcodes) as value) <> v_required then
+        raise exception 'Duplicate cell barcodes are not allowed';
+    end if;
+
+    select array_agg(distinct c.id order by c.id)
+      into v_old_cell_ids
+      from public.module_cells mc
+      join public.cells c on c.id = mc.cell_id
+     where mc.module_id = p_module_id;
+
+    select array_agg(distinct c.id order by array_position(p_cell_barcodes, coalesce(c.internal_serial, c.id)))
+      into v_new_ids
+      from public.cells c
+     where c.id in (
+         select c2.id
+           from public.cells c2
+          where (coalesce(c2.internal_serial, c2.id) = any(p_cell_barcodes)
+             or c2.supplier_barcode = any(p_cell_barcodes)
+             or c2.qr_code = any(p_cell_barcodes))
+     )
+       and c.status not in ('QUARANTINED', 'REJECTED')
+       and (
+            c.lifecycle_status = 'FLOOR_STOCK'
+            or c.id = any(coalesce(v_old_cell_ids, array[]::text[]))
+       )
+       and not exists (
+            select 1 from public.module_cells mc2
+            where mc2.cell_id = c.id and mc2.module_id <> p_module_id
+       );
+
+    if coalesce(array_length(v_new_ids, 1), 0) <> v_required then
+        raise exception 'Every selected cell must be unique and available for this module';
+    end if;
+
+    -- Release old assignments back to floor stock before swapping.
+    update public.cells c
+       set status = 'AVAILABLE',
+           lifecycle_status = 'FLOOR_STOCK',
+           reserved_for_order_id = null,
+           reserved_for_battery_id = null,
+           updated_at = now()
+     where c.id = any(coalesce(v_old_cell_ids, array[]::text[]))
+       and c.id <> all(coalesce(v_new_ids, array[]::text[]));
+
+    delete from public.module_cells where module_id = p_module_id;
+
+    select jsonb_agg(to_jsonb(c) order by array_position(p_cell_barcodes, coalesce(c.internal_serial, c.id)))
+      into v_cells
+      from public.cells c
+     where c.id = any(coalesce(v_new_ids, array[]::text[]));
+
+    for v_cell in
+        select c.id, row_number() over (order by array_position(p_cell_barcodes, coalesce(c.internal_serial, c.id))) - 1 as slot
+          from public.cells c
+         where c.id = any(coalesce(v_new_ids, array[]::text[]))
+    loop
+        insert into public.module_cells (module_id, cell_id, cell_slot_index)
+        values (p_module_id, v_cell.id, v_cell.slot);
+
+        update public.cells
+           set status = 'PASSED',
+               lifecycle_status = 'IN_MODULE',
+               updated_at = now()
+         where id = v_cell.id;
+
+        perform public.record_genealogy_event(
+            'CELL', v_cell.id, 'ASSIGNED_TO_MODULE', 'MODULE', p_module_id,
+            jsonb_build_object('module_type', coalesce(v_module.module_type, '8S'), 'cell_slot_index', v_cell.slot, 'replacement', true)
+        );
+    end loop;
+
+    update public.modules
+       set status = 'PASSED',
+           lifecycle_status = 'IN_MODULE',
+           updated_at = now()
+     where id = p_module_id;
+
+    insert into public.audit_logs (entity_type, entity_id, action, actor, result, details)
+    values ('MODULE', p_module_id, 'REPLACE_MODULE_CELLS', coalesce(auth.uid()::text, 'SYSTEM'), 'SUCCESS', 'Module cell assignments updated');
+
+    return jsonb_build_object('moduleId', p_module_id, 'cells', coalesce(v_cells, '[]'::jsonb));
+end;
+$$ language plpgsql security definer;
+
+grant execute on function public.replace_module_cell_assignment_transaction(text, text[]) to authenticated;
+
 -- GET DASHBOARD SUMMARY
 create or replace function public.get_dashboard_summary()
 returns jsonb as $$

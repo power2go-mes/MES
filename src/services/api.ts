@@ -82,6 +82,24 @@ function toAppValue(value: any): any {
   return Object.fromEntries(Object.entries(value).map(([key, child]) => [toAppColumn(key), toAppValue(child)]));
 }
 
+export function normalizeBatteryRecord(battery: any): any {
+  const serialNumber = String(battery?.serial_number ?? battery?.serialNumber ?? battery?.id ?? '').trim();
+  const productName = String(
+    battery?.product_templates?.name
+    ?? battery?.productName
+    ?? battery?.product_name
+    ?? 'Unknown Pack',
+  ).trim() || 'Unknown Pack';
+  const currentStep = String(battery?.current_step ?? battery?.currentStep ?? 'UNKNOWN').trim() || 'UNKNOWN';
+  return {
+    ...battery,
+    serialNumber,
+    productName,
+    currentStep,
+    status: battery?.status || 'UNKNOWN',
+  };
+}
+
 function reconcileDashboardCellBuckets(buckets: any[], totalCells: any): any[] {
   if (!Array.isArray(buckets)) return [];
   const rows = buckets.map(row => ({ ...row, label: String(row.label), value: Math.max(0, Number(row.value) || 0) }));
@@ -1440,6 +1458,17 @@ async getUsers(): Promise<User[]> {
     return toAppValue(data);
   },
 
+  async replaceModuleCells(moduleId: string, cellBarcodes: string[]): Promise<any> {
+    if (!rawSupabase) throw new Error('Supabase is not configured.');
+    const normalizedBarcodes = Array.from(new Set(cellBarcodes.map(value => value.trim()).filter(Boolean)));
+    const { data, error } = await rawSupabase.rpc('replace_module_cell_assignment_transaction', {
+      p_module_id: moduleId,
+      p_cell_barcodes: normalizedBarcodes,
+    });
+    if (error) throw error;
+    return toAppValue(data);
+  },
+
   async completeStandaloneModule(moduleId: string, acknowledged: boolean, cells: Array<{ cellId: string; ocvV: number; irMilliOhm: number; grade: string; damageCondition: 'GOOD' | 'DAMAGED'; damageRemarks?: string }>): Promise<any> {
     if (!rawSupabase) throw new Error('Supabase is not configured.');
     const { data, error } = await rawSupabase.rpc('complete_standalone_module_transaction', {
@@ -1671,9 +1700,9 @@ async getUsers(): Promise<User[]> {
         .join(', ')}`
     );
 
-    return modules.map(module => ({
+    return modules.map(module => toAppValue({
       ...module,
-      qrCode: module.qrCode || `${module.serialNumber}|MODULE:${module.id}`,
+      qr_code: module.qr_code || `${module.serial_number}|MODULE:${module.id}`,
       cells: cellsByModule.get(module.id) || [],
     })) as ModuleItem[];
   },
@@ -1755,13 +1784,22 @@ async getUsers(): Promise<User[]> {
       });
       modulesByBattery.set(batteryId, batteryModules);
     });
-    return batteries.map(battery => ({
-      ...battery,
-      qrCode: battery.qrCode || `${battery.serialNumber}|BATTERY:${battery.id}`,
-      bms: bmsById.get(battery.bmsId),
-      bmu: bmuById.get(battery.bmuId),
-      modules: modulesByBattery.get(battery.id) || [],
-    })) as BatteryUnit[];
+    return batteries.map(battery => {
+      const normalized = normalizeBatteryRecord({
+        ...battery,
+        qrCode: battery.qrCode || battery.qr_code || `${battery.serial_number || battery.serialNumber || battery.id}|BATTERY:${battery.id}`,
+        bms: bmsById.get(battery.bms_id || battery.bmsId),
+        bmu: bmuById.get(battery.bmu_id || battery.bmuId),
+        modules: modulesByBattery.get(battery.id) || [],
+      });
+      return {
+        ...normalized,
+        qrCode: normalized.qrCode || `${normalized.serialNumber}|BATTERY:${normalized.id}`,
+        bms: normalized.bms,
+        bmu: normalized.bmu,
+        modules: normalized.modules || [],
+      } as BatteryUnit;
+    });
   },
 
   async getBatterySummaries(): Promise<Array<Pick<BatteryUnit, 'id' | 'serialNumber' | 'productName' | 'productionOrderId' | 'currentStep' | 'progressPercent' | 'status' | 'lifecycleStatus'> & { bmsId?: string; bmuId?: string }>> {

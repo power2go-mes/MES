@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { buildDashboardDistribution } from './dashboardCharts';
+import { normalizeBatteryRecord } from '../services/api';
 
 const labels = [
   { label: 'In Stock', color: '#16a34a' },
@@ -41,4 +42,16 @@ test('dashboard distributions preserve three populated battery models', () => {
   assert.equal(distribution.rows.filter(row => row.value > 0).length, 3);
   assert.equal(distribution.percentageTotal, 100);
   assert.equal(distribution.reconciles, true);
+});
+
+test('battery normalization prevents blank-screen crashes on incomplete records', () => {
+  const normalized = normalizeBatteryRecord({
+    id: 'b-1',
+    serial_number: 'B-1001',
+    status: 'RELEASED',
+  });
+
+  assert.equal(normalized.serialNumber, 'B-1001');
+  assert.equal(normalized.productName, 'Unknown Pack');
+  assert.equal(normalized.currentStep, 'UNKNOWN');
 });

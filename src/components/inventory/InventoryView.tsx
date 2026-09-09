@@ -343,7 +343,11 @@ export const InventoryView: React.FC = () => {
   });
 
   const filteredBatteries = batteries.filter(b => {
-    const matchesSearch = !search || b.serialNumber.toLowerCase().includes(search.toLowerCase()) || b.productName.toLowerCase().includes(search.toLowerCase());
+    const rawBattery = b as any;
+    const serialNumber = String(rawBattery.serialNumber ?? rawBattery.serial_number ?? '').toLowerCase();
+    const productName = String(rawBattery.productName ?? rawBattery.product_name ?? '').toLowerCase();
+    const query = String(search ?? '').toLowerCase();
+    const matchesSearch = !query || serialNumber.includes(query) || productName.includes(query);
     const matchesStatus = !statusFilter || b.status === statusFilter;
     return matchesSearch && matchesStatus;
   });
@@ -992,9 +996,20 @@ export const InventoryView: React.FC = () => {
                         <QrCode className="w-4 h-4" />
                       </button>
                       <button
+                        onClick={() => {
+                          setActiveModuleId(m.id);
+                          setActiveView('workflow-module');
+                          addNotification('info', 'Module cells opened', `Editing cells for ${m.serialNumber}.`);
+                        }}
+                        className="p-1.5 text-slate-500 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors"
+                        title="Edit module cells"
+                      >
+                        <Layers className="w-4 h-4" />
+                      </button>
+                      <button
                         onClick={() => { setActiveModuleId(m.id); setActiveView('workflow-module'); }}
                         className="p-1.5 text-slate-500 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors"
-                        title="Edit in Module Assembly"
+                        title="Edit module details"
                       >
                         <Pencil className="w-4 h-4" />
                       </button>
@@ -1060,7 +1075,7 @@ export const InventoryView: React.FC = () => {
                     <td className="px-5 py-3.5">{b.modules?.length ?? 0} Modules</td>
                     <td className="px-5 py-3.5 text-emerald-700">{b.bms?.serialNumber || 'NONE'}</td>
                     <td className="px-5 py-3.5 text-emerald-700">{b.bmu?.serialNumber || 'NONE'}</td>
-                    <td className="px-5 py-3.5 font-sans text-slate-700 font-medium">{b.currentStep.replace(/_/g, ' ')}</td>
+                    <td className="px-5 py-3.5 font-sans text-slate-700 font-medium">{String((b as any).currentStep ?? (b as any).current_step ?? 'UNKNOWN').replace(/_/g, ' ')}</td>
                     <td className="px-5 py-3.5 font-bold text-emerald-600">{b.progressPercent}%</td>
                     <td className="px-5 py-3.5 font-sans">
                       <span className={`px-2.5 py-0.5 rounded-md text-[10px] font-bold border uppercase tracking-wider ${getStatusBadge(b.status)}`}>

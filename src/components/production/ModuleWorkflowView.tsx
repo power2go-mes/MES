@@ -30,12 +30,39 @@ export const ModuleWorkflowView: React.FC = () => {
   const [weldingStatus, setWeldingStatus] = useState<'PASSED' | 'FAILED'>('PASSED');
   const [testRows, setTestRows] = useState<ModuleTestRow[]>([]);
   const [draggedCellId, setDraggedCellId] = useState<string | null>(null);
+  const [editingCellIndex, setEditingCellIndex] = useState<number | null>(null);
   const requiredCells = moduleType === '8S' ? 8 : 12;
 
-  const loadFloorCells = async () => {
+  const replaceCellAtIndex = (index: number, replacementCellId: string) => {
+    setSelectedCellIds(current => {
+      if (index < 0 || index >= current.length) return current;
+      const next = [...current];
+      const existingId = next[index];
+      if (!existingId || existingId === replacementCellId) return current;
+      next[index] = replacementCellId;
+      return next;
+    });
+
+    setTestRows(current => {
+      const next = [...current];
+      const rowIndex = current.findIndex(row => row.cellId === selectedCellIds[index]);
+      if (rowIndex < 0) return current;
+      next[rowIndex] = { ...next[rowIndex], cellId: replacementCellId };
+      return next;
+    });
+  };
+
+  const loadFloorCells = async (additionalCells: CellItem[] = []) => {
     setLoading(true);
     try {
-      setFloorCells(await api.getCells({ lifecycleStatus: 'FLOOR_STOCK', limit: 5000 }));
+      const stockCells = await api.getCells({ lifecycleStatus: 'FLOOR_STOCK', limit: 5000 });
+      setFloorCells(current => {
+        const cellsById = new Map<string, CellItem>();
+        [...stockCells, ...additionalCells, ...current].forEach(cell => {
+          if (cell?.id) cellsById.set(cell.id, cell);
+        });
+        return Array.from(cellsById.values());
+      });
     } catch (error: any) {
       addNotification('error', 'Floor Stock Unavailable', error.message || 'Could not load floor-stock cells.');
     } finally {
@@ -43,7 +70,9 @@ export const ModuleWorkflowView: React.FC = () => {
     }
   };
 
-  useEffect(() => { void loadFloorCells(); }, [refreshKey]);
+  useEffect(() => {
+    if (!activeModuleId) void loadFloorCells();
+  }, [activeModuleId, refreshKey]);
   useEffect(() => { setSelectedCellIds([]); setManualBarcodes(''); }, [moduleType]);
 
   useEffect(() => {
@@ -56,7 +85,7 @@ export const ModuleWorkflowView: React.FC = () => {
         const moduleCells = module.cells || [];
         const inferredModuleType = module.moduleType === '12S' || moduleCells.length === 12 ? '12S' : '8S';
         setModuleType(inferredModuleType);
-        setFloorCells(current => [...current.filter(cell => !moduleCells.some(moduleCell => moduleCell.id === cell.id)), ...moduleCells]);
+        await loadFloorCells(moduleCells);
         setSelectedCellIds(moduleCells.map(cell => cell.id));
         setDraftModule(module);
         setWeldingStatus(module.weldingResult?.status === 'FAILED' ? 'FAILED' : 'PASSED');
@@ -97,6 +126,14 @@ export const ModuleWorkflowView: React.FC = () => {
       addNotification('warning', 'Module Full', `An ${moduleType} module accepts exactly ${requiredCells} cells.`);
       return;
     }
+
+    if (editingCellIndex !== null) {
+      replaceCellAtIndex(editingCellIndex, cell.id);
+      setEditingCellIndex(null);
+      addNotification('success', 'Cell Replaced', `${cell.internalSerial || cell.id} has been assigned to this module slot.`);
+      return;
+    }
+
     setSelectedCellIds(current => [...current, cell.id]);
   };
 
@@ -160,6 +197,9 @@ export const ModuleWorkflowView: React.FC = () => {
     if (!draftModule || !acknowledged || testRows.some(row => Number(row.ocvV) <= 0 || Number(row.irMilliOhm) < 0 || !row.grade || row.damageCondition !== 'GOOD')) return;
     setSaving(true);
     try {
+      if (draftModule?.id) {
+        await api.replaceModuleCells(draftModule.id, selectedCells.map(cell => cell.internalSerial || cell.id));
+      }
       const result = await api.completeStandaloneModule(draftModule.id, acknowledged, testRows.map(row => ({
         cellId: row.cellId,
         ocvV: Number(row.ocvV),
@@ -201,7 +241,7 @@ export const ModuleWorkflowView: React.FC = () => {
 
         <section className="rounded-2xl border border-slate-200 bg-white shadow-sm">
           <div className="flex items-center justify-between border-b border-slate-100 p-5"><div><p className="text-[10px] font-black uppercase tracking-widest text-emerald-600">2D Module Builder</p><h2 className="text-base font-black text-slate-900">Cells assigned to {moduleType}</h2></div><span className="font-mono text-sm font-black text-emerald-700">{selectedCells.length} / {requiredCells}</span></div>
-          {loading ? <p className="p-8 text-center text-xs text-slate-500">Loading floor-stock cells...</p> : <div className="grid gap-3 p-5 md:grid-cols-2 xl:grid-cols-4">{selectedCells.map((cell, index) => <div key={cell.id} className="rounded-xl border border-emerald-200 bg-emerald-50 p-3"><div className="flex items-center justify-between"><span className="text-[10px] font-black text-emerald-700">SLOT {index + 1}</span><button type="button" onClick={() => setSelectedCellIds(current => current.filter(id => id !== cell.id))} className="text-slate-400 hover:text-red-600" title="Remove cell"><Trash2 className="h-4 w-4" /></button></div><p className="mt-2 truncate font-mono text-xs font-bold text-slate-900">{cell.internalSerial}</p><p className="mt-1 text-[10px] text-slate-500">{cell.supplierBarcode || 'No supplier barcode'} · FLOOR_STOCK</p></div>)}{selectedCells.length === 0 && <p className="col-span-full py-8 text-center text-xs text-slate-500">No cells selected. Scan or paste cells from floor stock.</p>}</div>}
+          {loading ? <p className="p-8 text-center text-xs text-slate-500">Loading floor-stock cells...</p> : <div className="grid gap-3 p-5 md:grid-cols-2 xl:grid-cols-4">{selectedCells.map((cell, index) => <div key={cell.id} className="rounded-xl border border-emerald-200 bg-emerald-50 p-3"><div className="flex items-center justify-between"><span className="text-[10px] font-black text-emerald-700">SLOT {index + 1}</span><div className="flex items-center gap-2"><button type="button" onClick={() => { setEditingCellIndex(index); setScannerOpen(true); }} className="inline-flex items-center gap-1 rounded border border-emerald-600 bg-white px-2 py-1 text-[10px] font-bold text-emerald-700 hover:bg-emerald-50" title="Edit this cell">Edit</button><button type="button" onClick={() => setSelectedCellIds(current => current.filter(id => id !== cell.id))} className="text-slate-400 hover:text-red-600" title="Remove cell"><Trash2 className="h-4 w-4" /></button></div></div><p className="mt-2 truncate font-mono text-xs font-bold text-slate-900">{cell.internalSerial}</p><p className="mt-1 text-[10px] text-slate-500">{cell.supplierBarcode || 'No supplier barcode'} · FLOOR_STOCK</p></div>)}{selectedCells.length === 0 && <p className="col-span-full py-8 text-center text-xs text-slate-500">No cells selected. Scan or paste cells from floor stock.</p>}</div>}
           {!draftModule && <div className="flex items-center justify-between border-t border-slate-100 p-5"><p className="text-xs text-slate-500">The first step creates a module draft. Tests are required before completion.</p><button type="button" onClick={() => void createModule()} disabled={saving || selectedCells.length !== requiredCells} className="rounded-lg bg-slate-900 px-5 py-2.5 text-xs font-bold text-white disabled:bg-slate-300">{saving ? 'Creating draft...' : `Start ${moduleType} module`}</button></div>}
         </section>
 
@@ -225,7 +265,7 @@ export const ModuleWorkflowView: React.FC = () => {
         </section>}
       </div>
       {draftModule && <div className="mx-auto mt-4 max-w-6xl rounded-xl border border-slate-200 bg-slate-50 p-3"><div className="mb-2 flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-slate-500"><GripVertical className="h-4 w-4" />Drag cells to reorder module slots</div><div className="flex flex-wrap gap-2">{testRows.map((row, index) => { const cell = selectedCells.find(item => item.id === row.cellId); return <div key={row.cellId} draggable onDragStart={() => setDraggedCellId(row.cellId)} onDragOver={event => event.preventDefault()} onDrop={() => { if (draggedCellId) moveCellBefore(draggedCellId, row.cellId); setDraggedCellId(null); }} className="cursor-grab rounded-lg border border-emerald-200 bg-white px-3 py-2 text-[10px] font-bold text-slate-700 active:cursor-grabbing"><span className="mr-1 text-emerald-600">{index + 1}.</span>{cell?.internalSerial || row.cellId}</div>; })}</div></div>}
-      <ScannerModal isOpen={scannerOpen} onClose={() => setScannerOpen(false)} onScan={barcode => { setScannerOpen(false); addCellByBarcode(barcode); }} title="Scan floor-stock cell" subtitle="Only cells currently in FLOOR_STOCK can be assigned to this module" />
+      <ScannerModal isOpen={scannerOpen} onClose={() => { setScannerOpen(false); setEditingCellIndex(null); }} onScan={barcode => { setScannerOpen(false); addCellByBarcode(barcode); }} title={editingCellIndex !== null ? 'Replace cell in this module slot' : 'Scan floor-stock cell'} subtitle={editingCellIndex !== null ? 'Scan a different FLOOR_STOCK cell to replace the selected slot.' : 'Only cells currently in FLOOR_STOCK can be assigned to this module'} />
       <QRCodeModal isOpen={Boolean(qrModule)} onClose={() => setQrModule(null)} title="Module Traceability QR" qrPayload={qrModule?.qr_code || qrModule?.qrCode || `${qrModule?.serial_number}|MODULE:${qrModule?.id}` || ''} serialNumber={qrModule?.serial_number || 'MODULE'} itemType="MODULE" metadata={{ type: qrModule?.module_type || moduleType, status: qrModule?.status || 'CELLS_ASSIGNED' }} />
     </div>
   );
