@@ -18,8 +18,8 @@ export const WarehouseView: React.FC = () => {
   const load = async () => {
     setLoading(true);
     try {
-      const [allBatteries, history] = await Promise.all([api.getBatteries(), api.getWarehouseMovements()]);
-      setBatteries(allBatteries.filter(b => ['FINISHED', 'RELEASED'].includes(b.status)));
+      const [allBatteries, history] = await Promise.all([api.getBatterySummaries(), api.getWarehouseMovements()]);
+      setBatteries(allBatteries.filter(b => ['FINISHED', 'RELEASED'].includes(b.status)) as BatteryUnit[]);
       setMovements(history);
     } catch (error: any) {
       addNotification('error', 'Warehouse Load Failed', error.message || 'Could not load warehouse data.');

@@ -92,12 +92,11 @@ function reconcileDashboardCellBuckets(buckets: any[], totalCells: any): any[] {
     .reduce((sum, row) => sum + row.value, 0);
   const remainingStock = Math.max(0, total - nonStockTotal);
   const currentStock = stockRows.reduce((sum, row) => sum + row.value, 0);
-  if (currentStock > remainingStock) {
-    const inStock = rows.find(row => row.label === 'In Stock');
-    const floorStock = rows.find(row => row.label === 'Floor Stock');
-    if (inStock) inStock.value = Math.min(inStock.value, remainingStock);
-    if (floorStock) floorStock.value = Math.max(0, remainingStock - (inStock?.value || 0));
-  }
+
+  if (currentStock <= 0 || total <= 0 || remainingStock >= currentStock) return rows;
+
+  // Preserve the stock bucket values when the source summary overlaps lifecycle states.
+  // The authoritative database classification is the final source of truth for the dashboard totals.
   return rows;
 }
 
@@ -395,28 +394,6 @@ async getUsers(): Promise<User[]> {
         applyDateRange(rawSupabase.from('batteries').select('id,bms_id,bmu_id,progress_percent,status,created_at,product_id,product_templates(name,capacity_kwh)')),
         applyDateRange(rawSupabase.from('racks').select('status,rack_template_code,required_pack_count,required_pack_template_code,created_at')),
       ]);
-      const moduleCellPageSize = 1000;
-      const { data: firstModuleCellPage, count: moduleCellCount, error: moduleCellError } = await rawSupabase
-        .from('module_cells')
-        .select('cell_id,module:modules(battery_id)', { count: 'exact' })
-        .range(0, moduleCellPageSize - 1);
-      const liveModuleCells: any[] = firstModuleCellPage || [];
-      if (!moduleCellError && (moduleCellCount || 0) > moduleCellPageSize) {
-        const remainingModuleCellPages = await Promise.all(
-          Array.from({ length: Math.ceil((moduleCellCount || 0) / moduleCellPageSize) - 1 }, (_, pageIndex) => rawSupabase!
-            .from('module_cells')
-            .select('cell_id,module:modules(battery_id)')
-            .range((pageIndex + 1) * moduleCellPageSize, (pageIndex + 2) * moduleCellPageSize - 1)),
-        );
-        remainingModuleCellPages.forEach(({ data: page }) => liveModuleCells.push(...(page || [])));
-      }
-      const cellBatteryIds = new Map<string, string>();
-      const standaloneModuleCellIds = new Set<string>();
-      (liveModuleCells || []).forEach((assignment: any) => {
-        const batteryId = assignment.module?.battery_id;
-        if (assignment.cell_id && batteryId) cellBatteryIds.set(assignment.cell_id, batteryId);
-        if (assignment.cell_id && !batteryId) standaloneModuleCellIds.add(assignment.cell_id);
-      });
       const moduleTypeCounts = new Map<string, number>();
       const moduleTypeCapacity = new Map<string, number>();
       (liveModules || []).forEach((module: any) => {
@@ -502,38 +479,7 @@ async getUsers(): Promise<User[]> {
         assignedBms: (liveBms || []).filter((controller: any) => isAssignedController(controller, linkedBmsIds, controller.id)).length,
         assignedBmu: (liveBmus || []).filter((controller: any) => isAssignedController(controller, linkedBmuIds, controller.id)).length,
       };
-      const cellPageSize = 1000;
-      const cellQuery = rawSupabase
-        .from('cells')
-        .select('id,status,lifecycle_status,reserved_for_battery_id,reserved_for_order_id,created_at', { count: 'exact' });
-      const { data: firstCellPage, count: cellCount, error: cellPageError } = await applyDateRange(cellQuery)
-        .range(0, cellPageSize - 1);
-      const liveCells: any[] = firstCellPage || [];
-      if (!cellPageError && (cellCount || 0) > cellPageSize) {
-        const remainingCellPages = await Promise.all(
-          Array.from({ length: Math.ceil((cellCount || 0) / cellPageSize) - 1 }, (_, pageIndex) => applyDateRange(rawSupabase!
-            .from('cells')
-            .select('id,status,lifecycle_status,reserved_for_battery_id,reserved_for_order_id,created_at'))
-            .range((pageIndex + 1) * cellPageSize, (pageIndex + 2) * cellPageSize - 1)),
-        );
-        remainingCellPages.forEach(({ data: page }) => liveCells.push(...(page || [])));
-      }
-      const completedBatteryIds = new Set((liveBatteries || [])
-        .filter((battery: any) => Number(battery.progress_percent) >= 100 || ['RELEASED', 'WAREHOUSE', 'DISPATCHED', 'FINISHED'].includes(battery.status))
-        .map((battery: any) => battery.id));
-      const liveCellCounts = { 'In Stock': 0, 'Floor Stock': 0, 'In Module': 0, 'In Pack': 0, 'In Rack': 0, Sold: 0, Scrap: 0 };
-      (liveCells || []).forEach((cell: any) => {
-        const assignedBatteryId = cell.reserved_for_battery_id || cellBatteryIds.get(cell.id) || cell.reserved_for_battery_id;
-        if (cell.lifecycle_status === 'SCRAP' || ['REJECTED', 'QUARANTINED'].includes(cell.status)) liveCellCounts.Scrap += 1;
-        else if (cell.lifecycle_status === 'SOLD') liveCellCounts.Sold += 1;
-        else if (cell.lifecycle_status === 'IN_RACK') liveCellCounts['In Rack'] += 1;
-        else if (assignedBatteryId && completedBatteryIds.has(assignedBatteryId)) liveCellCounts['In Pack'] += 1;
-        else if (assignedBatteryId || standaloneModuleCellIds.has(cell.id) || cell.lifecycle_status === 'IN_MODULE') liveCellCounts['In Module'] += 1;
-        else if (cell.lifecycle_status === 'FLOOR_STOCK') liveCellCounts['Floor Stock'] += 1;
-        else liveCellCounts['In Stock'] += 1;
-      });
-      const liveCellBuckets = Object.entries(liveCellCounts).map(([label, value]) => ({ label, value, capacityKwh: value * 0.3125 }));
-      const normalizedCellBuckets = liveCells.length > 0 ? liveCellBuckets : reconcileDashboardCellBuckets(data?.cellBuckets, data?.inventory?.totalCells);
+      const normalizedCellBuckets = reconcileDashboardCellBuckets(data?.cellBuckets, data?.inventory?.totalCells);
       // Use data from RPC - it's already optimized at database level
       return {
         inventory: data?.inventory || {
@@ -574,9 +520,7 @@ async getUsers(): Promise<User[]> {
           totalBmu: Number(data?.inventory?.totalBmu || 0),
         },
         cellBuckets: normalizedCellBuckets,
-        cellTotal: cellPageError
-          ? normalizedCellBuckets.reduce((sum: number, bucket: any) => sum + (Number(bucket.value) || 0), 0)
-          : liveCells.length,
+        cellTotal: Number(data?.inventory?.totalCells || normalizedCellBuckets.reduce((sum: number, bucket: any) => sum + (Number(bucket.value) || 0), 0)),
         moduleTotal: liveModules?.length || 0,
         moduleStatusBuckets: liveModuleTypeBuckets,
         moduleTypeBuckets: liveModuleTypeBuckets,
@@ -1818,6 +1762,26 @@ async getUsers(): Promise<User[]> {
       bmu: bmuById.get(battery.bmuId),
       modules: modulesByBattery.get(battery.id) || [],
     })) as BatteryUnit[];
+  },
+
+  async getBatterySummaries(): Promise<Array<Pick<BatteryUnit, 'id' | 'serialNumber' | 'productName' | 'productionOrderId' | 'currentStep' | 'progressPercent' | 'status' | 'lifecycleStatus'> & { bmsId?: string; bmuId?: string }>> {
+    const { data, error } = await supabase
+      .from('batteries')
+      .select('id,serial_number,production_order_id,current_step,progress_percent,status,lifecycle_status,bms_id,bmu_id,product_templates(name)')
+      .order('created_at', { ascending: false });
+    if (error) throw error;
+    return (data || []).map((battery: any) => ({
+      id: battery.id,
+      serialNumber: battery.serial_number,
+      productName: battery.product_templates?.name || '',
+      productionOrderId: battery.production_order_id,
+      currentStep: battery.current_step,
+      progressPercent: battery.progress_percent,
+      status: battery.status,
+      lifecycleStatus: battery.lifecycle_status,
+      bmsId: battery.bms_id,
+      bmuId: battery.bmu_id,
+    }));
   },
 
   async updateBattery(id: string, update: { status?: string; currentStep?: string; progressPercent?: number }): Promise<BatteryUnit> {
@@ -3529,44 +3493,14 @@ async getUsers(): Promise<User[]> {
     const boxNumber = String(params.boxNumber || '').trim();
     const barcodes = Array.from(new Set((params.barcodes || []).map(value => String(value).trim()).filter(Boolean)));
     if (!palletNumber && !boxNumber && barcodes.length === 0) throw new Error('Enter a pallet, box, or at least one cell barcode.');
-
-    let cells: any[] = [];
-    if (barcodes.length > 0) {
-      const [idResult, internalResult, supplierResult, qrResult] = await Promise.all([
-        supabase.from('cells').select('id,lifecycle_status,status').in('id', barcodes),
-        supabase.from('cells').select('id,lifecycle_status,status').in('internal_serial', barcodes),
-        supabase.from('cells').select('id,lifecycle_status,status').in('supplier_barcode', barcodes),
-        supabase.from('cells').select('id,lifecycle_status,status').in('qr_code', barcodes),
-      ]);
-      const lookupError = [idResult, internalResult, supplierResult, qrResult].find(result => result.error)?.error;
-      if (lookupError) throw lookupError;
-      cells = Array.from(new Map(
-        [idResult.data, internalResult.data, supplierResult.data, qrResult.data]
-          .flat()
-          .map(cell => [cell.id, cell]),
-      ).values());
-    } else {
-      let query = supabase.from('cells').select('id,lifecycle_status,status');
-      if (palletNumber && boxNumber) query = query.eq('pallet_number', palletNumber).eq('box_number', boxNumber);
-      else if (palletNumber) query = query.eq('pallet_number', palletNumber);
-      else query = query.eq('box_number', boxNumber);
-      const result = await query.limit(10000);
-      if (result.error) throw result.error;
-      cells = result.data || [];
-    }
-    const alreadyFloorStock = cells.filter((cell: any) => String(cell.lifecycle_status || '').toUpperCase() === 'FLOOR_STOCK');
-    const eligible = cells.filter((cell: any) => !['SCRAP', 'SOLD', 'IN_MODULE', 'IN_PACK', 'IN_RACK', 'FLOOR_STOCK'].includes(String(cell.lifecycle_status || '').toUpperCase()) && !['QUARANTINED', 'REJECTED'].includes(String(cell.status || '').toUpperCase()));
-    if (cells.length === 0) throw new Error('No matching cells were found for the supplied pallet, box, or barcode values.');
-    if (eligible.length === 0) return { movedCount: 0, skippedCount: alreadyFloorStock.length, requestedCount: barcodes.length || cells.length };
-    const { error: updateError } = await supabase.from('cells').update({
-      status: 'AVAILABLE',
-      lifecycle_status: 'FLOOR_STOCK',
-      reserved_for_order_id: null,
-      reserved_for_battery_id: null,
-      updated_at: new Date().toISOString(),
-    }).in('id', eligible.map((cell: any) => cell.id));
-    if (updateError) throw updateError;
-    return { movedCount: eligible.length, skippedCount: alreadyFloorStock.length, requestedCount: barcodes.length || cells.length };
+    if (!rawSupabase) throw new Error('Supabase is not configured.');
+    const { data, error } = await rawSupabase.rpc('move_cells_to_floor_transaction', {
+      p_pallet_number: palletNumber || null,
+      p_box_number: boxNumber || null,
+      p_barcodes: barcodes,
+    });
+    if (error) throw error;
+    return toAppValue(data);
   },
 
   async getRacks(): Promise<RackUnit[]> {

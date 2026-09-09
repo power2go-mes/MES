@@ -45,8 +45,8 @@ export const RackAssemblyView: React.FC = () => {
   const load = async () => {
     setLoading(true);
     try {
-      const [allBatteries, allRacks] = await Promise.all([api.getBatteries(), api.getRacks()]);
-      setBatteries(allBatteries.filter(item => ['RELEASED', 'FINISHED', 'WAREHOUSE'].includes(item.status)));
+      const [allBatteries, allRacks] = await Promise.all([api.getBatterySummaries(), api.getRacks()]);
+      setBatteries(allBatteries.filter(item => ['RELEASED', 'FINISHED', 'WAREHOUSE'].includes(item.status)) as BatteryUnit[]);
       setRacks(allRacks);
     } catch (error: any) {
       addNotification('error', 'Rack Load Failed', error.message || 'Could not load rack data.');

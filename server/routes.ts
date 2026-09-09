@@ -148,8 +148,7 @@ apiRouter.post('/auth/login', async (req: any, res: any) => {
     // Increment login attempts and record audit
     user.loginAttempts = (user.loginAttempts || 0) + 1;
     db.users = db.users.map((u: any) => u.id === user.id ? user : u);
-    const adminId = req.headers['x-user-id'] || 'usr-admin-01';
-    db.addAuditLog(adminId as string, `LOGIN_FAILED: username=${user.username}`, 'AUTH', user.id, undefined, passwordValid ? 'success' : 'failed password');
+    db.addAuditLog(user.id, `LOGIN_FAILED: username=${user.username}`, 'AUTH', user.id, undefined, 'failed password');
     return res.status(400).json({ error: 'Invalid username or password.' });
   }
 
@@ -157,10 +156,12 @@ apiRouter.post('/auth/login', async (req: any, res: any) => {
   const userWithOtp = setUserOtp({ ...user, loginAttempts: 0, lockedUntil: null }, otp);
   db.users = db.users.map((u: any) => (u.id === user.id ? userWithOtp : u));
   db.commit();
-  await sendOtpEmail({ to: user.email, username: user.username, otp });
+  const delivery = await sendOtpEmail({ to: user.email, username: user.username, otp });
+  if (!delivery.delivered) {
+    return res.status(503).json({ error: 'Verification email delivery is unavailable. Contact an administrator.' });
+  }
   const pending = createPending(user.id, user.username);
-  const adminId = req.headers['x-user-id'] || 'usr-admin-01';
-  db.addAuditLog(adminId as string, `LOGIN: username=${user.username}`, 'AUTH', user.id, undefined, 'otp sent');
+  db.addAuditLog(user.id, `LOGIN: username=${user.username}`, 'AUTH', user.id, undefined, 'otp sent');
 
   return res.json({
     message: 'Verification code sent',
@@ -204,8 +205,7 @@ apiRouter.post('/auth/verify-otp', (req: any, res: any) => {
     db.commit();
 
     // Record audit failed
-    const adminId = req.headers['x-user-id'] || 'usr-admin-01';
-    db.addAuditLog(adminId as string, `OTP_FAILED: username=${user.username}`, 'AUTH', user.id, undefined, `attempts=${newAttempts}`);
+    db.addAuditLog(user.id, `OTP_FAILED: username=${user.username}`, 'AUTH', user.id, undefined, `attempts=${newAttempts}`);
 
     if (lockedUntil) {
       return res.status(400).json({ error: 'Too many verification attempts. Please try again later.' });
@@ -221,8 +221,7 @@ apiRouter.post('/auth/verify-otp', (req: any, res: any) => {
 
   // Create session
   const issued = issueLocalSession(res, clearedUser);
-  const adminId = req.headers['x-user-id'] || 'usr-admin-01';
-  db.addAuditLog(adminId as string, `OTP_VERIFIED: username=${user.username}`, 'AUTH', user.id, undefined, 'session created');
+  db.addAuditLog(user.id, `OTP_VERIFIED: username=${user.username}`, 'AUTH', user.id, undefined, 'session created');
 
   return res.json({
     message: 'OTP verified, session created',
@@ -844,9 +843,10 @@ apiRouter.post('/supplier-imports', requirePermission('cells.create'), asyncHand
     return res.status(400).json({ error: 'No data rows provided' });
   }
 
-  const client = getServiceClient();
+  const accessToken = getBearerToken(req.headers.authorization);
+  const client = accessToken ? getUserScopedClient(accessToken) : null;
   if (!client) {
-    return res.status(503).json({ error: 'SUPABASE_SERVICE_ROLE_KEY is required for supplier imports' });
+    return res.status(401).json({ error: 'A valid authenticated Supabase session is required for supplier imports' });
   }
 
   const supplierName = rows.find((row: any) => row.manufacturer_name)?.manufacturer_name || 'Unknown Supplier';
@@ -2009,7 +2009,7 @@ apiRouter.post('/batteries/:id/final-test', requirePermission('qc.perform'), asy
     hiPotInsulationMOhm: finalData.hiPotInsulationMOhm,
     bmsTelemetryOk: finalData.bmsTelemetryOk,
     thermalSensorDeltaC: finalData.thermalSensorDeltaC,
-    enclosureVisualOk: true,
+    enclosureVisualOk: finalData.enclosureVisualOk,
     testedBy: userId,
     testedAt: new Date().toISOString(),
   };

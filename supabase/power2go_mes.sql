@@ -130,11 +130,7 @@ returns trigger as $$
 declare
     assigned_role text;
 begin
-    assigned_role := case
-        when lower(new.email) in ('admin@gmail.com', 'admin@power2go.com') then 'role-admin'
-        when (new.raw_user_meta_data->>'role_id') in ('role-admin', 'role-operator') then new.raw_user_meta_data->>'role_id'
-        else 'role-operator'
-    end;
+    assigned_role := 'role-operator';
     insert into public.profiles (id, full_name, email, username, role_id, status)
     values (new.id, coalesce(new.raw_user_meta_data->>'full_name', new.raw_user_meta_data->>'name', split_part(new.email, '@', 1)), new.email, coalesce(new.raw_user_meta_data->>'username', split_part(new.email, '@', 1)), assigned_role, 'ACTIVE')
     on conflict (id) do update set email = excluded.email, role_id = case when excluded.role_id = 'role-admin' then 'role-admin' else public.profiles.role_id end, updated_at = now();
@@ -1903,6 +1899,19 @@ declare
     v_quarantine_id text;
 begin
     perform public.require_permission('MANAGE_PRODUCTION');
+    if p_entity_type not in ('CELL', 'MODULE', 'BATTERY', 'BMS', 'BMU') then
+        raise exception 'Unsupported quarantine entity type %', p_entity_type;
+    end if;
+    if nullif(trim(p_reason), '') is null then
+        raise exception 'Quarantine reason is required';
+    end if;
+    if (p_entity_type = 'CELL' and not exists (select 1 from public.cells where id = p_entity_id))
+        or (p_entity_type = 'MODULE' and not exists (select 1 from public.modules where id = p_entity_id))
+        or (p_entity_type = 'BATTERY' and not exists (select 1 from public.batteries where id = p_entity_id))
+        or (p_entity_type = 'BMS' and not exists (select 1 from public.bms_units where id = p_entity_id))
+        or (p_entity_type = 'BMU' and not exists (select 1 from public.bmu_units where id = p_entity_id)) then
+        raise exception '% % not found', p_entity_type, p_entity_id;
+    end if;
     v_quarantine_id := 'quar-' || extract(epoch from now())::bigint::text;
 
     insert into public.quarantine_records (id, entity_type, entity_id, reason, status, quarantined_by, quarantined_at)
@@ -1971,9 +1980,14 @@ begin
         raise exception 'Not all modules have passed QC inspection (% of % passed)', v_passed_module_tests, v_module_count;
     end if;
 
-    -- QC GATE 2: Validate BMS/BMU is assigned
-    if v_battery.bms_id is null and v_battery.bmu_id is null then
-        raise exception 'Battery does not have BMS or BMU assigned';
+    -- QC GATE 2: Validate every controller required by the product is assigned.
+    if coalesce((select (bms_config_json->>'required')::boolean from public.product_templates where id = v_battery.product_id), true)
+        and v_battery.bms_id is null then
+        raise exception 'Battery requires an assigned BMS';
+    end if;
+    if coalesce((select (bmu_config_json->>'required')::boolean from public.product_templates where id = v_battery.product_id), false)
+        and v_battery.bmu_id is null then
+        raise exception 'Battery requires an assigned BMU';
     end if;
 
     -- QC GATE 3: Validate final EOL test passed
@@ -2026,6 +2040,9 @@ declare
     v_quarantine_record record;
 begin
     perform public.require_permission('MANAGE_PRODUCTION');
+    if upper(trim(p_disposition)) not in ('RELEASE_APPROVED', 'SCRAP', 'REWORK') then
+        raise exception 'Unsupported quarantine disposition %', p_disposition;
+    end if;
     select * into v_quarantine_record from public.quarantine_records where id = p_quarantine_id for update;
     if not found then
         raise exception 'Quarantine record % not found', p_quarantine_id;
@@ -2047,17 +2064,17 @@ begin
 
     if v_quarantine_record.entity_type = 'CELL' then
         update public.cells
-        set status = case when p_disposition = 'SCRAP' or lifecycle_status = 'SCRAP' then 'REJECTED'::cell_status else 'AVAILABLE'::cell_status end,
-            lifecycle_status = case when p_disposition = 'SCRAP' or lifecycle_status = 'SCRAP' then 'SCRAP' else 'FLOOR_STOCK' end
+        set status = case when upper(trim(p_disposition)) = 'SCRAP' or lifecycle_status = 'SCRAP' then 'REJECTED'::cell_status else 'AVAILABLE'::cell_status end,
+            lifecycle_status = case when upper(trim(p_disposition)) = 'SCRAP' or lifecycle_status = 'SCRAP' then 'SCRAP' else 'FLOOR_STOCK' end
         where id = v_quarantine_record.entity_id;
     elsif v_quarantine_record.entity_type = 'MODULE' then
-        update public.modules set status = case when p_disposition = 'SCRAP' then 'FAILED'::module_status else 'PASSED'::module_status end where id = v_quarantine_record.entity_id;
+        update public.modules set status = case when upper(trim(p_disposition)) = 'SCRAP' then 'FAILED'::module_status else 'PASSED'::module_status end where id = v_quarantine_record.entity_id;
     elsif v_quarantine_record.entity_type = 'BATTERY' then
-        update public.batteries set status = case when p_disposition = 'SCRAP' then 'FINISHED'::battery_status else 'IN_PROCESS'::battery_status end where id = v_quarantine_record.entity_id;
+        update public.batteries set status = case when upper(trim(p_disposition)) = 'SCRAP' then 'QUARANTINED'::battery_status else 'IN_PROCESS'::battery_status end where id = v_quarantine_record.entity_id;
     elsif v_quarantine_record.entity_type = 'BMS' then
-        update public.bms_units set status = case when p_disposition = 'SCRAP' then 'FAILED'::controller_status else 'AVAILABLE'::controller_status end where id = v_quarantine_record.entity_id;
+        update public.bms_units set status = case when upper(trim(p_disposition)) = 'SCRAP' then 'FAILED'::controller_status else 'AVAILABLE'::controller_status end where id = v_quarantine_record.entity_id;
     elsif v_quarantine_record.entity_type = 'BMU' then
-        update public.bmu_units set status = case when p_disposition = 'SCRAP' then 'FAILED'::controller_status else 'AVAILABLE'::controller_status end where id = v_quarantine_record.entity_id;
+        update public.bmu_units set status = case when upper(trim(p_disposition)) = 'SCRAP' then 'FAILED'::controller_status else 'AVAILABLE'::controller_status end where id = v_quarantine_record.entity_id;
     end if;
 
     insert into public.audit_logs (entity_type, entity_id, action, actor, result, details)
@@ -3059,28 +3076,60 @@ alter table public.batteries add column if not exists lifecycle_status text defa
 
 create or replace function public.get_dashboard_summary(p_start_date date default null, p_end_date date default null)
 returns jsonb language sql security definer set search_path = public as $$
-with cell_counts as (
+with cell_bucket_assignments as (
+    select
+        c.id,
+        c.created_at,
+        c.status,
+        c.lifecycle_status,
+        c.reserved_for_order_id,
+        c.reserved_for_battery_id,
+        case
+            when c.lifecycle_status = 'SOLD' then 'SOLD'
+            when c.lifecycle_status = 'SCRAP' or c.status in ('QUARANTINED','REJECTED') then 'SCRAP'
+            when exists (
+                select 1
+                from public.rack_packs rp
+                join public.modules m on m.battery_id = rp.battery_id
+                join public.module_cells mc on mc.module_id = m.id and mc.cell_id = c.id
+            ) then 'IN_RACK'
+            when exists (
+                select 1
+                from public.module_cells mc
+                join public.modules m on m.id = mc.module_id
+                where mc.cell_id = c.id
+                  and m.battery_id is null
+            ) then 'IN_MODULE'
+            when exists (
+                select 1
+                from public.module_cells mc
+                join public.modules m on m.id = mc.module_id
+                where mc.cell_id = c.id
+                  and m.battery_id is not null
+            ) then 'IN_PACK'
+            when c.lifecycle_status = 'FLOOR_STOCK' then 'FLOOR_STOCK'
+            else 'IN_STOCK'
+        end as bucket,
+        (c.lifecycle_status in ('IN_STOCK','FLOOR_STOCK') and c.reserved_for_order_id is null and c.reserved_for_battery_id is null) as is_available,
+        (c.status = 'RESERVED' or c.reserved_for_order_id is not null or c.reserved_for_battery_id is not null) as is_reserved,
+        (c.status in ('IN_PROCESS','VALIDATING','TESTING','SCANNED','PASSED')) as is_in_process
+    from public.cells c
+    where (p_start_date is null or c.created_at::date >= p_start_date)
+      and (p_end_date is null or c.created_at::date <= p_end_date)
+), cell_counts as (
     select
         count(*)::int as total,
-        count(*) filter (where lifecycle_status in ('IN_STOCK','FLOOR_STOCK') and reserved_for_order_id is null and reserved_for_battery_id is null)::int as available,
-        count(*) filter (where lifecycle_status = 'IN_STOCK' and reserved_for_order_id is null and reserved_for_battery_id is null)::int as in_stock,
-        count(*) filter (where lifecycle_status = 'FLOOR_STOCK' and reserved_for_order_id is null and reserved_for_battery_id is null)::int as floor_stock,
-        count(*) filter (where (lifecycle_status = 'IN_MODULE' or exists (select 1 from public.module_cells mc where mc.cell_id = cells.id))
-            and not exists (select 1 from public.batteries b
-                where b.id = coalesce(cells.reserved_for_battery_id, (select m.battery_id from public.module_cells mc join public.modules m on m.id = mc.module_id where mc.cell_id = cells.id limit 1))
-                and (b.progress_percent >= 100 or b.status in ('RELEASED','WAREHOUSE','DISPATCHED','FINISHED')))
-            and lifecycle_status not in ('IN_PACK','IN_RACK','SOLD','SCRAP'))::int as assembled,
-        count(*) filter (where lifecycle_status = 'IN_PACK' or exists (select 1 from public.batteries b
-            where b.id = coalesce(cells.reserved_for_battery_id, (select m.battery_id from public.module_cells mc join public.modules m on m.id = mc.module_id where mc.cell_id = cells.id limit 1))
-            and (b.progress_percent >= 100 or b.status in ('RELEASED','WAREHOUSE','DISPATCHED','FINISHED'))))::int as in_pack,
-        count(*) filter (where lifecycle_status = 'IN_RACK')::int as in_rack,
-        count(*) filter (where lifecycle_status = 'SOLD')::int as sold,
-        count(*) filter (where lifecycle_status = 'SCRAP' or status in ('QUARANTINED','REJECTED'))::int as quarantined,
-        count(*) filter (where status = 'RESERVED' or reserved_for_order_id is not null or reserved_for_battery_id is not null)::int as reserved,
-        count(*) filter (where status in ('IN_PROCESS','VALIDATING','TESTING','SCANNED','PASSED'))::int as in_process
-        from public.cells
-        where (p_start_date is null or created_at::date >= p_start_date)
-            and (p_end_date is null or created_at::date <= p_end_date)
+        count(*) filter (where is_available)::int as available,
+        count(*) filter (where bucket = 'IN_STOCK' and is_available)::int as in_stock,
+        count(*) filter (where bucket = 'FLOOR_STOCK' and is_available)::int as floor_stock,
+        count(*) filter (where bucket = 'IN_MODULE')::int as assembled,
+        count(*) filter (where bucket = 'IN_PACK')::int as in_pack,
+        count(*) filter (where bucket = 'IN_RACK')::int as in_rack,
+        count(*) filter (where bucket = 'SOLD')::int as sold,
+        count(*) filter (where bucket = 'SCRAP')::int as quarantined,
+        count(*) filter (where is_reserved)::int as reserved,
+        count(*) filter (where is_in_process)::int as in_process
+    from cell_bucket_assignments
 ), battery_counts as (
     select
         count(*) filter (where status in ('FINISHED','RELEASED','DISPATCHED'))::int as finished,
@@ -3260,19 +3309,30 @@ grant execute on function public.reset_operational_data() to authenticated;
 -- END OF AUTHORITATIVE SCHEMA
 -- ================================================================
 
--- Keep module lifecycle status aligned with battery assignment.
-update public.modules
-set lifecycle_status = case when battery_id is null then 'IN_STOCK' else 'IN_PACK' end,
+-- Keep module lifecycle status aligned with the real production stage:
+-- rack-assigned modules become IN_RACK, pack-linked modules become IN_PACK,
+-- standalone / not-yet-packed modules stay IN_MODULE.
+update public.modules m
+set lifecycle_status = case
+    when exists (select 1 from public.rack_packs rp where rp.battery_id = m.battery_id) then 'IN_RACK'
+    when m.battery_id is not null then 'IN_PACK'
+    when exists (select 1 from public.module_cells mc where mc.module_id = m.id) then 'IN_MODULE'
+    else 'IN_STOCK'
+end,
     updated_at = now()
-where lifecycle_status = 'IN_MODULE';
+where m.lifecycle_status in ('IN_STOCK','IN_MODULE','IN_PACK','IN_RACK');
 
 create or replace function public.sync_module_lifecycle_status()
 returns trigger language plpgsql security definer set search_path = public as $$
 begin
-    if new.battery_id is null and coalesce(new.lifecycle_status, '') = 'IN_MODULE' then
-        new.lifecycle_status := 'IN_STOCK';
-    elsif new.battery_id is not null and coalesce(new.lifecycle_status, '') in ('IN_STOCK', 'IN_MODULE') then
+    if exists (select 1 from public.rack_packs rp where rp.battery_id = new.battery_id) then
+        new.lifecycle_status := 'IN_RACK';
+    elsif new.battery_id is not null then
         new.lifecycle_status := 'IN_PACK';
+    elsif coalesce(new.lifecycle_status, '') in ('IN_STOCK', 'IN_MODULE', 'IN_PACK', 'IN_RACK') then
+        new.lifecycle_status := 'IN_MODULE';
+    else
+        new.lifecycle_status := 'IN_MODULE';
     end if;
     return new;
 end;
@@ -3282,3 +3342,60 @@ drop trigger if exists trg_sync_module_lifecycle_status on public.modules;
 create trigger trg_sync_module_lifecycle_status
 before insert or update of battery_id, lifecycle_status on public.modules
 for each row execute function public.sync_module_lifecycle_status();
+
+create or replace function public.move_cells_to_floor_transaction(
+    p_pallet_number text default null,
+    p_box_number text default null,
+    p_barcodes text[] default array[]::text[]
+) returns jsonb language plpgsql security definer set search_path = public as $$
+declare
+    v_moved integer := 0;
+    v_skipped integer := 0;
+    v_requested integer := coalesce(array_length(p_barcodes, 1), 0);
+    v_cell record;
+begin
+    perform public.require_permission('MANAGE_INVENTORY');
+    if nullif(trim(coalesce(p_pallet_number, '')), '') is null
+       and nullif(trim(coalesce(p_box_number, '')), '') is null
+       and coalesce(array_length(p_barcodes, 1), 0) = 0 then
+        raise exception 'Enter a pallet, box, or at least one cell barcode';
+    end if;
+
+    for v_cell in
+        select c.id, c.lifecycle_status, c.status
+        from public.cells c
+        where (
+            (nullif(trim(coalesce(p_pallet_number, '')), '') is not null and c.pallet_number = trim(p_pallet_number)
+                and (nullif(trim(coalesce(p_box_number, '')), '') is null or c.box_number = trim(p_box_number)))
+            or c.id = any(coalesce(p_barcodes, array[]::text[]))
+            or c.internal_serial = any(coalesce(p_barcodes, array[]::text[]))
+            or c.supplier_barcode = any(coalesce(p_barcodes, array[]::text[]))
+            or c.qr_code = any(coalesce(p_barcodes, array[]::text[]))
+        )
+        for update
+    loop
+        v_requested := v_requested + case when coalesce(array_length(p_barcodes, 1), 0) = 0 then 1 else 0 end;
+        if v_cell.lifecycle_status = 'FLOOR_STOCK' then
+            v_skipped := v_skipped + 1;
+        elsif v_cell.lifecycle_status in ('SCRAP', 'SOLD', 'IN_MODULE', 'IN_PACK', 'IN_RACK')
+              or v_cell.status in ('QUARANTINED', 'REJECTED') then
+            v_skipped := v_skipped + 1;
+        else
+            update public.cells
+            set status = 'AVAILABLE', lifecycle_status = 'FLOOR_STOCK',
+                reserved_for_order_id = null, reserved_for_battery_id = null, updated_at = now()
+            where id = v_cell.id;
+            insert into public.lifecycle_events(entity_type, entity_id, from_status, to_status, reason, recorded_by)
+            values ('CELL', v_cell.id, coalesce(v_cell.lifecycle_status, 'UNKNOWN'), 'FLOOR_STOCK', 'Cell moved to production floor', auth.uid());
+            v_moved := v_moved + 1;
+        end if;
+    end loop;
+
+    if v_moved = 0 and v_skipped = 0 then
+        raise exception 'No matching cells were found';
+    end if;
+    return jsonb_build_object('movedCount', v_moved, 'skippedCount', v_skipped, 'requestedCount', v_requested);
+end;
+$$;
+revoke all on function public.move_cells_to_floor_transaction(text, text, text[]) from public;
+grant execute on function public.move_cells_to_floor_transaction(text, text, text[]) to authenticated;

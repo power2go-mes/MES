@@ -19,7 +19,7 @@ export interface SendOtpResult {
  */
 export async function sendOtpEmail(opts: { to: string; username: string; otp: string }): Promise<SendOtpResult> {
   const apiKey = process.env.RESEND_API_KEY;
-  const appUrl = process.env.APP_URL || process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'http://localhost:3000';
+  const appUrl = process.env.APP_URL || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'http://localhost:3000');
 
   if (apiKey) {
     try {

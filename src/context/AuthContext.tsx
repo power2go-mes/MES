@@ -46,9 +46,14 @@ function mapProfile(authUser: { id: string; email?: string | null }, profile: an
 
 async function loadProfile(userId: string, authUser: { id: string; email?: string | null }): Promise<User> {
   if (!supabase) return mapProfile(authUser, null);
-  const { data } = await supabase.from('profiles').select('*, role:roles(id, name, description, status)').eq('id', userId).maybeSingle();
-  const { data: grants } = await supabase.from('role_permissions').select('permission_id').eq('role_id', data?.role_id || '');
-  const profile = data ? { ...data, role: { ...data.role, permissions: (grants || []).map((grant: any) => grant.permission_id) } } : data;
+  const { data } = await supabase
+    .from('profiles')
+    .select('*, role:roles(id, name, description, status, role_permissions(permission_id))')
+    .eq('id', userId)
+    .maybeSingle();
+  const profile = data
+    ? { ...data, role: { ...data.role, permissions: (data.role?.role_permissions || []).map((grant: any) => grant.permission_id) } }
+    : data;
   return mapProfile(authUser, profile);
 }
 

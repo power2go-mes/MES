@@ -121,11 +121,11 @@ export const InventoryView: React.FC = () => {
           try {
             const [loadedModules, loadedBatteries, buckets] = await Promise.all([
               api.getModules(),
-              api.getBatteries(),
+              api.getBatterySummaries(),
               api.getCellInventoryBuckets(),
             ]);
             setModules(loadedModules);
-            setBatteries(loadedBatteries);
+            setBatteries(loadedBatteries as BatteryUnit[]);
             setCellBuckets(buckets);
           } catch (error) {
             console.error('Failed to load used-cell relationships', error);
@@ -133,7 +133,7 @@ export const InventoryView: React.FC = () => {
           }
         }
       } else if (activeTab === 'BMS') {
-        const [res, loadedBatteries] = await Promise.all([api.getBmsUnits(), api.getBatteries()]);
+        const [res, loadedBatteries] = await Promise.all([api.getBmsUnits(), api.getBatterySummaries()]);
         const assignedBatteryByBmsId = new Map(
           loadedBatteries
             .filter((battery: any) => battery.bmsId)
@@ -144,7 +144,7 @@ export const InventoryView: React.FC = () => {
           return assignedToBatteryId ? { ...bms, status: 'ASSIGNED', assignedToBatteryId } : bms;
         }));
       } else if (activeTab === 'BMU') {
-        const [res, loadedBatteries] = await Promise.all([api.getBmuUnits(), api.getBatteries()]);
+        const [res, loadedBatteries] = await Promise.all([api.getBmuUnits(), api.getBatterySummaries()]);
         const assignedBatteryByBmuId = new Map(
           loadedBatteries
             .filter((battery: any) => battery.bmuId)
