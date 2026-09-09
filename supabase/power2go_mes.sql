@@ -493,6 +493,10 @@ create table if not exists public.warehouse_movements (
     moved_at timestamptz not null default now()
 );
 
+alter table public.warehouse_movements drop constraint if exists warehouse_movements_entity_type_check;
+alter table public.warehouse_movements add constraint warehouse_movements_entity_type_check
+    check (entity_type in ('CELL', 'MODULE', 'BATTERY', 'BMS', 'BMU', 'RACK'));
+
 create table if not exists public.release_records (
     id text primary key,
     battery_id text not null references public.batteries(id) on delete cascade,
@@ -1343,25 +1347,13 @@ begin
     v_production_period := to_char(current_date, 'DDMM');
     v_capacity_suffix := regexp_replace(regexp_replace(trim(to_char(coalesce(v_capacity_kwh, 5), 'FM99990.99')), '0+$', '', 'g'), '\.$', '', 'g');
     v_serial_override := trim(coalesce(p_battery_serial_prefix, ''));
-    if v_serial_override <> '' then
-        if v_serial_override ~ '-[0-9]{1,6}$' then
-            v_serial_base := regexp_replace(v_serial_override, '-[0-9]{1,6}$', '');
-            v_next_battery_number := coalesce((substring(v_serial_override from '([0-9]+)$'))::integer, 0);
-        else
-            v_serial_base := v_serial_override;
-            v_next_battery_number := 0;
-        end if;
-    else
-        v_serial_base := 'P2G-' || v_product_model || '-' || v_production_period;
-        v_next_battery_number := 0;
-    end if;
+    v_serial_base := 'P2G-BP-' || regexp_replace(to_char(coalesce(v_capacity_kwh, 5), 'FM999990.##'), '0+$', '') || 'KWH-' || v_production_period;
+    v_next_battery_number := 0;
     perform pg_advisory_xact_lock(hashtext('P2G-battery-serials'));
-    if v_serial_override = '' then
-        select coalesce(max((substring(serial_number from '([0-9]+)$'))::integer), 0) + 1
-        into v_next_battery_number
-        from public.batteries
-        where serial_number ~ '^P2G-[A-Z0-9.]+-[0-9]{4}-[0-9]{6}$';
-    end if;
+    select coalesce(max((substring(serial_number from '([0-9]+)$'))::integer), 0) + 1
+    into v_next_battery_number
+    from public.batteries
+    where serial_number ~ ('^P2G-BP-' || regexp_replace(to_char(coalesce(v_capacity_kwh, 5), 'FM999990.##'), '0+$', '') || 'KWH-' || v_production_period || '-[0-9]{4}$');
     perform pg_advisory_xact_lock(hashtext('P2G-module-serials')); 
     select coalesce(max((substring(serial_number from '([0-9]+)$'))::integer), 0) + 1
     into v_next_module_number
@@ -1400,7 +1392,7 @@ begin
 
     for i in 1..p_quantity loop
         v_battery_id := 'bat-' || gen_random_uuid()::text;
-        v_battery_serial := v_serial_base || '-' || lpad((v_next_battery_number + i - 1)::text, 6, '0');
+        v_battery_serial := v_serial_base || '-' || lpad((v_next_battery_number + i - 1)::text, 4, '0');
         v_battery_ids := array_append(v_battery_ids, v_battery_id);
 
         insert into public.batteries (id, serial_number, production_order_id, product_id, current_step, status, progress_percent, step_results_json)
@@ -1483,13 +1475,12 @@ begin
     select * into v_product from public.product_templates where id = p_product_id and active = true;
     if not found then raise exception 'Product template % not found or inactive', p_product_id; end if;
 
-    v_model := upper(regexp_replace(coalesce(v_product.product_model, v_product.sku), '[^a-zA-Z0-9.]+', '', 'g'));
     perform pg_advisory_xact_lock(hashtext('P2G-battery-serials'));
     select coalesce(max((substring(serial_number from '([0-9]+)$'))::integer), 0) + 1
       into v_next_number
       from public.batteries
-     where serial_number like 'P2G-' || v_model || '-%';
-    v_battery_serial := 'P2G-' || v_model || '-' || to_char(current_date, 'DDMM') || '-' || lpad(v_next_number::text, 6, '0');
+         where serial_number like 'P2G-BP-' || regexp_replace(to_char(coalesce(v_product.capacity_kwh, 5), 'FM999990.##'), '0+$', '') || 'KWH-' || to_char(current_date, 'DDMM') || '-%';
+        v_battery_serial := 'P2G-BP-' || regexp_replace(to_char(coalesce(v_product.capacity_kwh, 5), 'FM999990.##'), '0+$', '') || 'KWH-' || to_char(current_date, 'DDMM') || '-' || lpad(v_next_number::text, 4, '0');
 
     insert into public.production_orders (id, order_number, product_id, target_quantity, quantity_in_process, status)
     values (v_order_id, v_order_id, p_product_id, 1, 1, 'IN_PROCESS');
@@ -2118,6 +2109,7 @@ begin
 
     update public.batteries
     set status = 'RELEASED',
+        lifecycle_status = 'IN_STOCK',
         current_step = 'RELEASED',
         progress_percent = 100,
         updated_at = now()
@@ -2278,6 +2270,52 @@ begin
     return to_jsonb(v_battery);
 end;
 $$ language plpgsql security definer;
+
+create or replace function public.receive_warehouse_entity_transaction(
+    p_entity_type text,
+    p_entity_id text,
+    p_location text
+) returns jsonb language plpgsql security definer set search_path = public as $$
+declare
+    v_entity_id text := trim(p_entity_id);
+    v_location text := upper(trim(p_location));
+    v_status text;
+begin
+    perform public.require_permission('MANAGE_PRODUCTION');
+    if p_entity_type not in ('MODULE', 'BATTERY', 'RACK') then
+        raise exception 'Unsupported warehouse entity type %', p_entity_type;
+    end if;
+    if v_location not in ('KARACHI', 'LAHORE') then
+        raise exception 'Warehouse must be KARACHI or LAHORE';
+    end if;
+
+    if p_entity_type = 'BATTERY' then
+        update public.batteries
+        set status = 'WAREHOUSE', current_step = 'WAREHOUSE', lifecycle_status = 'IN_STOCK', updated_at = now()
+        where id = v_entity_id or serial_number = v_entity_id;
+        if not found then raise exception 'Battery % not found', p_entity_id; end if;
+        v_status := 'WAREHOUSE';
+    elsif p_entity_type = 'MODULE' then
+        update public.modules
+        set lifecycle_status = 'IN_STOCK', updated_at = now()
+        where id = v_entity_id or serial_number = v_entity_id;
+        if not found then raise exception 'Module % not found', p_entity_id; end if;
+        v_status := 'IN_STOCK';
+    else
+        update public.racks
+        set location = v_location, status = 'IN_STOCK', updated_at = now()
+        where id = v_entity_id or serial_number = v_entity_id or qr_code = v_entity_id;
+        if not found then raise exception 'Rack % not found', p_entity_id; end if;
+        v_status := 'IN_STOCK';
+    end if;
+
+    insert into public.warehouse_movements (id, entity_type, entity_id, movement_type, from_location, to_location, reference, moved_by, moved_at)
+    values ('mov-' || gen_random_uuid()::text, p_entity_type, v_entity_id, 'RECEIVE', 'PRODUCTION', v_location, 'Warehouse Receipt', auth.uid(), now());
+
+    return jsonb_build_object('success', true, 'entityType', p_entity_type, 'entityId', v_entity_id, 'location', v_location, 'status', v_status);
+end;
+$$;
+grant execute on function public.receive_warehouse_entity_transaction(text, text, text) to authenticated;
 
 
 -- ASSIGN CELL TRANSACTION
@@ -2776,6 +2814,30 @@ begin
     end loop;
 end $$;
 
+-- Migrate all battery pack serials to P2G-BP-<POWER>KWH-DDMM-0001.
+-- The temporary values avoid unique-key collisions while old formats are replaced.
+do $$
+begin
+    update public.batteries
+    set serial_number = 'LEGACY-BATTERY-' || id;
+
+    with ranked_batteries as (
+        select
+            b.id,
+            'P2G-BP-' || regexp_replace(to_char(coalesce(p.capacity_kwh, 5), 'FM999990.##'), '0+$', '') || 'KWH-' || to_char(b.created_at, 'DDMM') as serial_prefix,
+            row_number() over (
+                partition by coalesce(p.capacity_kwh, 5), b.created_at::date
+                order by b.created_at, b.id
+            ) as serial_number
+        from public.batteries b
+        left join public.product_templates p on p.id = b.product_id
+    )
+    update public.batteries b
+    set serial_number = r.serial_prefix || '-' || lpad(r.serial_number::text, 4, '0')
+    from ranked_batteries r
+    where b.id = r.id;
+end $$;
+
 -- ═══════════════════════════════════════════════════════════════════════════════
 -- PERFORMANCE INDEXES - Critical for fast dashboard/inventory queries
 -- ═══════════════════════════════════════════════════════════════════════════════
@@ -2851,9 +2913,20 @@ update public.modules set lifecycle_status = 'IN_MODULE' where lifecycle_status 
 
 alter table public.batteries add column if not exists pack_template_code text;
 alter table public.batteries add column if not exists lifecycle_status text default 'IN_PACK';
-do $$ begin alter table public.batteries add constraint batteries_lifecycle_status_check check (lifecycle_status in ('IN_PACK','IN_RACK','SOLD','SCRAP')); exception when duplicate_object then null; end $$;
+do $$ begin
+    alter table public.batteries drop constraint if exists batteries_lifecycle_status_check;
+    alter table public.batteries add constraint batteries_lifecycle_status_check
+        check (lifecycle_status in ('IN_STOCK','IN_PACK','IN_RACK','SOLD','SCRAP'));
+exception when duplicate_object then null;
+end $$;
 update public.batteries set pack_template_code = case when (select p.capacity_kwh from public.product_templates p where p.id = batteries.product_id) >= 7 then 'PACK_7_5KWH' else 'PACK_5KWH' end where pack_template_code is null;
-update public.batteries set lifecycle_status = case when status = 'DISPATCHED' then 'SOLD' else 'IN_PACK' end where lifecycle_status is null;
+update public.batteries
+set lifecycle_status = case
+    when status in ('RELEASED','FINISHED','WAREHOUSE') then 'IN_STOCK'
+    when status = 'DISPATCHED' then 'SOLD'
+    else 'IN_PACK'
+end
+where lifecycle_status not in ('IN_RACK','SOLD','SCRAP');
 
 create table if not exists public.pallets (
     id text primary key, pallet_number text not null unique, qr_code text not null unique,
@@ -2887,6 +2960,37 @@ create table if not exists public.rack_packs (
 );
 create index if not exists idx_rack_packs_battery on public.rack_packs(battery_id);
 
+-- Migrate existing rack serials to P2G-RACK-<POWER>KWH-DDMM-0001.
+do $$
+begin
+    update public.racks
+    set serial_number = 'LEGACY-RACK-' || id;
+
+    with ranked_racks as (
+        select
+            r.id,
+            'P2G-RACK-' || regexp_replace(replace(r.rack_template_code, 'RACK_', ''), 'KWH$', '') || 'KWH-' || to_char(r.created_at, 'DDMM') as serial_prefix,
+            row_number() over (
+                partition by r.rack_template_code, r.created_at::date
+                order by r.created_at, r.id
+            ) as serial_number
+        from public.racks r
+    )
+    update public.racks r
+    set serial_number = rr.serial_prefix || '-' || lpad(rr.serial_number::text, 4, '0')
+    from ranked_racks rr
+    where r.id = rr.id;
+end $$;
+
+update public.batteries b
+set lifecycle_status = case
+    when exists (select 1 from public.rack_packs rp where rp.battery_id = b.id) then 'IN_RACK'
+    when b.status in ('RELEASED','FINISHED','WAREHOUSE') then 'IN_STOCK'
+    else b.lifecycle_status
+end,
+    updated_at = now()
+where b.lifecycle_status not in ('SOLD','SCRAP');
+
 create table if not exists public.lifecycle_events (
     id text primary key default ('life-' || gen_random_uuid()::text),
     entity_type text not null check (entity_type in ('PALLET','CELL','MODULE','BATTERY','RACK')),
@@ -2918,10 +3022,16 @@ end $$;
 
 create or replace function public.assemble_rack_transaction(p_template_code text, p_battery_ids text[], p_location text)
 returns jsonb language plpgsql security definer set search_path = public as $$
-declare v_required integer; v_pack_code text; v_rack_id text := 'rack-' || gen_random_uuid()::text; v_serial text := 'P2G-RACK-' || to_char(current_date, 'YYYYMMDD') || '-' || upper(substr(replace(gen_random_uuid()::text, '-', ''), 1, 6)); v_index integer; v_battery record;
+declare v_required integer; v_pack_code text; v_rack_power integer; v_rack_id text := 'rack-' || gen_random_uuid()::text; v_serial text; v_next_number integer; v_index integer; v_battery record;
 begin
     perform public.require_permission('MANAGE_PRODUCTION');
-    if p_template_code = 'RACK_25KWH' then v_required := 5; v_pack_code := 'PACK_5KWH'; elsif p_template_code = 'RACK_45KWH' then v_required := 6; v_pack_code := 'PACK_7_5KWH'; elsif p_template_code = 'RACK_60KWH' then v_required := 8; v_pack_code := 'PACK_7_5KWH'; elsif p_template_code = 'RACK_70KWH' then v_required := 9; v_pack_code := 'PACK_7_5KWH'; elsif p_template_code = 'RACK_75KWH' then v_required := 10; v_pack_code := 'PACK_7_5KWH'; else raise exception 'Invalid rack template %', p_template_code; end if;
+    if p_template_code = 'RACK_25KWH' then v_required := 5; v_rack_power := 25; v_pack_code := 'PACK_5KWH'; elsif p_template_code = 'RACK_45KWH' then v_required := 6; v_rack_power := 45; v_pack_code := 'PACK_7_5KWH'; elsif p_template_code = 'RACK_60KWH' then v_required := 8; v_rack_power := 60; v_pack_code := 'PACK_7_5KWH'; elsif p_template_code = 'RACK_70KWH' then v_required := 9; v_rack_power := 70; v_pack_code := 'PACK_7_5KWH'; elsif p_template_code = 'RACK_75KWH' then v_required := 10; v_rack_power := 75; v_pack_code := 'PACK_7_5KWH'; else raise exception 'Invalid rack template %', p_template_code; end if;
+    perform pg_advisory_xact_lock(hashtext('P2G-rack-serials'));
+    select coalesce(max((substring(serial_number from '([0-9]+)$'))::integer), 0) + 1
+      into v_next_number
+      from public.racks
+     where serial_number like 'P2G-RACK-' || v_rack_power || 'KWH-' || to_char(current_date, 'DDMM') || '-%';
+    v_serial := 'P2G-RACK-' || v_rack_power || 'KWH-' || to_char(current_date, 'DDMM') || '-' || lpad(v_next_number::text, 4, '0');
     if coalesce(array_length(p_battery_ids, 1), 0) <> v_required then raise exception 'Rack requires % packs', v_required; end if;
     if exists (select 1 from public.rack_packs where battery_id = any(p_battery_ids)) then raise exception 'One or more packs are already assigned to a rack'; end if;
     for v_battery in select b.*, p.capacity_kwh from public.batteries b join public.product_templates p on p.id = b.product_id where b.id = any(p_battery_ids) for update loop
@@ -2977,7 +3087,7 @@ begin
     if v_rack.status = 'SOLD' then raise exception 'Sold racks cannot be deleted'; end if;
 
     update public.batteries
-    set lifecycle_status = 'IN_PACK', updated_at = now()
+    set lifecycle_status = 'IN_STOCK', updated_at = now()
     where id in (select battery_id from public.rack_packs where rack_id = v_rack.id);
     update public.modules
     set lifecycle_status = 'IN_PACK', updated_at = now()
@@ -3356,7 +3466,7 @@ select jsonb_build_object(
         jsonb_build_object('label', 'In Rack', 'value', (select count(*)::int from public.modules where lifecycle_status = 'IN_RACK'))
     ),
     'batteryStatusBuckets', jsonb_build_array(
-        jsonb_build_object('label', 'Available', 'value', (select count(*)::int from public.batteries where lifecycle_status = 'IN_PACK')),
+        jsonb_build_object('label', 'Available', 'value', (select count(*)::int from public.batteries where lifecycle_status = 'IN_STOCK')),
         jsonb_build_object('label', 'In Rack', 'value', (select count(*)::int from public.batteries where lifecycle_status = 'IN_RACK')),
         jsonb_build_object('label', 'Sold', 'value', (select count(*)::int from public.batteries where lifecycle_status = 'SOLD'))
     ),

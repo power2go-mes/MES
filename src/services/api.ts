@@ -780,7 +780,7 @@ async getUsers(): Promise<User[]> {
           maxDeltaIrMilliOhm: 0.5,
         },
         qcStages: product.qcStages || ['OCV_IR'],
-        serialPrefix: product.serialPrefix || 'P2G-BAT',
+        serialPrefix: product.serialPrefix || 'P2G-BP',
         active: product.active !== undefined ? product.active : true,
       })
       .select();
@@ -968,7 +968,7 @@ async getUsers(): Promise<User[]> {
     const productionOrderId = `PO-BULK-${Date.now()}-${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
     const timestampSuffix = Math.random().toString(36).substring(2, 8).toUpperCase();
     const now = new Date();
-    const yymm = `${String(now.getFullYear()).slice(2)}${String(now.getMonth() + 1).padStart(2, '0')}`;
+    const dayMonth = `${String(now.getDate()).padStart(2, '0')}${String(now.getMonth() + 1).padStart(2, '0')}`;
     const insertInBatches = async (table: string, rows: any[], batchSize = 500) => {
       for (let start = 0; start < rows.length; start += batchSize) {
         const { error } = await supabase.from(table).insert(rows.slice(start, start + batchSize));
@@ -980,21 +980,24 @@ async getUsers(): Promise<User[]> {
     try {
       const productTemplate = params.batchPlan.template;
       const cellsPerModule = Math.max(1, Number(productTemplate?.cellsPerModule || productTemplate?.totalCells / Math.max(1, productTemplate?.numModules || 1)));
-      const requestedSerials = params.batchPlan.batteries.map((plan: any) => String(plan.batterySerial || '').toUpperCase()).filter(Boolean);
+      const batteryPower = Number(productTemplate?.capacityKwh || 5).toString().replace(/\.0+$/, '');
+      const serialPrefix = `P2G-BP-${batteryPower}KWH-${dayMonth}`;
       const { data: existingSerialRows, error: serialLookupError } = await supabase
         .from('batteries')
         .select('serial_number')
-        .in('serial_number', requestedSerials);
+        .like('serial_number', `${serialPrefix}-%`);
       if (serialLookupError) throw new Error(`Failed to verify battery serials: ${serialLookupError.message}`);
       const usedSerials = new Set((existingSerialRows || []).map((row: any) => String(row.serial_number).toUpperCase()));
       const batchSerials = new Set<string>();
-      const uniqueBatchSerial = (requested: string, index: number) => {
-        let serial = requested || `P2G-BAT-${yymm}-${timestampSuffix}-${String(index + 1).padStart(5, '0')}`;
-        let suffix = 1;
+      let nextSerialNumber = Math.max(0, ...Array.from(usedSerials)
+        .map(serial => Number(String(serial).match(/-(\d{4})$/)?.[1] || 0))) + 1;
+      const uniqueBatchSerial = () => {
+        let serial = `${serialPrefix}-${String(nextSerialNumber).padStart(4, '0')}`;
         while (usedSerials.has(serial) || batchSerials.has(serial)) {
-          serial = `${requested || 'P2G-BAT'}-${timestampSuffix}-${String(index + 1).padStart(5, '0')}-${suffix}`;
-          suffix += 1;
+          nextSerialNumber += 1;
+          serial = `${serialPrefix}-${String(nextSerialNumber).padStart(4, '0')}`;
         }
+        nextSerialNumber += 1;
         batchSerials.add(serial);
         usedSerials.add(serial);
         return serial;
@@ -1023,7 +1026,7 @@ async getUsers(): Promise<User[]> {
       const batteryInserts = params.batchPlan.batteries.map((plan: any, idx: number) => {
         const uniqueId = `bat-${timestampSuffix}-${String(idx + 1).padStart(6, '0')}`;
         // BUG-05 fix: use the serial from the batch plan (came from the Excel file), not a newly generated one
-        const serial = uniqueBatchSerial(plan.batterySerial ? String(plan.batterySerial).toUpperCase() : '', idx);
+        const serial = uniqueBatchSerial();
         return {
           id: uniqueId,
           serial_number: serial,
@@ -1834,23 +1837,24 @@ async getUsers(): Promise<User[]> {
     });
   },
 
-  async getBatterySummaries(): Promise<Array<Pick<BatteryUnit, 'id' | 'serialNumber' | 'productName' | 'productionOrderId' | 'currentStep' | 'progressPercent' | 'status' | 'lifecycleStatus'> & { bmsId?: string; bmuId?: string }>> {
+  async getBatterySummaries(): Promise<Array<Pick<BatteryUnit, 'id' | 'serialNumber' | 'productName' | 'productionOrderId' | 'currentStep' | 'progressPercent' | 'status' | 'lifecycleStatus'> & { bmsId?: string; bmuId?: string; capacityKwh?: number }>> {
     const { data, error } = await supabase
       .from('batteries')
-      .select('id,serial_number,production_order_id,current_step,progress_percent,status,lifecycle_status,bms_id,bmu_id,product_templates(name)')
+      .select('id,serial_number,production_order_id,current_step,progress_percent,status,lifecycle_status,bms_id,bmu_id,product_templates(name,capacity_kwh)')
       .order('created_at', { ascending: false });
     if (error) throw error;
     return (data || []).map((battery: any) => ({
       id: battery.id,
-      serialNumber: battery.serial_number,
-      productName: battery.product_templates?.name || '',
-      productionOrderId: battery.production_order_id,
-      currentStep: battery.current_step,
-      progressPercent: battery.progress_percent,
+      serialNumber: battery.serialNumber || battery.serial_number || battery.id,
+      productName: battery.productTemplates?.name || battery.product_templates?.name || '',
+      capacityKwh: Number(battery.productTemplates?.capacityKwh ?? battery.product_templates?.capacity_kwh ?? 0) || undefined,
+      productionOrderId: battery.productionOrderId || battery.production_order_id,
+      currentStep: battery.currentStep || battery.current_step,
+      progressPercent: battery.progressPercent ?? battery.progress_percent,
       status: battery.status,
-      lifecycleStatus: battery.lifecycle_status,
-      bmsId: battery.bms_id,
-      bmuId: battery.bmu_id,
+      lifecycleStatus: battery.lifecycleStatus || battery.lifecycle_status,
+      bmsId: battery.bmsId || battery.bms_id,
+      bmuId: battery.bmuId || battery.bmu_id,
     }));
   },
 
@@ -3582,6 +3586,17 @@ async getUsers(): Promise<User[]> {
     if (!rawSupabase) throw new Error('Supabase is not configured.');
     const { data, error } = await rawSupabase.rpc('receive_battery_transaction', {
       p_battery_id: batteryId,
+      p_location: location,
+    });
+    if (error) throw error;
+    return toAppValue(data);
+  },
+
+  async receiveWarehouseEntity(entityType: 'MODULE' | 'BATTERY' | 'RACK', entityId: string, location: 'KARACHI' | 'LAHORE'): Promise<any> {
+    if (!rawSupabase) throw new Error('Supabase is not configured.');
+    const { data, error } = await rawSupabase.rpc('receive_warehouse_entity_transaction', {
+      p_entity_type: entityType,
+      p_entity_id: entityId,
       p_location: location,
     });
     if (error) throw error;

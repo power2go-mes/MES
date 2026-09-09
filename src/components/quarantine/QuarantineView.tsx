@@ -468,6 +468,7 @@ export const QuarantineView: React.FC = () => {
                   <option value="MODULE">Module Unit</option>
                   <option value="BATTERY">Battery Pack</option>
                   <option value="BMS">BMS Controller</option>
+                  <option value="BMU">BMU Controller</option>
                 </select>
               </div>
 

@@ -76,14 +76,9 @@ export const ProductionPlanningView: React.FC = () => {
   const selectedProduct = products.find(p => p.id === selectedProductId);
   const defaultBatterySerialBase = (product?: ProductTemplate) => {
     const now = new Date();
-    const day = String(now.getDate()).padStart(2, '0');
-    const month = String(now.getMonth() + 1).padStart(2, '0');
-    const productModel = (product?.productModel || product?.batteryName || product?.name || 'P2G')
-      .replace(/[^A-Za-z0-9-]+/g, '-')
-      .replace(/-+/g, '-')
-      .replace(/^-|-$/g, '')
-      .toUpperCase();
-    return `P2G-${productModel}-${day}${month}-000001`;
+    const dayMonth = `${String(now.getDate()).padStart(2, '0')}${String(now.getMonth() + 1).padStart(2, '0')}`;
+    const capacity = Number(product?.capacityKwh || 5).toString().replace(/\.0+$/, '');
+    return `P2G-BP-${capacity}KWH-${dayMonth}-0001`;
   };
   const requiredCells = selectedProduct ? selectedProduct.totalCells * quantity : 0;
   const cellShortage = Math.max(0, requiredCells - availableCellsCount);
@@ -466,7 +461,7 @@ export const ProductionPlanningView: React.FC = () => {
                     value={batterySerialBase}
                     onChange={e => setBatterySerialBase(e.target.value)}
                     className="w-full px-3.5 py-2.5 text-xs font-mono border border-slate-200 rounded-xl focus:ring-2 focus:ring-emerald-500 focus:outline-none"
-                    placeholder="P2G-HV5-250829"
+                    placeholder="P2G-BP-5KWH-DDMM-0001"
                   />
                 </div>
               </div>

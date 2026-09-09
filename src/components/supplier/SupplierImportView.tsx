@@ -413,9 +413,8 @@ export const SupplierImportView: React.FC = () => {
         let currentKey = '';
         let batteryCounter = 0;
         const now = new Date();
-        const yymm = `${String(now.getFullYear()).slice(2)}${String(now.getMonth() + 1).padStart(2, '0')}`;
-        const uploadToken = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`.toUpperCase();
-        const templateToken = String(selectedTemplate.productModel || selectedTemplate.sku || 'BATTERY').replace(/[^A-Z0-9]+/gi, '').toUpperCase();
+        const dayMonth = `${String(now.getDate()).padStart(2, '0')}${String(now.getMonth() + 1).padStart(2, '0')}`;
+        const batteryPower = Number(selectedTemplate.capacityKwh || 5).toString().replace(/\.0+$/, '');
 
         for (const row of rawRows) {
           const qrCode   = findColValue(row, 'QR code', 'qr', 'qrcode', 'barcode', 'cell qr', 'cell_qr');
@@ -428,11 +427,7 @@ export const SupplierImportView: React.FC = () => {
             batteryCounter++;
             currentKey = `bat_${batteryCounter}`;
 
-            // If the Excel value is a plain number (e.g. "1", "2"), format it as a proper serial
-            const isNumeric = /^\d+$/.test(batteryVal);
-            const rawSerial = isNumeric
-              ? `P2G-${templateToken}-${yymm}-${uploadToken}-${String(batteryCounter).padStart(4, '0')}`
-              : batteryVal.toUpperCase();
+            const rawSerial = `P2G-BP-${batteryPower}KWH-${dayMonth}-${String(batteryCounter).padStart(4, '0')}`;
 
             batteryGroups.set(currentKey, {
               rawSerial,
