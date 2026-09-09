@@ -122,15 +122,16 @@ export const ModuleWorkflowView: React.FC = () => {
       addNotification('warning', 'Duplicate Cell', `${barcode} has already been selected.`);
       return;
     }
-    if (selectedCellIds.length >= requiredCells) {
-      addNotification('warning', 'Module Full', `An ${moduleType} module accepts exactly ${requiredCells} cells.`);
-      return;
-    }
 
     if (editingCellIndex !== null) {
       replaceCellAtIndex(editingCellIndex, cell.id);
       setEditingCellIndex(null);
       addNotification('success', 'Cell Replaced', `${cell.internalSerial || cell.id} has been assigned to this module slot.`);
+      return;
+    }
+
+    if (selectedCellIds.length >= requiredCells) {
+      addNotification('warning', 'Module Full', `An ${moduleType} module accepts exactly ${requiredCells} cells.`);
       return;
     }
 

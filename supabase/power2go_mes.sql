@@ -1000,7 +1000,7 @@ begin
       join public.cells c on c.id = mc.cell_id
      where mc.module_id = p_module_id;
 
-    select array_agg(distinct c.id order by array_position(p_cell_barcodes, coalesce(c.internal_serial, c.id)))
+        select array_agg(c.id order by array_position(p_cell_barcodes, coalesce(c.internal_serial, c.id)))
       into v_new_ids
       from public.cells c
      where c.id in (
