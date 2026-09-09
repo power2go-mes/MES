@@ -717,15 +717,24 @@ begin
     -- 3. Process Rows (Set-based UPSERT equivalent or loop)
     -- Using a loop for precise duplicate handling/QR registry integration
     for v_row in select * from jsonb_to_recordset(p_rows) as x(internal_serial text, supplier_barcode text, ocv numeric, ir numeric, batch_number text, pallet_number text, box_number text) loop
-        v_internal := v_row.internal_serial;
+        v_internal := nullif(trim(v_row.internal_serial), '');
         if v_internal is null then continue; end if;
 
-        -- Check if exists
-        if exists (select 1 from public.cells where internal_serial = v_internal) then
+        v_qr_code := coalesce(nullif(trim(v_row.supplier_barcode), ''), v_internal);
+
+        -- Skip rows matching any existing unique cell identity. This also
+        -- handles duplicate rows inside the same import batch.
+        if exists (
+            select 1
+            from public.cells
+            where id = 'cell-' || v_internal
+               or internal_serial = v_internal
+               or supplier_barcode = nullif(trim(v_row.supplier_barcode), '')
+               or qr_code = v_qr_code
+        ) then
             v_duplicates := v_duplicates + 1;
         else
             v_cell_id := 'cell-' || v_internal;
-            v_qr_code := coalesce(v_row.supplier_barcode, v_internal);
             
             insert into public.qr_registry (qr_code, entity_type, entity_id) values (v_qr_code, 'CELL', v_cell_id) on conflict do nothing;
 
@@ -3061,6 +3070,35 @@ begin
 
     return jsonb_build_object('scrapped', v_scrapped, 'missing', v_missing, 'scrappedCount', jsonb_array_length(v_scrapped), 'missingCount', jsonb_array_length(v_missing));
 end $$;
+
+-- PERMANENTLY DELETE A CELL FROM SCRAP REVIEW
+create or replace function public.delete_scrap_cell_transaction(p_cell_id text)
+returns jsonb language plpgsql security definer set search_path = public as $$
+declare
+    v_cell record;
+begin
+    perform public.require_permission('MANAGE_INVENTORY');
+    select * into v_cell from public.cells where id = p_cell_id for update;
+    if not found then
+        raise exception 'Scrap cell % not found', p_cell_id;
+    end if;
+    if v_cell.lifecycle_status <> 'SCRAP' and v_cell.status not in ('QUARANTINED', 'REJECTED') then
+        raise exception 'Cell % is not in scrap status', p_cell_id;
+    end if;
+
+    insert into public.audit_logs (entity_type, entity_id, action, actor, result, details)
+    values ('CELL', p_cell_id, 'DELETE_SCRAP_CELL', coalesce(auth.uid()::text, 'SYSTEM'), 'SUCCESS', 'Scrap cell permanently deleted');
+
+    delete from public.module_cells where cell_id = p_cell_id;
+    delete from public.quarantine_records where entity_type = 'CELL' and entity_id = p_cell_id;
+    delete from public.qr_registry where entity_type = 'CELL' and entity_id = p_cell_id;
+    delete from public.cells where id = p_cell_id;
+
+    return jsonb_build_object('success', true, 'cellId', p_cell_id, 'deleted', true);
+end;
+$$;
+
+grant execute on function public.delete_scrap_cell_transaction(text) to authenticated;
 
 create or replace function public.register_imported_pallet()
 returns trigger language plpgsql security definer set search_path = public as $$

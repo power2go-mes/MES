@@ -269,11 +269,14 @@ export const CEOMonitoringView: React.FC = () => {
     }
   };
 
-  const exportReport = () => {
+  const exportReport = async () => {
     setExporting(true);
     try {
       const reportDate = new Date().toISOString().slice(0, 10);
       const rangeLabel = 'All available data';
+      const quarantineRecords = await api.getQuarantineRecords().catch(() => []);
+      const reusableScrapCount = quarantineRecords.filter((record: any) => ['RELEASE_APPROVED', 'REWORK'].includes(String(record.disposition || '').toUpperCase())).length;
+      const damageScrapCount = Math.max(0, quarantineRecords.length - reusableScrapCount);
       const statusRows = (statuses: string[], sourceRows: any[], colorMap: Record<string, string>, defaultCapacityKwh: (status: string) => number = () => 0) => {
         const values = new Map((sourceRows || []).map((row: any) => [String(row.label).replace(/_/g, ' ').toUpperCase(), { value: numberOr(row.value), capacityKwh: numberOr(row.capacityKwh) }]));
         return statuses.map((status) => ({
@@ -310,6 +313,10 @@ export const CEOMonitoringView: React.FC = () => {
         capacityKwh: cabinetProduced * 7.5,
         color: reportGreen,
       }];
+      const scrapReportRows = [
+        { label: 'Damage', value: damageScrapCount, capacityKwh: 0, color: reportDarkGrey },
+        { label: 'Reusable', value: reusableScrapCount, capacityKwh: 0, color: reportGreen },
+      ];
       const rackReportRows = (source.rackStatusBuckets || []).flatMap((row: any) => {
         const status = String(row.label || 'UNKNOWN').replace(/_/g, ' ');
         const typeRows = Array.isArray(row.rackTypes) ? row.rackTypes : [];
@@ -342,7 +349,6 @@ export const CEOMonitoringView: React.FC = () => {
         { label: 'Available', value: bmuAvailable, capacityKwh: 0, color: reportGreen },
         { label: 'Used', value: Math.max(0, bmuTotal - bmuAvailable), capacityKwh: 0, color: reportDarkGrey },
       ];
-      const reportBatteryTotal = batteryReportRows.reduce((sum: number, row: { value: number }) => sum + row.value, 0);
       const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
       const pageWidth = doc.internal.pageSize.getWidth();
       const pageHeight = doc.internal.pageSize.getHeight();
@@ -593,23 +599,10 @@ export const CEOMonitoringView: React.FC = () => {
       else drawBars(rightChartX, 214, chartWidth, rackReportRows.length > 4 ? 52 : 36, rackReportRows, 'RACK/CABINET STATUS');
       doc.addPage();
       drawTitle('POWER2GO MES | CEO PERFORMANCE REPORT', `Operational detail   |   ${rangeLabel}   |   ${reportDate}`);
-      const rackWord = rackTotal === 1 ? 'rack' : 'racks';
       drawSingleKpi(leftChartX, 70, chartWidth, cabinetReportRows, 'CABINET STATUS');
-      doc.setFillColor(...light);
-      doc.roundedRect(margin, 150, pageWidth - margin * 2, 38, 2, 2, 'F');
-      drawBars(leftChartX, 156, chartWidth, 24, bmsReportRows, 'BMS INVENTORY - TOTAL / AVAILABLE / USED', false, false, true);
-      drawBars(rightChartX, 156, chartWidth, 24, bmuReportRows, 'BMU INVENTORY - TOTAL / AVAILABLE / USED', false, false, true);
-      doc.setFillColor(...light);
-      doc.roundedRect(margin, 202, pageWidth - margin * 2, 34, 2, 2, 'F');
-      doc.setFont('helvetica', 'bold');
-      reportFontSize(8);
-      doc.setTextColor(...green);
-      doc.text('KEY OBSERVATIONS', margin + 4, 209);
-      doc.setFont('helvetica', 'normal');
-      reportFontSize(7);
-      doc.setTextColor(...muted);
-      doc.text(`Nominal Capacity Produced: ${formatNumber(capacityProduced)} kWh (${formatMwh(capacityProduced)}).`, margin + 4, 216);
-      doc.text(`Output includes ${formatNumber(reportBatteryTotal)} battery packs and ${formatNumber(rackTotal)} ${rackWord}.`, margin + 4, 224);
+      drawBars(leftChartX, 156, chartWidth, 34, bmsReportRows, 'BMS INVENTORY - TOTAL / AVAILABLE / USED', false, false, true);
+      drawBars(rightChartX, 156, chartWidth, 34, bmuReportRows, 'BMU INVENTORY - TOTAL / AVAILABLE / USED', false, false, true);
+      drawBars(leftChartX, 220, chartWidth, 32, scrapReportRows, 'SCRAP STATUS');
       const reportRows = (rows: { label: string; value: number; capacityKwh: number }[]) => {
         return rows.map((row) => [row.label, formatNumber(row.value), formatMwh(row.capacityKwh)]);
       };

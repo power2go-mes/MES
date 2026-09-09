@@ -3345,16 +3345,40 @@ async getUsers(): Promise<User[]> {
       .from('quarantine_records')
       .select('*')
       .order('quarantined_at', { ascending: false });
-    const records: any[] = error ? [] : (data || []);
+    const records: any[] = error ? [] : (toAppValue(data || []) as any[]).map((record: any) => ({
+      ...record,
+      disposition: record.disposition || record.disposedOfAs || record.disposed_of_as,
+      dispositionNotes: record.dispositionNotes || record.disposition_notes,
+      entitySerial: record.entitySerial || record.entityId,
+    }));
 
     // Include rejected cells even when quarantine RLS/schema changes have not
     // reached the live API yet.
     if (rawSupabase) {
+      const quarantineCellIds = records
+        .filter(record => (record.entityType || record.entity_type) === 'CELL')
+        .map(record => record.entityId || record.entity_id)
+        .filter(Boolean);
+      if (quarantineCellIds.length > 0) {
+        const { data: quarantineCells } = await rawSupabase
+          .from('cells')
+          .select('id,internal_serial,supplier_barcode')
+          .in('id', quarantineCellIds);
+        const cellById = new Map((quarantineCells || []).map((cell: any) => [cell.id, cell]));
+        records.forEach(record => {
+          const entityId = record.entityId || record.entity_id;
+          const cell = cellById.get(entityId);
+          if (cell) record.entitySerial = cell.internal_serial || cell.supplier_barcode || entityId;
+        });
+      }
       const { data: rejectedCells } = await rawSupabase
         .from('cells')
         .select('id,internal_serial,supplier_barcode,status,lifecycle_status,updated_at')
         .or('status.eq.REJECTED,lifecycle_status.eq.SCRAP');
-      const knownCellIds = new Set(records.filter(record => record.entity_type === 'CELL').map(record => record.entity_id));
+      const knownCellIds = new Set(records
+        .filter(record => (record.entity_type || record.entityType) === 'CELL')
+        .map(record => record.entity_id || record.entityId)
+        .filter(Boolean));
       (rejectedCells || []).forEach((cell: any) => {
         if (knownCellIds.has(cell.id)) return;
         records.push({
@@ -3370,7 +3394,16 @@ async getUsers(): Promise<User[]> {
       });
     }
     if (error && records.length === 0) throw error;
-    return records;
+    const uniqueRecords = new Map<string, any>();
+    records.forEach(record => {
+      const entityType = record.entityType || record.entity_type || 'UNKNOWN';
+      const entityId = record.entityId || record.entity_id || record.id;
+      const key = `${entityType}:${entityId}`;
+      if (!uniqueRecords.has(key) || !String(record.id || '').startsWith('derived-scrap-')) {
+        uniqueRecords.set(key, record);
+      }
+    });
+    return Array.from(uniqueRecords.values());
   },
 
   async quarantineItem(payload: { itemType: string; itemId: string; reason: string; userId?: string }): Promise<any> {
@@ -3467,6 +3500,13 @@ async getUsers(): Promise<User[]> {
       scrapped.push({ barcode, cellId: cell.id, internalSerial: cell.internal_serial });
     }
     return { scrapped, missing, scrappedCount: scrapped.length, missingCount: missing.length };
+  },
+
+  async deleteScrapCell(cellId: string): Promise<any> {
+    if (!rawSupabase) throw new Error('Supabase is not configured.');
+    const { data, error } = await rawSupabase.rpc('delete_scrap_cell_transaction', { p_cell_id: cellId });
+    if (error) throw error;
+    return toAppValue(data);
   },
 
   async resolveQuarantine(id: string, payload: { action?: string; disposition?: string; notes?: string; dispositionNotes?: string; userId?: string }): Promise<any> {

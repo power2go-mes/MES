@@ -13,6 +13,7 @@ import {
   AlertTriangle,
   Sparkles,
   Search,
+  Pencil,
 } from 'lucide-react';
 
 export const QuarantineView: React.FC = () => {
@@ -20,7 +21,8 @@ export const QuarantineView: React.FC = () => {
 
   const [records, setRecords] = useState<QuarantineRecord[]>([]);
   const [loading, setLoading] = useState(true);
-  const [filter, setFilter] = useState<'ALL' | 'OPEN' | 'RESOLVED'>('OPEN');
+  const [filter, setFilter] = useState<'DAMAGE' | 'REUSABLE'>('DAMAGE');
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [actionLoading, setActionLoading] = useState(false);
 
   // Scrap modal state
@@ -50,6 +52,7 @@ export const QuarantineView: React.FC = () => {
         normalized = raw.records || raw.data || [];
       }
       setRecords(normalized);
+      setSelectedIds([]);
     } catch (err) {
       console.error('Failed to load scrap items', err);
       setRecords([]);
@@ -88,10 +91,41 @@ export const QuarantineView: React.FC = () => {
     }
   };
 
-  const openResolveDialog = (record: QuarantineRecord, disposition: 'RELEASE_APPROVED' | 'SCRAP' | 'REWORK') => {
+  const openResolveDialog = (record: QuarantineRecord, disposition: 'RELEASE_APPROVED' | 'SCRAP') => {
     setResolveTarget(record);
     setResolveDisposition(disposition);
-    setResolveNotes(disposition === 'RELEASE_APPROVED' ? 'Inspected and verified within acceptable standard tolerance' : (disposition === 'REWORK' ? 'Re-routed for terminal polishing and busbar re-weld' : 'Scrapped due to irreversible internal cell defect'));
+    setResolveNotes(disposition === 'RELEASE_APPROVED' ? 'Inspected and verified reusable within acceptable standard tolerance' : 'Damaged item sent to scrap due to irreversible defect');
+  };
+
+  const toggleSelected = (recordId: string) => {
+    setSelectedIds(current => current.includes(recordId)
+      ? current.filter(id => id !== recordId)
+      : [...current, recordId]);
+  };
+
+  const applyBulkDisposition = async (disposition: 'RELEASE_APPROVED' | 'SCRAP') => {
+    const selectedRecords = records.filter(record => selectedIds.includes(record.id));
+    if (selectedRecords.length === 0) return;
+    const label = disposition === 'RELEASE_APPROVED' ? 'reusable' : 'damaged';
+    if (!window.confirm(`Mark ${selectedRecords.length} selected item(s) as ${label}?`)) return;
+
+    setActionLoading(true);
+    try {
+      const dispositionNotes = disposition === 'RELEASE_APPROVED'
+        ? 'Inspected and verified reusable within acceptable standard tolerance'
+        : 'Damaged item sent to scrap due to irreversible defect';
+      await Promise.all(selectedRecords.map(record => api.resolveQuarantine(record.id, {
+        disposition,
+        dispositionNotes,
+      })));
+      setSelectedIds([]);
+      addNotification('success', 'Scrap Review Updated', `${selectedRecords.length} item(s) marked as ${label}`);
+      triggerRefresh();
+    } catch (err: any) {
+      addNotification('error', 'Bulk Update Failed', err.message || 'Could not update selected items.');
+    } finally {
+      setActionLoading(false);
+    }
   };
 
   const submitResolve = async (e: React.FormEvent) => {
@@ -105,6 +139,15 @@ export const QuarantineView: React.FC = () => {
         dispositionNotes: resolveNotes.trim() || 'Signed off by quality manager',
       });
 
+      setRecords(current => current.map(record => record.id === resolveTarget.id
+        ? {
+            ...record,
+            status: 'RESOLVED',
+            disposition: resolveDisposition,
+            dispositionNotes: resolveNotes.trim() || 'Signed off by quality manager',
+            resolvedAt: new Date().toISOString(),
+          }
+        : record));
       addNotification('success', 'Scrap Review Resolved', `${resolveTarget.entitySerial} marked as ${resolveDisposition}`);
       setResolveTarget(null);
       triggerRefresh();
@@ -115,11 +158,26 @@ export const QuarantineView: React.FC = () => {
     }
   };
 
-  const filtered = records.filter(r => {
-    if (filter === 'OPEN') return r.status === 'OPEN';
-    if (filter === 'RESOLVED') return r.status === 'RESOLVED';
-    return true;
-  });
+  const deleteScrapCell = async (record: QuarantineRecord) => {
+    if (record.entityType !== 'CELL') return;
+    if (!window.confirm(`Permanently delete scrap cell ${record.entitySerial}? This cannot be undone.`)) return;
+    setActionLoading(true);
+    try {
+      await api.deleteScrapCell(record.entityId);
+      addNotification('success', 'Scrap Cell Deleted', `${record.entitySerial} was permanently removed.`);
+      triggerRefresh();
+    } catch (err: any) {
+      addNotification('error', 'Delete Failed', err.message || 'Could not delete the scrap cell.');
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const isReusableRecord = (record: QuarantineRecord) => ['RELEASE_APPROVED', 'REWORK'].includes(String(record.disposition || '').toUpperCase());
+  const filtered = records.filter(record => filter === 'REUSABLE' ? isReusableRecord(record) : !isReusableRecord(record));
+  const reusableCount = records.filter(isReusableRecord).length;
+  const damageCount = records.length - reusableCount;
+  const allVisibleSelected = filtered.length > 0 && filtered.every(record => selectedIds.includes(record.id));
 
   return (
     <div className="flex-1 p-6 space-y-6 overflow-y-auto max-w-7xl mx-auto">
@@ -154,23 +212,38 @@ export const QuarantineView: React.FC = () => {
       <div className="flex justify-between items-center bg-white p-4 rounded-2xl border border-slate-200 shadow-xs">
         <div className="flex bg-slate-100/80 p-1.5 rounded-xl text-xs font-semibold border border-slate-200">
           <button
-            onClick={() => setFilter('OPEN')}
-            className={`px-3.5 py-1.5 rounded-lg transition-all ${filter === 'OPEN' ? 'bg-white text-slate-700 font-bold shadow-2xs' : 'text-slate-600 hover:text-slate-900'}`}
+            onClick={() => setFilter('DAMAGE')}
+            className={`px-3.5 py-1.5 rounded-lg transition-all ${filter === 'DAMAGE' ? 'bg-white text-slate-700 font-bold shadow-2xs' : 'text-slate-600 hover:text-slate-900'}`}
           >
-            Open Scrap Items ({records.filter(r => r.status === 'OPEN').length})
+            Damage ({damageCount})
           </button>
           <button
-            onClick={() => setFilter('RESOLVED')}
-            className={`px-3.5 py-1.5 rounded-lg transition-all ${filter === 'RESOLVED' ? 'bg-white text-emerald-700 font-bold shadow-2xs' : 'text-slate-600 hover:text-slate-900'}`}
+            onClick={() => setFilter('REUSABLE')}
+            className={`px-3.5 py-1.5 rounded-lg transition-all ${filter === 'REUSABLE' ? 'bg-white text-emerald-700 font-bold shadow-2xs' : 'text-slate-600 hover:text-slate-900'}`}
           >
-            Resolved / Disposed ({records.filter(r => r.status === 'RESOLVED').length})
+            Reusable ({reusableCount})
           </button>
-          <button
-            onClick={() => setFilter('ALL')}
-            className={`px-3.5 py-1.5 rounded-lg transition-all ${filter === 'ALL' ? 'bg-white text-slate-900 font-bold shadow-2xs' : 'text-slate-600 hover:text-slate-900'}`}
-          >
-            All Historical ({records.length})
-          </button>
+        </div>
+        <div className="flex items-center gap-2">
+          {selectedIds.length > 0 && (
+            <>
+              <span className="text-xs font-semibold text-slate-500">{selectedIds.length} selected</span>
+              <button
+                onClick={() => void applyBulkDisposition('RELEASE_APPROVED')}
+                disabled={actionLoading}
+                className="px-3 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 text-xs font-semibold rounded-lg border border-emerald-200"
+              >
+                Reusable
+              </button>
+              <button
+                onClick={() => void applyBulkDisposition('SCRAP')}
+                disabled={actionLoading}
+                className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold rounded-lg border border-slate-300"
+              >
+                Damaged
+              </button>
+            </>
+          )}
         </div>
       </div>
 
@@ -180,25 +253,43 @@ export const QuarantineView: React.FC = () => {
           <table className="w-full text-left text-xs font-mono">
             <thead className="bg-slate-50 text-slate-500 font-semibold border-b border-slate-200 font-sans">
               <tr>
+                <th className="px-3 py-3 w-10">
+                  <input
+                    type="checkbox"
+                    checked={allVisibleSelected}
+                    onChange={() => setSelectedIds(allVisibleSelected ? [] : filtered.map(record => record.id))}
+                    aria-label="Select all visible scrap records"
+                    className="h-4 w-4 accent-emerald-600"
+                  />
+                </th>
                 <th className="px-5 py-3">Item Type</th>
                 <th className="px-5 py-3">Serial / ID</th>
                 <th className="px-5 py-3">Isolation Reason</th>
                 <th className="px-5 py-3">Stage</th>
                 <th className="px-5 py-3">Status</th>
                 <th className="px-5 py-3">Scrap Review At</th>
-                <th className="px-5 py-3 text-right font-sans">Rework / Release</th>
+                <th className="px-5 py-3 text-right font-sans">Damage / Reusable</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
               {filtered.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="text-center py-8 text-slate-400 font-sans">
+                  <td colSpan={8} className="text-center py-8 text-slate-400 font-sans">
                     No items in this scrap status view.
                   </td>
                 </tr>
               ) : (
                 filtered.map(rec => (
                   <tr key={rec.id} className="hover:bg-slate-50/70 transition-colors">
+                    <td className="px-3 py-3.5">
+                      <input
+                        type="checkbox"
+                        checked={selectedIds.includes(rec.id)}
+                        onChange={() => toggleSelected(rec.id)}
+                        aria-label={`Select ${rec.entitySerial}`}
+                        className="h-4 w-4 accent-emerald-600"
+                      />
+                    </td>
                     <td className="px-5 py-3.5 font-bold font-sans text-slate-900">
                       <span className="px-2 py-0.5 rounded-md bg-slate-100 text-slate-700 text-[10px] border border-slate-200">
                         {rec.entityType}
@@ -229,27 +320,42 @@ export const QuarantineView: React.FC = () => {
                             disabled={actionLoading}
                             className="px-2.5 py-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 text-xs font-semibold rounded-lg border border-emerald-200 transition-colors"
                           >
-                            Release (OK)
-                          </button>
-                          <button
-                            onClick={() => openResolveDialog(rec, 'REWORK')}
-                            disabled={actionLoading}
-                            className="px-2.5 py-1 bg-slate-50 hover:bg-slate-100 text-slate-700 text-xs font-semibold rounded-lg border border-slate-200 transition-colors"
-                          >
-                            Rework
+                            Reusable
                           </button>
                           <button
                             onClick={() => openResolveDialog(rec, 'SCRAP')}
                             disabled={actionLoading}
                             className="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-black text-xs font-semibold rounded-lg border border-slate-300 transition-colors"
                           >
-                            Scrap
+                            Damaged
                           </button>
+                          {rec.entityType === 'CELL' && (
+                            <button
+                              onClick={() => void deleteScrapCell(rec)}
+                              disabled={actionLoading}
+                              className="inline-flex items-center gap-1 px-2.5 py-1 bg-red-50 hover:bg-red-100 text-red-700 text-xs font-semibold rounded-lg border border-red-200 transition-colors"
+                              title="Permanently delete this scrap cell"
+                            >
+                              <Trash2 className="h-3 w-3" />
+                              Delete
+                            </button>
+                          )}
                         </>
                       ) : (
-                        <span className="text-[11px] text-slate-500 font-mono">
-                          {rec.disposition}: {rec.dispositionNotes}
-                        </span>
+                        <div className="flex items-center justify-end gap-2">
+                          <span className="text-[11px] text-slate-500 font-mono">
+                            {rec.disposition}: {rec.dispositionNotes}
+                          </span>
+                          <button
+                            onClick={() => openResolveDialog(rec, isReusableRecord(rec) ? 'RELEASE_APPROVED' : 'SCRAP')}
+                            disabled={actionLoading}
+                            className="inline-flex items-center gap-1 px-2.5 py-1 bg-white hover:bg-slate-50 text-slate-700 text-xs font-semibold rounded-lg border border-slate-300 transition-colors"
+                            title="Edit disposition"
+                          >
+                            <Pencil className="h-3 w-3" />
+                            Edit
+                          </button>
+                        </div>
                       )}
                     </td>
                   </tr>
@@ -280,7 +386,7 @@ export const QuarantineView: React.FC = () => {
             <form onSubmit={submitResolve} className="space-y-4">
               <div>
                 <label className="block text-xs font-bold text-slate-700 mb-1">Disposition Decision</label>
-                <div className="grid grid-cols-3 gap-2">
+                <div className="grid grid-cols-2 gap-2">
                   <button
                     type="button"
                     onClick={() => setResolveDisposition('RELEASE_APPROVED')}
@@ -290,20 +396,8 @@ export const QuarantineView: React.FC = () => {
                         : 'border-slate-200 text-slate-600 hover:bg-slate-50'
                     }`}
                   >
-                    Release (Pass)
+                    Reusable
                   </button>
-                  <button
-                    type="button"
-                    onClick={() => setResolveDisposition('REWORK')}
-                    className={`py-2 px-3 rounded-xl text-xs font-bold border text-center transition-all ${
-                      resolveDisposition === 'REWORK'
-                        ? 'bg-slate-50 border-slate-500 text-slate-800 ring-2 ring-slate-400/20'
-                        : 'border-slate-200 text-slate-600 hover:bg-slate-50'
-                    }`}
-                  >
-                    Rework
-                  </button>
-                    <option value="BMU">BMU Controller</option>
                   <button
                     type="button"
                     onClick={() => setResolveDisposition('SCRAP')}
@@ -313,7 +407,7 @@ export const QuarantineView: React.FC = () => {
                         : 'border-slate-200 text-slate-600 hover:bg-slate-50'
                     }`}
                   >
-                    Scrap (Defect)
+                    Damaged / Scrap
                   </button>
                 </div>
               </div>
@@ -323,7 +417,7 @@ export const QuarantineView: React.FC = () => {
                 <textarea
                   value={resolveNotes}
                   onChange={e => setResolveNotes(e.target.value)}
-                  placeholder="Explain why this unit is approved for release, re-routed for rework, or scrapped..."
+                  placeholder="Explain why this unit is reusable or damaged and sent to scrap..."
                   rows={3}
                   className="w-full px-3.5 py-2.5 text-xs bg-slate-50/70 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500"
                   required
@@ -379,14 +473,25 @@ export const QuarantineView: React.FC = () => {
 
               <div>
                 <label className="block text-xs font-bold text-slate-700 mb-1">{entityType === 'CELL' ? 'Cell Barcodes' : 'Serial / Barcode'}</label>
-                <input
-                  type="text"
-                  value={entitySerial}
-                  onChange={e => setEntitySerial(e.target.value)}
-                  placeholder={entityType === 'CELL' ? 'Enter barcodes separated by commas or new lines' : 'e.g. P2G-CL-000001 or Barcode'}
-                  className="w-full px-3.5 py-2.5 text-xs font-mono bg-slate-50/70 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-slate-500"
-                  required
-                />
+                {entityType === 'CELL' ? (
+                  <textarea
+                    value={entitySerial}
+                    onChange={e => setEntitySerial(e.target.value)}
+                    placeholder="Paste cell barcodes here, one per line, comma separated, or semicolon separated"
+                    rows={4}
+                    className="w-full px-3.5 py-2.5 text-xs font-mono bg-slate-50/70 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-slate-500 resize-y"
+                    required
+                  />
+                ) : (
+                  <input
+                    type="text"
+                    value={entitySerial}
+                    onChange={e => setEntitySerial(e.target.value)}
+                    placeholder="e.g. P2G-CL-000001 or Barcode"
+                    className="w-full px-3.5 py-2.5 text-xs font-mono bg-slate-50/70 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-slate-500"
+                    required
+                  />
+                )}
               </div>
 
               <div>
