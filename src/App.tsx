@@ -28,6 +28,7 @@ import { AuditTrailView } from './components/audit/AuditTrailView';
 import { ReportsView } from './components/reports/ReportsView';
 import { SecurityView } from './components/security/SecurityView';
 import { WarehouseView } from './components/warehouse/WarehouseView';
+import { SoldView } from './components/sold/SoldView';
 import LoginPage from './components/auth/LoginPage';
 import { CheckCircle2, AlertTriangle, Info, X } from 'lucide-react';
 
@@ -97,6 +98,8 @@ const AppContent: React.FC = () => {
         return canManageUsers ? <SecurityView /> : <DashboardView />;
       case 'warehouse':
         return <WarehouseView />;
+      case 'sold':
+        return <SoldView />;
       default:
         return <DashboardView />;
     }

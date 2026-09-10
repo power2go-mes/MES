@@ -20,7 +20,8 @@ export type NavView =
   | 'audit'
   | 'reports'
   | 'security'
-  | 'warehouse';
+  | 'warehouse'
+  | 'sold';
 
 export interface AppNotification {
   id: string;

@@ -19,6 +19,8 @@ const statusColors: Record<string, string> = {
   'In Module': '#7c3aed',
   'In Pack': '#f59e0b',
   'In Rack': '#0ea5e9',
+  'Karachi Warehouse': '#14532d',
+  'Lahore Warehouse': '#2563eb',
   Sold: '#059669',
   Scrap: '#ef4444',
 };
@@ -30,15 +32,23 @@ const packColorByModel: Record<string, string> = {
 };
 const reportDarkGrey = '#374151';
 const reportGreen = '#16a34a';
+const reportCabinetBlue = '#2563eb';
+const rackPowerColors: Record<string, string> = {
+  '25': '#16a34a',
+  '45': '#2563eb',
+  '60': '#6b7280',
+  '70': '#86efac',
+  '75': '#f59e0b',
+};
 type ChartRow = DashboardChartRow;
 
-const DistributionDonut: React.FC<{ distribution: DashboardDistribution; ariaLabel: string; showShare?: boolean }> = ({ distribution, ariaLabel, showShare = true }) => {
+const DistributionDonut: React.FC<{ distribution: DashboardDistribution; ariaLabel: string; showShare?: boolean; extraRows?: ChartRow[] }> = ({ distribution, ariaLabel, showShare = true, extraRows = [] }) => {
   const visible = distribution.rows.filter((row) => row.value > 0 && row.share > 0);
   let offset = 0;
   return (
     <div className="flex min-w-0 items-center gap-6">
       <div className="h-[190px] w-[190px] shrink-0">
-        {distribution.total === 0 || !distribution.reconciles ? <div className="grid h-full place-items-center rounded-full border-[14px] border-slate-100 text-center"><span className="text-[11px] font-semibold text-slate-400">No recorded data</span></div> : <svg viewBox="0 0 100 100" className="h-full w-full" aria-label={ariaLabel}>
+        {distribution.total === 0 ? <div className="grid h-full place-items-center rounded-full border-[14px] border-slate-100 text-center"><span className="text-[11px] font-semibold text-slate-400">No recorded data</span></div> : <svg viewBox="0 0 100 100" className="h-full w-full" aria-label={ariaLabel}>
           <circle cx="50" cy="50" r="35" fill="none" stroke="#e5e7eb" strokeWidth="14" />
           {visible.map((row) => {
             const start = offset;
@@ -56,6 +66,7 @@ const DistributionDonut: React.FC<{ distribution: DashboardDistribution; ariaLab
       </div>
       <div className="min-w-0 flex-1 space-y-2.5 py-2">
         {distribution.rows.map((row) => <div key={row.label} className="flex items-center justify-between gap-3 text-[12px]"><div className="flex items-center gap-2 text-slate-600"><span className="h-2.5 w-2.5 rounded-sm" style={{ backgroundColor: row.color }} />{row.label}</div><span className="font-semibold text-slate-900">{formatNumber(row.value)}{showShare && <span className="font-normal text-slate-400"> ({row.share.toFixed(2)}%)</span>}</span></div>)}
+        {extraRows.map((row) => <div key={row.label} className="flex items-center justify-between gap-3 text-[12px]"><div className="flex items-center gap-2 text-slate-600"><span className="h-2.5 w-2.5 rounded-sm" style={{ backgroundColor: row.color }} />{row.label}</div><span className="font-semibold text-slate-900">{formatNumber(row.value)}</span></div>)}
       </div>
     </div>
   );
@@ -63,7 +74,7 @@ const DistributionDonut: React.FC<{ distribution: DashboardDistribution; ariaLab
 
 const DistributionBars: React.FC<{ distribution: DashboardDistribution; colors?: string[]; ariaLabel: string }> = ({ distribution, colors, ariaLabel }) => {
   const max = Math.max(1, ...distribution.rows.map((row) => row.value));
-  if (distribution.total === 0 || !distribution.reconciles) return <div className="grid h-[150px] place-items-center rounded-lg border border-dashed border-slate-200 text-center"><div><div className="text-xs font-semibold text-slate-500">No recorded data</div><div className="mt-1 text-[10px] text-slate-400">No reconciled database values are available for this chart.</div></div></div>;
+  if (distribution.total === 0) return <div className="grid h-[150px] place-items-center rounded-lg border border-dashed border-slate-200 text-center"><div><div className="text-xs font-semibold text-slate-500">No recorded data</div><div className="mt-1 text-[10px] text-slate-400">No data is available for this chart yet.</div></div></div>;
   return <svg viewBox="0 0 220 130" className="h-[190px] w-full" role="img" aria-label={ariaLabel}>
     {[0, 1, 2, 3].map((line) => <line key={line} x1="20" x2="200" y1={line * 28 + 12} y2={line * 28 + 12} stroke="#e5e7eb" strokeDasharray="2 3" />)}
     {distribution.rows.map((row, index) => {
@@ -93,7 +104,11 @@ export const CEOMonitoringView: React.FC = () => {
   const [selectedCellStatus, setSelectedCellStatus] = useState<'All' | string>('All');
   const [selectedPackType, setSelectedPackType] = useState('All');
   const [selectedRackType, setSelectedRackType] = useState('All');
+  const [selectedWarehouseRackType, setSelectedWarehouseRackType] = useState('All');
+  const [selectedWarehouseInventoryType, setSelectedWarehouseInventoryType] = useState<'All' | 'Racks' | 'Battery Packs'>('All');
+  const [selectedWarehouseBatteryType, setSelectedWarehouseBatteryType] = useState('All');
   const [selectedModuleConfig, setSelectedModuleConfig] = useState('All');
+  const [selectedSoldEntity, setSelectedSoldEntity] = useState('All');
   useEffect(() => {
     let cancelled = false;
 
@@ -166,7 +181,46 @@ export const CEOMonitoringView: React.FC = () => {
     filteredCellRows,
     Object.entries(statusColors).map(([label, color]) => ({ label, color })),
     selectedCellStatus === 'All' ? source.cellTotal : undefined,
-  ), [filteredCellRows, selectedCellStatus, source.cellTotal]);
+  ), [cellRows, filteredCellRows, selectedCellStatus, source.cellTotal]);
+  const warehouseRows = useMemo<ChartRow[]>(() => {
+    const typeRows = Array.isArray(source.inventory?.warehouseRackTypeCounts) ? source.inventory.warehouseRackTypeCounts : [];
+    const selectedType = typeRows.find((row: any) => row.type === selectedWarehouseRackType);
+    const batteryTypeRows = Array.isArray(source.inventory?.warehouseBatteryTypeCounts) ? source.inventory.warehouseBatteryTypeCounts : [];
+    const selectedBatteryType = batteryTypeRows.find((row: any) => row.type === selectedWarehouseBatteryType);
+    const rackKarachi = selectedWarehouseRackType === 'All' ? numberOr(source.inventory?.karachiWarehouseRacks, 0) : numberOr(selectedType?.KARACHI, 0);
+    const rackLahore = selectedWarehouseRackType === 'All' ? numberOr(source.inventory?.lahoreWarehouseRacks, 0) : numberOr(selectedType?.LAHORE, 0);
+    const batteryKarachi = selectedWarehouseBatteryType === 'All' ? numberOr(source.inventory?.karachiWarehouseBatteries, 0) : numberOr(selectedBatteryType?.KARACHI, 0);
+    const batteryLahore = selectedWarehouseBatteryType === 'All' ? numberOr(source.inventory?.lahoreWarehouseBatteries, 0) : numberOr(selectedBatteryType?.LAHORE, 0);
+    const karachiValue = selectedWarehouseInventoryType === 'Racks' ? rackKarachi : selectedWarehouseInventoryType === 'Battery Packs' ? batteryKarachi : rackKarachi + batteryKarachi;
+    const lahoreValue = selectedWarehouseInventoryType === 'Racks' ? rackLahore : selectedWarehouseInventoryType === 'Battery Packs' ? batteryLahore : rackLahore + batteryLahore;
+
+    const rows: ChartRow[] = [
+      { label: 'Karachi Warehouse', value: karachiValue, color: statusColors['Karachi Warehouse'] || '#14532d' },
+      { label: 'Lahore Warehouse', value: lahoreValue, color: statusColors['Lahore Warehouse'] || '#2563eb' },
+    ];
+
+    return rows.filter((row) => row.value > 0 || (source.inventory && (source.inventory.karachiWarehouseRacks !== undefined || source.inventory.lahoreWarehouseRacks !== undefined)));
+  }, [source.inventory, selectedWarehouseInventoryType, selectedWarehouseRackType, selectedWarehouseBatteryType]);
+
+  const warehouseRackTypeOptions = useMemo(() => {
+    const types = Array.isArray(source.inventory?.warehouseRackTypeCounts) ? source.inventory.warehouseRackTypeCounts.map((row: any) => String(row.type || '')) : [];
+    return ['All', ...types.filter(Boolean).filter(type => type !== 'UNKNOWN_RACK')];
+  }, [source.inventory]);
+
+  const warehouseRackTypeLabel = (type: string) => {
+    const match = type.match(/RACK_(\d+(?:\.\d+)?)KWH/i);
+    return match ? `${match[1]} kWh` : type.replace(/^RACK_/i, '').replace(/_/g, ' ');
+  };
+  const warehouseBatteryTypeOptions = useMemo(() => {
+    const types = Array.isArray(source.inventory?.warehouseBatteryTypeCounts) ? source.inventory.warehouseBatteryTypeCounts.map((row: any) => String(row.type || '')) : [];
+    return ['All', ...types.filter(Boolean)];
+  }, [source.inventory]);
+
+  const warehouseDistribution = useMemo(() => buildDashboardDistribution(
+    warehouseRows,
+    warehouseRows.map(row => ({ label: row.label, color: row.color })),
+    warehouseRows.reduce((sum, row) => sum + row.value, 0),
+  ), [warehouseRows]);
   const moduleData = useMemo<ChartRow[]>(() => (source.moduleTypeBuckets || source.moduleStatusBuckets || []).map((row: any) => ({ label: String(row.label || ''), value: numberOr(row.value), color: '#16a34a' })), [source.moduleTypeBuckets, source.moduleStatusBuckets]);
   const filteredModuleRows = selectedModuleConfig === 'All' ? moduleData : moduleData.filter((row) => row.label === selectedModuleConfig);
   const moduleDistribution = useMemo(() => buildDashboardDistribution(
@@ -174,6 +228,24 @@ export const CEOMonitoringView: React.FC = () => {
     [{ label: '8S', color: '#16a34a' }, { label: '12S', color: '#2563eb' }],
     selectedModuleConfig === 'All' ? source.moduleTotal : undefined,
   ), [filteredModuleRows, selectedModuleConfig, source.moduleTotal]);
+  const soldData = useMemo<ChartRow[]>(() => {
+    const soldCells = numberOr(inventory.soldCells ?? source.cellBuckets?.find((row: any) => row.label === 'Sold')?.value);
+    const soldBatteries = numberOr(source.batteryStatusBuckets?.find((row: any) => String(row.label || '').toUpperCase() === 'SOLD')?.value);
+    const soldRacks = (source.rackStatusBuckets || [])
+      .filter((row: any) => String(row.label || row.status || '').toUpperCase().replace(/_/g, ' ') === 'SOLD')
+      .reduce((total: number, row: any) => total + numberOr(row.value), 0);
+    return [
+      { label: 'Cells', value: soldCells, color: '#059669' },
+      { label: 'Battery Packs', value: soldBatteries, color: '#f59e0b' },
+      { label: 'Racks', value: soldRacks, color: '#0ea5e9' },
+    ];
+  }, [inventory.soldCells, source.batteryStatusBuckets, source.cellBuckets, source.rackStatusBuckets]);
+  const filteredSoldRows = selectedSoldEntity === 'All' ? soldData : soldData.filter(row => row.label === selectedSoldEntity);
+  const soldDistribution = useMemo(() => buildDashboardDistribution(
+    filteredSoldRows,
+    soldData.map(row => ({ label: row.label, color: row.color })),
+    selectedSoldEntity === 'All' ? undefined : filteredSoldRows.reduce((total, row) => total + row.value, 0),
+  ), [filteredSoldRows, selectedSoldEntity, soldData]);
   const batteryPackData = useMemo<ChartRow[]>(() => (source.batteryPackBuckets || []).map((row: any, index: number) => ({
     label: String(row.label || 'Unnamed Pack'),
     value: numberOr(row.value),
@@ -192,30 +264,27 @@ export const CEOMonitoringView: React.FC = () => {
   const releaseTrendChange = previousTrendTotal > 0 ? ((recentTrendTotal - previousTrendTotal) / previousTrendTotal) * 100 : null;
 
   const rackData = useMemo<ChartRow[]>(() => {
-    const rows: ChartRow[] = [];
+    const totals = new Map<string, number>();
     (source.rackStatusBuckets || []).forEach((row: any) => {
-      const status = String(row.label || 'UNKNOWN').replace(/_/g, ' ');
       const rackTypes = Array.isArray(row.rackTypes) ? row.rackTypes : [];
-      if (rackTypes.length === 0) {
-        rows.push({ label: status, value: numberOr(row.value), color: statusColors[status] || '#64748b' });
-        return;
-      }
       rackTypes.forEach((type: any) => {
         const rackType = String(type.rackType || 'UNKNOWN_RACK');
-        const match = rackType.match(/RACK_(\d+(?:\.\d+)?)KWH/i);
-        const capacity = match ? `${match[1]}kWh` : rackType.replace(/^RACK_/i, '').replace(/_/g, ' ');
-        const category = /RACK_25KWH/i.test(rackType) ? 'Rack' : 'Cabinet';
-        rows.push({ label: `Status-${category}-${capacity}`, value: numberOr(type.value), color: category === 'Rack' ? '#16a34a' : '#374151' });
+        const match = rackType.match(/RACK_(25|45|60|70)KWH/i);
+        if (match) totals.set(match[1], (totals.get(match[1]) || 0) + numberOr(type.value));
       });
     });
-    return rows;
+    return Array.from(totals.entries()).filter(([, value]) => value > 0).map(([power, value]) => ({
+      label: `${power} kWh ${power === '25' ? 'Rack' : 'Cabinet'}`,
+      value,
+      color: rackPowerColors[power] || '#64748b',
+    }));
   }, [source.rackStatusBuckets]);
   const filteredRackRows = selectedRackType === 'All' ? rackData : rackData.filter((row) => row.label === selectedRackType);
   const rackDistribution = useMemo(() => buildDashboardDistribution(
     filteredRackRows,
     rackData.map(row => ({ label: row.label, color: row.color })),
-    selectedRackType === 'All' ? source.rackTotal : undefined,
-  ), [filteredRackRows, rackData, selectedRackType, source.rackTotal]);
+    filteredRackRows.reduce((total, row) => total + row.value, 0),
+  ), [filteredRackRows, rackData]);
   const rackTotal = rackDistribution.total;
   const producedCategoryBuckets = Array.isArray(source.producedCategoryBuckets) ? source.producedCategoryBuckets : [];
   const cabinetProduced = numberOr(producedCategoryBuckets.find((row: any) => row.label === 'Cabinet')?.value);
@@ -233,8 +302,15 @@ export const CEOMonitoringView: React.FC = () => {
   const exportCellReport = async () => {
     setExportingCells(true);
     try {
-      const [cells, counts] = await Promise.all([api.getCells(), api.getCellCounts()]);
-      downloadCellReport(cells);
+      const [cells, counts, warehouseStatuses] = await Promise.all([
+        api.getCells(),
+        api.getCellCounts(),
+        api.getWarehouseCellStatuses(),
+      ]);
+      downloadCellReport(cells, {
+        rows: (source.cellBuckets || []).map((row: any) => ({ label: String(row.label || ''), value: Number(row.value) || 0 })),
+        total: Number(source.cellTotal || inventory.totalCells || counts.total || 0),
+      }, { warehouseStatuses });
       addNotification('success', 'Cell report exported', `${counts.total.toLocaleString()} cell records were exported.`);
     } catch (error: any) {
       addNotification('error', 'Cell export failed', error?.message || 'Unable to export the cell inventory report.');
@@ -246,8 +322,8 @@ export const CEOMonitoringView: React.FC = () => {
   const exportBatteryReport = async () => {
     setExportingBatteryReport(true);
     try {
-      const batteries = await api.getBatteries();
-      downloadBatteryReport(batteries);
+      const [batteries, warehouseStatuses] = await Promise.all([api.getBatteries(), api.getWarehouseEntityStatuses()]);
+      downloadBatteryReport(batteries, { warehouseStatuses });
       addNotification('success', 'Battery report exported', `${batteries.length.toLocaleString()} battery records were exported.`);
     } catch (error: any) {
       addNotification('error', 'Battery export failed', error?.message || 'Unable to export the battery report.');
@@ -259,8 +335,8 @@ export const CEOMonitoringView: React.FC = () => {
   const exportRackReport = async () => {
     setExportingRackReport(true);
     try {
-      const racks = await api.getRacks();
-      downloadRackReport(racks);
+      const [racks, warehouseStatuses] = await Promise.all([api.getRacks(), api.getWarehouseEntityStatuses()]);
+      downloadRackReport(racks, { warehouseStatuses });
       addNotification('success', 'Rack report exported', `${racks.length.toLocaleString()} rack records were exported.`);
     } catch (error: any) {
       addNotification('error', 'Rack export failed', error?.message || 'Unable to export the rack report.');
@@ -283,11 +359,11 @@ export const CEOMonitoringView: React.FC = () => {
           label: status.replace(/_/g, ' '),
           value: values.get(status.replace(/_/g, ' ').toUpperCase())?.value || 0,
           capacityKwh: values.get(status.replace(/_/g, ' ').toUpperCase())?.capacityKwh || (values.get(status.replace(/_/g, ' ').toUpperCase())?.value || 0) * defaultCapacityKwh(status),
-          color: colorMap[status.replace(/_/g, ' ')] || '#94a3b8',
+          color: Object.entries(colorMap).find(([label]) => label.toUpperCase() === status.replace(/_/g, ' ').toUpperCase())?.[1] || '#94a3b8',
         }));
       };
       const cellReportRows = statusRows(
-        ['In Stock', 'Floor Stock', 'In Module', 'In Pack', 'In Rack', 'Sold', 'Scrap'],
+        ['In Stock', 'Floor Stock', 'In Module', 'In Pack', 'In Rack', 'Karachi Warehouse', 'Lahore Warehouse', 'Sold', 'Scrap'],
         source.cellBuckets,
         statusColors,
         () => 0.3125,
@@ -317,23 +393,37 @@ export const CEOMonitoringView: React.FC = () => {
         { label: 'Damage', value: damageScrapCount, capacityKwh: 0, color: reportDarkGrey },
         { label: 'Reusable', value: reusableScrapCount, capacityKwh: 0, color: reportGreen },
       ];
-      const rackReportRows = (source.rackStatusBuckets || []).flatMap((row: any) => {
-        const status = String(row.label || 'UNKNOWN').replace(/_/g, ' ');
+      const soldReportRows = [
+        { label: 'Battery Packs', value: numberOr(source.batteryStatusBuckets?.find((row: any) => String(row.label || '').toUpperCase() === 'SOLD')?.value), capacityKwh: 0, color: reportDarkGrey },
+        { label: 'Racks', value: numberOr(source.rackStatusBuckets?.find((row: any) => String(row.label || row.status || '').toUpperCase().replace(/_/g, ' ') === 'SOLD')?.value), capacityKwh: 0, color: reportCabinetBlue },
+      ];
+      const rackTypeTotals = new Map<string, { value: number; capacityKwh: number }>();
+      const rackColor = (rackType: string) => {
+        const powerMatch = rackType.match(/RACK_(\d+(?:\.\d+)?)KWH/i);
+        return (powerMatch && rackPowerColors[powerMatch[1]]) || reportCabinetBlue;
+      };
+      const formatRackLabel = (rackType: string) => {
+        const powerMatch = rackType.match(/RACK_(\d+(?:\.\d+)?)KWH/i);
+        const power = powerMatch ? `${powerMatch[1]}kWh` : rackType.replace(/^RACK_/i, '').replace(/_/g, ' ');
+        const category = /RACK_25KWH/i.test(rackType) ? 'Rack' : 'Cabinet';
+        return `${power.replace('kWh', ' kWh')} ${category}`;
+      };
+      (source.rackStatusBuckets || []).forEach((row: any) => {
         const typeRows = Array.isArray(row.rackTypes) ? row.rackTypes : [];
-        const formatRackLabel = (rackStatus: string, rackType: string) => {
-          const powerMatch = rackType.match(/RACK_(\d+(?:\.\d+)?)KWH/i);
-          const power = powerMatch ? `${powerMatch[1]}kWh` : rackType.replace(/^RACK_/i, '').replace(/_/g, ' ');
-          const category = /RACK_25KWH/i.test(rackType) ? 'Rack' : 'Cabinet';
-          return `Status-${category}-${power}`;
-        };
-        if (typeRows.length === 0) return [{ label: status, value: numberOr(row.value), capacityKwh: numberOr(row.capacityKwh), color: status === 'IN RACK' ? reportGreen : reportDarkGrey }];
-        return typeRows.map((type: any) => ({
-          label: formatRackLabel(status, String(type.rackType || 'UNKNOWN_RACK')),
-          value: numberOr(type.value),
-          capacityKwh: numberOr(type.capacityKwh),
-          color: /RACK_25KWH/i.test(String(type.rackType || '')) ? reportGreen : reportDarkGrey,
-        }));
+        typeRows.forEach((type: any) => {
+          const rackType = String(type.rackType || 'UNKNOWN_RACK');
+          if (!/RACK_(25|45|60|70)KWH/i.test(rackType)) return;
+          const current = rackTypeTotals.get(rackType) || { value: 0, capacityKwh: 0 };
+          current.value += numberOr(type.value);
+          current.capacityKwh += numberOr(type.capacityKwh);
+          rackTypeTotals.set(rackType, current);
+        });
       });
+      const rackReportRows = Array.from(rackTypeTotals.entries()).map(([rackType, totals]) => ({
+        label: formatRackLabel(rackType),
+        ...totals,
+        color: rackColor(rackType),
+      }));
       const controllerInventory = source.controllerInventory || {};
       const bmsTotal = numberOr(controllerInventory.totalBms);
       const bmuTotal = numberOr(controllerInventory.totalBmu);
@@ -381,7 +471,7 @@ export const CEOMonitoringView: React.FC = () => {
         doc.text(subtitle, margin, 18);
         doc.setTextColor(...ink);
       };
-      const drawDonut = (x: number, y: number, radius: number, rows: { label: string; value: number; capacityKwh: number; color: string }[], title: string, legendOnRight = false, legendRightX = pageWidth - margin, showShare = true, capacityFormatter = formatMwh, includeValueInLegend = false) => {
+      const drawDonut = (x: number, y: number, radius: number, rows: { label: string; value: number; capacityKwh: number; color: string }[], title: string, legendOnRight = false, legendRightX = pageWidth - margin, showShare = true, capacityFormatter = formatMwh, includeValueInLegend = false, rightLegendOffset = -25) => {
         const total = rows.reduce((sum, row) => sum + row.value, 0);
         const totalCapacityKwh = rows.reduce((sum, row) => sum + row.capacityKwh, 0);
         if (total === 0) {
@@ -424,7 +514,7 @@ export const CEOMonitoringView: React.FC = () => {
         rows.slice(0, 8).forEach((row, index) => {
           if (legendOnRight) {
             const legendX = x + radius + 4;
-            const legendY = y - 25 + index * 10;
+            const legendY = y + rightLegendOffset + index * 10;
             doc.setFillColor(...hexRgb(row.color));
             doc.roundedRect(legendX, legendY - 3, 2.5, 2.5, 0.5, 0.5, 'F');
             doc.setFont('helvetica', 'normal');
@@ -455,7 +545,7 @@ export const CEOMonitoringView: React.FC = () => {
           doc.text(`${row.label} ${formatNumber(row.value)} · ${formatMwh(row.capacityKwh)}`, legendX + 3, legendY);
         });
       };
-      const drawBars = (x: number, y: number, width: number, height: number, rows: { label: string; value: number; capacityKwh: number; color: string }[], title: string, compactSingle = false, showEnergy = true, preserveOrder = false) => {
+      const drawBars = (x: number, y: number, width: number, height: number, rows: { label: string; value: number; capacityKwh: number; color: string }[], title: string, compactSingle = false, showEnergy = true, preserveOrder = false, narrowBars = false) => {
         doc.setFont('helvetica', 'bold');
         reportFontSize(9);
         doc.setTextColor(...ink);
@@ -474,7 +564,7 @@ export const CEOMonitoringView: React.FC = () => {
         const gridRows = Math.ceil(visibleRows.length / Math.max(gridColumns, 1));
         const cellWidth = width / Math.max(gridColumns, 1);
         const cellHeight = height / Math.max(gridRows, 1);
-        const barWidth = singleRecord ? Math.min(28, width * 0.32) : Math.min(18, cellWidth - 5);
+        const barWidth = singleRecord ? Math.min(28, width * 0.32) : Math.min(narrowBars ? 12 : 18, cellWidth - 5);
         const plotHeight = singleRecord ? Math.min(height, 22) : Math.max(8, cellHeight - 12);
         visibleRows.forEach((row, index) => {
           const hasValue = row.value > 0;
@@ -498,8 +588,7 @@ export const CEOMonitoringView: React.FC = () => {
             doc.text(formatMwh(row.capacityKwh), barX + barWidth / 2, barTop - 2, { align: 'center' });
           }
           reportFontSize(5.8);
-          const labelLines = doc.splitTextToSize(row.label, Math.max(16, cellWidth - 3));
-          doc.text(labelLines, cellX + cellWidth / 2, baseline + 4, { align: 'center', lineHeightFactor: 1.05 });
+          doc.text(row.label, cellX + cellWidth / 2, baseline + 4, { align: 'center', maxWidth: cellWidth - 3 });
         });
       };
       const drawSingleKpi = (x: number, y: number, width: number, rows: { label: string; value: number; capacityKwh: number; color: string }[], title: string) => {
@@ -594,23 +683,30 @@ export const CEOMonitoringView: React.FC = () => {
       doc.setTextColor(...green);
       drawDonut(leftChartX + 23, 150, 20, cellReportRows, 'CELL INVENTORY', true, leftChartX + chartWidth, false, formatCellTotalMwh, true);
       drawBars(rightChartX, 136, chartWidth, 36, moduleReportRows, 'MODULE CONFIGURATION');
-      drawBars(leftChartX, 214, chartWidth, 36, batteryReportRows, 'BATTERY PACK MODEL');
-      if (rackReportRows.length === 1) drawSingleKpi(rightChartX, 214, chartWidth, rackReportRows, 'RACK/CABINET STATUS');
-      else drawBars(rightChartX, 214, chartWidth, rackReportRows.length > 4 ? 52 : 36, rackReportRows, 'RACK/CABINET STATUS');
+      drawBars(leftChartX, 230, chartWidth, 36, batteryReportRows, 'BATTERY PACK MODEL');
+      drawDonut(rightChartX + 23, 244, 20, rackReportRows, 'RACK/CABINET STATUS', true, rightChartX + chartWidth, false, formatMwh, true, -15);
       doc.addPage();
       drawTitle('POWER2GO MES | CEO PERFORMANCE REPORT', `Operational detail   |   ${rangeLabel}   |   ${reportDate}`);
       drawSingleKpi(leftChartX, 70, chartWidth, cabinetReportRows, 'CABINET STATUS');
-      drawBars(leftChartX, 156, chartWidth, 34, bmsReportRows, 'BMS INVENTORY - TOTAL / AVAILABLE / USED', false, false, true);
-      drawBars(rightChartX, 156, chartWidth, 34, bmuReportRows, 'BMU INVENTORY - TOTAL / AVAILABLE / USED', false, false, true);
-      drawBars(leftChartX, 220, chartWidth, 32, scrapReportRows, 'SCRAP STATUS');
+      drawBars(leftChartX, 171, chartWidth, 34, bmsReportRows, 'BMS INVENTORY - TOTAL / AVAILABLE / USED', false, false, true);
+      drawBars(rightChartX, 171, chartWidth, 34, bmuReportRows, 'BMU INVENTORY - TOTAL / AVAILABLE / USED', false, false, true);
+      drawBars(leftChartX, 230, chartWidth, 32, scrapReportRows, 'SCRAP STATUS');
+      drawBars(rightChartX, 230, chartWidth, 32, soldReportRows, 'SOLD STATUS');
       const reportRows = (rows: { label: string; value: number; capacityKwh: number }[]) => {
-        return rows.map((row) => [row.label, formatNumber(row.value), formatMwh(row.capacityKwh)]);
+        const total = rows.reduce((summary, row) => ({
+          value: summary.value + row.value,
+          capacityKwh: summary.capacityKwh + row.capacityKwh,
+        }), { value: 0, capacityKwh: 0 });
+        return [
+          ...rows.map((row) => [row.label, formatNumber(row.value), formatMwh(row.capacityKwh)]),
+          ['TOTAL', formatNumber(total.value), formatMwh(total.capacityKwh)],
+        ];
       };
       const detailWidth = (pageWidth - margin * 2 - 6) / 2;
-      drawTable('CELL INVENTORY', ['Status', 'Qty', 'Capacity'], reportRows(cellReportRows), 45, margin, detailWidth, true);
-      drawTable('MODULE CONFIGURATION', ['Type', 'Qty', 'Capacity'], reportRows(moduleReportRows), 45, margin + detailWidth + 6, detailWidth, true);
-      drawTable('BATTERY PACK MODEL', ['Model', 'Qty', 'Capacity'], reportRows(batteryReportRows), 90, margin, detailWidth, true);
-      drawTable('RACK/CABINET STATUS', ['Status', 'Qty', 'Capacity'], reportRows(rackReportRows), 90, margin + detailWidth + 6, detailWidth, true);
+      drawTable('CELL INVENTORY', ['Status', 'Qty', 'Capacity'], reportRows(cellReportRows), 39, margin, detailWidth, true);
+      drawTable('MODULE CONFIGURATION', ['Type', 'Qty', 'Capacity'], reportRows(moduleReportRows), 39, margin + detailWidth + 6, detailWidth, true);
+      drawTable('BATTERY PACK MODEL', ['Model', 'Qty', 'Capacity'], reportRows(batteryReportRows), 109, margin, detailWidth, true);
+      drawTable('RACK/CABINET STATUS', ['Status', 'Qty', 'Capacity'], reportRows(rackReportRows), 109, margin + detailWidth + 6, detailWidth, true);
       reportFontSize(7);
       doc.setFont('helvetica', 'normal');
       doc.setTextColor(...muted);
@@ -735,6 +831,32 @@ export const CEOMonitoringView: React.FC = () => {
             <div className="mb-2 flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-50">
+                  <PackageCheck className="h-4 w-4 text-emerald-600" />
+                </div>
+                <div>
+                  <div className="text-[15px] font-bold text-slate-900">Warehouse</div>
+                  <div className="text-[11px] text-slate-400">Karachi vs Lahore warehouse stock</div>
+                </div>
+              </div>
+              <div className="text-[18px] font-extrabold text-slate-900">{formatNumber(warehouseDistribution.total)}</div>
+            </div>
+            <div className="mb-3 flex flex-wrap gap-2 text-[10px] font-medium text-slate-500">
+              {(['All', 'Racks', 'Battery Packs'] as const).map(type => <button key={type} type="button" onClick={() => setSelectedWarehouseInventoryType(type)} className={`rounded-md border px-2 py-1 ${selectedWarehouseInventoryType === type ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-slate-200 bg-slate-50 text-slate-500'}`}>{type}</button>)}
+            </div>
+            {selectedWarehouseInventoryType !== 'Battery Packs' && <div className="mb-3 flex flex-wrap gap-2 text-[10px] font-medium text-slate-500">
+              {warehouseRackTypeOptions.map(type => <button key={type} type="button" onClick={() => setSelectedWarehouseRackType(type)} className={`rounded-md border px-2 py-1 ${selectedWarehouseRackType === type ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-slate-200 bg-slate-50 text-slate-500'}`}>{type === 'All' ? 'All racks' : warehouseRackTypeLabel(type)}</button>)}
+            </div>
+            }
+            {selectedWarehouseInventoryType !== 'Racks' && <div className="mb-3 flex flex-wrap gap-2 text-[10px] font-medium text-slate-500">
+              {warehouseBatteryTypeOptions.map(type => <button key={type} type="button" onClick={() => setSelectedWarehouseBatteryType(type)} className={`rounded-md border px-2 py-1 ${selectedWarehouseBatteryType === type ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-slate-200 bg-slate-50 text-slate-500'}`}>{type === 'All' ? 'All battery packs' : type}</button>)}
+            </div>}
+            <DistributionBars distribution={warehouseDistribution} ariaLabel="Warehouse distribution" />
+          </div>
+
+          <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+            <div className="mb-2 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-50">
                   <Boxes className="h-4 w-4 text-emerald-600" />
                 </div>
                 <div>
@@ -746,7 +868,7 @@ export const CEOMonitoringView: React.FC = () => {
             </div>
 
             <div className="mb-3 flex flex-wrap gap-2 text-[10px] font-medium text-slate-500">
-              {['All', 'In Stock', 'Floor Stock', 'In Module', 'In Pack', 'In Rack', 'Sold', 'Scrap'].map((label) => (
+              {['All', 'In Stock', 'Floor Stock', 'In Module', 'In Pack', 'In Rack', 'Karachi Warehouse', 'Lahore Warehouse', 'Sold', 'Scrap'].map((label) => (
                 <button
                   key={label}
                   type="button"
@@ -758,9 +880,15 @@ export const CEOMonitoringView: React.FC = () => {
               ))}
             </div>
 
-            <DistributionDonut distribution={cellDistribution} ariaLabel="Cells distribution" showShare={false} />
+            <DistributionDonut
+              distribution={cellDistribution}
+              ariaLabel="Cells distribution"
+              showShare={false}
+            />
           </div>
+        </div>
 
+        <div className="grid gap-4 lg:grid-cols-2">
           <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
             <div className="mb-2 flex items-center justify-between">
               <div className="flex items-center gap-2">
@@ -789,6 +917,36 @@ export const CEOMonitoringView: React.FC = () => {
             </div>
 
             <DistributionBars distribution={moduleDistribution} ariaLabel="Module distribution" />
+          </div>
+
+          <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+            <div className="mb-2 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-50">
+                  <PackageCheck className="h-4 w-4 text-emerald-600" />
+                </div>
+                <div>
+                  <div className="text-[15px] font-bold text-slate-900">Sold</div>
+                  <div className="text-[11px] text-slate-400">Terminal sales by entity</div>
+                </div>
+              </div>
+              <div className="text-[18px] font-extrabold text-slate-900">{formatNumber(soldDistribution.total)}</div>
+            </div>
+
+            <div className="mb-3 flex flex-wrap gap-2 text-[10px]">
+              {['All', ...soldData.map(row => row.label)].map(option => (
+                <button
+                  key={option}
+                  type="button"
+                  onClick={() => setSelectedSoldEntity(option)}
+                  className={`rounded-md border px-2 py-1 ${selectedSoldEntity === option ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-slate-200 bg-slate-50 text-slate-500'}`}
+                >
+                  {option}
+                </button>
+              ))}
+            </div>
+
+            <DistributionDonut distribution={soldDistribution} ariaLabel="Sold entity distribution" showShare={false} />
           </div>
         </div>
 

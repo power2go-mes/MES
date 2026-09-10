@@ -45,6 +45,7 @@ export interface User {
 
 export type ComponentStatus =
   | 'EMPTY'
+  | 'CREATED'
   | 'RECEIVED'
   | 'IN_STOCK'
   | 'FLOOR_STOCK'
@@ -63,6 +64,14 @@ export type ComponentStatus =
   | 'QUARANTINED'
   | 'REWORK'
   | 'ASSEMBLED'
+  | 'MODULE_ASSIGNED'
+  | 'CELLS_ASSIGNED'
+  | 'WELDED'
+  | 'QC'
+  | 'ASSEMBLY'
+  | 'WAREHOUSE'
+  | 'REJECTED'
+  | 'ARCHIVED'
   | 'FINISHED'
   | 'DISPATCHED';
 

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useApp } from '../../context/AppContext';
 import { api } from '../../services/api';
 import {
@@ -37,6 +37,11 @@ interface TraceNode {
 const fmt = (v: any): string =>
   v === undefined || v === null || v === '' ? 'Not recorded' : String(v);
 
+const formatTraceStatus = (status: any): string => String(status || '')
+  .replace(/^KARACHI_WAREHOUSE$/, 'Karachi Warehouse')
+  .replace(/^LAHORE_WAREHOUSE$/, 'Lahore Warehouse')
+  .replace(/_/g, ' ');
+
 function makeNode(
   key: string,
   title: string,
@@ -49,7 +54,7 @@ function makeNode(
   return { key, title, type, data, subtitle, badge, children };
 }
 
-function batterySubtree(bat: any, bms: any, bmu: any, modules = bat.modules || []): TraceNode {
+function batterySubtree(bat: any, bms: any, bmu: any, modules = bat.modules || [], rack?: any): TraceNode {
   const children: TraceNode[] = [];
   modules.forEach((m: any, mi: number) => {
     const cellChildren: TraceNode[] = (m.cells || []).map((c: any, ci: number) =>
@@ -64,6 +69,7 @@ function batterySubtree(bat: any, bms: any, bmu: any, modules = bat.modules || [
   if (bat.finalQcResult)
     children.push(makeNode('finalqc-' + bat.serialNumber, 'Final QC', 'FINAL_QC', bat.finalQcResult, 'Final QC'));
   children.push(makeNode('release-' + bat.serialNumber, 'Release', 'RELEASE', { status: bat.status }, bat.status));
+  if (rack) children.push(makeNode('rack-' + (rack.serialNumber || rack.id), rack.serialNumber || rack.id, 'RACK', rack, 'Rack', rack.status));
   return makeNode('battery-' + bat.serialNumber, bat.serialNumber, 'BATTERY', bat, 'Battery Pack', undefined, children);
 }
 
@@ -120,7 +126,7 @@ function buildTree(t: any): TraceNode[] {
   }
 
   if (type === 'BATTERY') {
-    const roots = [batterySubtree(e, t.bms, t.bmu, t.modules || [])];
+    const roots = [batterySubtree(e, t.bms, t.bmu, t.modules || [], t.rack)];
     if (t.supplier) roots.unshift(makeNode('supplier', t.supplier.name, 'SUPPLIER', t.supplier, 'Supplier'));
     return roots;
   }
@@ -384,6 +390,7 @@ export const TraceabilityView: React.FC = () => {
   const [error, setError] = useState<{ message: string } | null>(null);
   const [recentSerials, setRecentSerials] = useState<{ label: string; serial: string }[]>([]);
   const [selectedKey, setSelectedKey] = useState<string>('');
+  const searchRequestRef = useRef(0);
 
   useEffect(() => {
     loadRecentSerials();
@@ -408,18 +415,22 @@ export const TraceabilityView: React.FC = () => {
   const handleSearch = async (targetQuery?: string) => {
     const q = (targetQuery || query).trim();
     if (!q) return;
+    const requestId = ++searchRequestRef.current;
     setLoading(true);
     setError(null);
     setTrace(null);
     setSelectedKey('');
     try {
       const result = await api.universalTrace(q);
+      if (requestId !== searchRequestRef.current) return;
       setTrace(result);
+      setError(null);
     } catch (err: any) {
+      if (requestId !== searchRequestRef.current) return;
       setTrace(null);
       setError({ message: err.message || 'Traceability record not found.' });
     } finally {
-      setLoading(false);
+      if (requestId === searchRequestRef.current) setLoading(false);
     }
   };
 
@@ -533,7 +544,7 @@ export const TraceabilityView: React.FC = () => {
               <div className="mt-2 space-y-1 text-xs">
                 <p><span className="text-slate-400">Type:</span> <strong className="text-white">{TYPE_LABEL[trace.entityType] || trace.entityType}</strong></p>
                 <p><span className="text-slate-400">Identifier:</span> <strong className="font-mono text-emerald-300">{trace.identifier}</strong></p>
-                <p><span className="text-slate-400">Status:</span> <strong className="text-white">{trace.status}</strong></p>
+                <p><span className="text-slate-400">Status:</span> <strong className="text-white">{formatTraceStatus(trace.status)}</strong></p>
               </div>
             </div>
             <button

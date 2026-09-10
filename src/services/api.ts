@@ -82,6 +82,86 @@ function toAppValue(value: any): any {
   return Object.fromEntries(Object.entries(value).map(([key, child]) => [toAppColumn(key), toAppValue(child)]));
 }
 
+export function buildWarehouseReceiveResult(entityType: 'MODULE' | 'BATTERY' | 'RACK', entityId: string, location: 'KARACHI' | 'LAHORE') {
+  const normalizedType = String(entityType).toUpperCase() as 'MODULE' | 'BATTERY' | 'RACK';
+  const normalizedLocation = String(location).toUpperCase() as 'KARACHI' | 'LAHORE';
+  return {
+    success: true,
+    entityType: normalizedType,
+    entityId,
+    location: normalizedLocation,
+    status: normalizedType === 'BATTERY' ? 'WAREHOUSE' : 'IN_STOCK',
+  };
+}
+
+export function buildWarehouseLocationBuckets(
+  cellBuckets: any[] = [],
+  warehouseLocationMap: Map<string, string> = new Map(),
+  lifecycleByCellId: Map<string, string> = new Map(),
+) {
+  const counts = new Map<string, number>();
+  const sourceCounts = new Map<string, number>();
+  const lifecycleBucket = (value: string) => {
+    const normalized = String(value || '').toUpperCase();
+    if (normalized === 'SOLD') return 'Sold';
+    if (normalized === 'SCRAP' || normalized === 'QUARANTINED' || normalized === 'REJECTED') return 'Scrap';
+    if (normalized === 'IN_RACK') return 'In Rack';
+    if (normalized === 'IN_PACK') return 'In Pack';
+    if (normalized === 'IN_MODULE') return 'In Module';
+    if (normalized === 'FLOOR_STOCK') return 'Floor Stock';
+    return 'In Stock';
+  };
+  for (const [cellId, location] of warehouseLocationMap.entries()) {
+    if (!['KARACHI', 'LAHORE'].includes(String(location).toUpperCase())) continue;
+    const bucketName = String(location).toUpperCase() === 'KARACHI' ? 'Karachi Warehouse' : 'Lahore Warehouse';
+    counts.set(bucketName, (counts.get(bucketName) || 0) + 1);
+    if (lifecycleByCellId.has(cellId)) {
+      const bucket = lifecycleBucket(lifecycleByCellId.get(cellId) || '');
+      sourceCounts.set(bucket, (sourceCounts.get(bucket) || 0) + 1);
+    }
+  }
+
+  const warehouseCellCount = Array.from(counts.values()).reduce((sum, value) => sum + value, 0);
+  const rows = Array.isArray(cellBuckets) ? cellBuckets.map(row => ({ ...row, label: String(row?.label || '') })) : [];
+  const sourceLabels = ['In Rack', 'In Pack', 'In Module', 'Floor Stock', 'In Stock', 'Sold', 'Scrap'];
+  const exactSourceCounts = sourceCounts.size > 0 ? sourceCounts : new Map<string, number>();
+  if (exactSourceCounts.size === 0 && warehouseCellCount > 0) {
+    let remainingWarehouseCells = warehouseCellCount;
+    for (const label of sourceLabels) {
+      if (remainingWarehouseCells <= 0) break;
+      exactSourceCounts.set(label, Math.min(
+        Math.max(0, Number(rows.find(row => row.label.toLowerCase() === label.toLowerCase())?.value || 0)),
+        remainingWarehouseCells,
+      ));
+      remainingWarehouseCells -= exactSourceCounts.get(label) || 0;
+    }
+  }
+  for (const [label, count] of exactSourceCounts.entries()) {
+    const index = rows.findIndex(row => row.label.toLowerCase() === label.toLowerCase());
+    if (index < 0) continue;
+    const currentValue = Math.max(0, Number(rows[index].value || 0));
+    const removed = Math.min(currentValue, count);
+    rows[index] = { ...rows[index], value: currentValue - removed };
+  }
+  for (const [label, value] of counts.entries()) {
+    const index = rows.findIndex((row: any) => String(row.label).toLowerCase() === label.toLowerCase());
+    if (index >= 0) {
+      rows[index] = { ...rows[index], value: Number(rows[index]?.value || 0) + value };
+    } else {
+      rows.push({ label, value });
+    }
+  }
+
+  return rows;
+}
+
+export function warehouseLocationStatus(location: string | undefined): string | undefined {
+  const normalized = String(location || '').toUpperCase();
+  if (normalized === 'KARACHI') return 'KARACHI_WAREHOUSE';
+  if (normalized === 'LAHORE') return 'LAHORE_WAREHOUSE';
+  return undefined;
+}
+
 export function normalizeBatteryRecord(battery: any): any {
   const serialNumber = String(battery?.serial_number ?? battery?.serialNumber ?? battery?.id ?? '').trim();
   const productName = String(
@@ -164,6 +244,219 @@ async function loadModuleCellAssignments(moduleIds: string[]): Promise<any[]> {
   const failed = results.find(result => result.error);
   if (failed?.error) throw failed.error;
   return results.flatMap(result => result.data || []);
+}
+
+async function resolveWarehouseCellLocations() {
+  if (!rawSupabase) return { locationByCell: new Map<string, string>(), latestByEntity: new Map<string, string>(), warehouseRackCounts: { KARACHI: 0, LAHORE: 0 }, warehouseRackTypeCounts: [], warehouseBatteryCounts: { KARACHI: 0, LAHORE: 0 }, warehouseBatteryTypeCounts: [] };
+
+  const normalizeWarehouseLocation = (value: unknown): 'KARACHI' | 'LAHORE' | '' => {
+    const normalized = String(value || '').trim().toUpperCase().replace(/[_-]+/g, ' ');
+    if (normalized === 'KARACHI' || normalized === 'KARACHI WAREHOUSE') return 'KARACHI';
+    if (normalized === 'LAHORE' || normalized === 'LAHORE WAREHOUSE') return 'LAHORE';
+    return '';
+  };
+
+  const fetchAllRows = async (table: string, columns: string) => {
+    const rows: any[] = [];
+    const pageSize = 1000;
+    for (let offset = 0; ; offset += pageSize) {
+      const { data, error } = await rawSupabase.from(table).select(columns).range(offset, offset + pageSize - 1);
+      if (error) throw error;
+      rows.push(...(data || []));
+      if (!data || data.length < pageSize) return rows;
+    }
+  };
+
+  const [warehouseResult, moduleCells, modulesResult, batteriesResult, rackPacksResult, racksResult, cellsResult] = await Promise.all([
+    rawSupabase.from('warehouse_movements')
+      .select('entity_type, entity_id, to_location, moved_at')
+      .order('moved_at', { ascending: false }),
+    fetchAllRows('module_cells', 'cell_id, module_id'),
+    rawSupabase.from('modules').select('id, serial_number, battery_id'),
+    rawSupabase.from('batteries').select('id, serial_number, product_templates(name, capacity_kwh)'),
+    rawSupabase.from('rack_packs').select('battery_id, rack_id'),
+    rawSupabase.from('racks').select('id, serial_number, qr_code, rack_template_code, location'),
+    fetchAllRows('cells', 'id, lifecycle_status, status'),
+  ]);
+  const warehouseMoves = warehouseResult.data || [];
+  const modules = modulesResult.data || [];
+  const batteries = batteriesResult.data || [];
+  const rackPacks = rackPacksResult.data || [];
+  const racks = racksResult.data || [];
+  const lifecycleByCellId = new Map<string, string>((cellsResult || []).map((cell: any) => [
+    String(cell.id),
+    String(cell.lifecycle_status || cell.status || ''),
+  ]));
+
+  const canonicalIds = new Map<string, string>();
+  const addCanonicalIds = (entityType: string, rows: any[]) => {
+    rows.forEach(row => {
+      const id = String(row?.id || '');
+      if (!id) return;
+      [row.id, row.serial_number, row.qr_code].filter(Boolean).forEach(value => {
+        canonicalIds.set(`${entityType}:${String(value)}`, id);
+      });
+    });
+  };
+  addCanonicalIds('MODULE', modules || []);
+  addCanonicalIds('BATTERY', batteries || []);
+  addCanonicalIds('RACK', racks || []);
+
+  const canonicalEntityId = (entityType: string, entityId: string) => canonicalIds.get(`${entityType}:${entityId}`) || entityId;
+
+  const latestByEntity = new Map<string, string>();
+  const orderedWarehouseMoves = [...(warehouseMoves || [])].sort((left: any, right: any) => {
+    const leftTime = new Date(left?.moved_at || 0).getTime();
+    const rightTime = new Date(right?.moved_at || 0).getTime();
+    return rightTime - leftTime;
+  });
+  orderedWarehouseMoves.forEach((row: any) => {
+    const type = String(row.entity_type || '').toUpperCase();
+    const entityId = canonicalEntityId(type, String(row.entity_id || ''));
+    const location = normalizeWarehouseLocation(row.to_location);
+    if (!type || !entityId) return;
+    const key = `${type}:${entityId}`;
+    if (!latestByEntity.has(key)) latestByEntity.set(key, location);
+  });
+
+  // The rack row is the current source of truth after a warehouse edit.
+  // It also covers older edits whose movement log was not written because of RLS.
+  (racks || []).forEach((rack: any) => {
+    const rackId = String(rack?.id || '');
+    const location = normalizeWarehouseLocation(rack?.location);
+    if (rackId && location) latestByEntity.set(`RACK:${rackId}`, location);
+  });
+
+  const moduleIdsByBattery = new Map<string, string[]>();
+  for (const module of modules || []) {
+    const batteryId = module?.battery_id ? String(module.battery_id) : '';
+    if (!batteryId) continue;
+    const current = moduleIdsByBattery.get(batteryId) || [];
+    current.push(String(module.id));
+    moduleIdsByBattery.set(batteryId, current);
+  }
+
+  const cellIdsByModule = new Map<string, string[]>();
+  for (const entry of moduleCells || []) {
+    const moduleId = String(entry?.module_id || '');
+    const cellId = String(entry?.cell_id || '');
+    if (!moduleId || !cellId) continue;
+    const current = cellIdsByModule.get(moduleId) || [];
+    current.push(cellId);
+    cellIdsByModule.set(moduleId, current);
+  }
+
+  const rackIdsByBattery = new Map<string, string[]>();
+  for (const row of rackPacks || []) {
+    const batteryId = row?.battery_id ? String(row.battery_id) : '';
+    const rackId = row?.rack_id ? String(row.rack_id) : '';
+    if (!batteryId || !rackId) continue;
+    const current = rackIdsByBattery.get(batteryId) || [];
+    current.push(rackId);
+    rackIdsByBattery.set(batteryId, current);
+  }
+
+  const locationByCell = new Map<string, string>();
+
+  const assignCellLocation = (cellId: string, location: string) => {
+    const normalizedLocation = normalizeWarehouseLocation(location);
+    if (!cellId || !normalizedLocation) return;
+    if (!locationByCell.has(cellId)) locationByCell.set(cellId, normalizedLocation);
+  };
+
+  const applyEntityToCellSet = (entityType: string, entityId: string, location: string) => {
+    const normalizedLocation = normalizeWarehouseLocation(location);
+    if (!entityId || !normalizedLocation) return;
+
+    if (entityType === 'CELL') {
+      assignCellLocation(entityId, normalizedLocation);
+      return;
+    }
+
+    if (entityType === 'MODULE') {
+      const cellIds = cellIdsByModule.get(entityId) || [];
+      cellIds.forEach(cellId => assignCellLocation(cellId, normalizedLocation));
+      return;
+    }
+
+    if (entityType === 'BATTERY') {
+      const moduleIds = moduleIdsByBattery.get(entityId) || [];
+      moduleIds.forEach(moduleId => {
+        (cellIdsByModule.get(moduleId) || []).forEach(cellId => assignCellLocation(cellId, location));
+      });
+      return;
+    }
+
+    if (entityType === 'RACK') {
+      const rackCells = new Set<string>();
+      const batteryIds = new Set<string>();
+      for (const row of rackPacks || []) {
+        if (String(row?.rack_id || '') !== entityId) continue;
+        if (row?.battery_id) batteryIds.add(String(row.battery_id));
+      }
+      batteryIds.forEach((batteryId: string) => {
+        const moduleIds = moduleIdsByBattery.get(batteryId) || [];
+        moduleIds.forEach((moduleId: string) => {
+          (cellIdsByModule.get(moduleId) || []).forEach((cellId: string) => rackCells.add(cellId));
+        });
+      });
+      rackCells.forEach((cellId: string) => locationByCell.set(cellId, normalizedLocation));
+    }
+  };
+
+  latestByEntity.forEach((location, key) => {
+    const separatorIndex = key.indexOf(':');
+    if (separatorIndex < 1) return;
+    const entityType = key.slice(0, separatorIndex);
+    const entityId = key.slice(separatorIndex + 1);
+    if (entityType === 'RACK') return;
+    applyEntityToCellSet(entityType, entityId, location);
+  });
+
+  latestByEntity.forEach((location, key) => {
+    if (!key.startsWith('RACK:')) return;
+    applyEntityToCellSet('RACK', key.slice('RACK:'.length), location);
+  });
+
+  const warehouseRackCounts = { KARACHI: 0, LAHORE: 0 };
+  const warehouseRackTypeCounts = new Map<string, { KARACHI: number; LAHORE: number }>();
+  const warehouseBatteryCounts = { KARACHI: 0, LAHORE: 0 };
+  const warehouseBatteryTypeCounts = new Map<string, { KARACHI: number; LAHORE: number }>();
+  latestByEntity.forEach((location, key) => {
+    if (key.startsWith('BATTERY:')) {
+      if (location === 'KARACHI') warehouseBatteryCounts.KARACHI += 1;
+      if (location === 'LAHORE') warehouseBatteryCounts.LAHORE += 1;
+      const batteryId = key.slice('BATTERY:'.length);
+      const battery = batteries.find((item: any) => String(item?.id || '') === batteryId);
+      const product = Array.isArray(battery?.product_templates) ? battery.product_templates[0] : battery?.product_templates;
+      const productName = String(product?.name || (Number(product?.capacity_kwh) >= 7 ? '7.5 kWh Battery Pack' : '5 kWh Battery Pack')).trim();
+      const counts = warehouseBatteryTypeCounts.get(productName) || { KARACHI: 0, LAHORE: 0 };
+      if (location === 'KARACHI') counts.KARACHI += 1;
+      if (location === 'LAHORE') counts.LAHORE += 1;
+      warehouseBatteryTypeCounts.set(productName, counts);
+      return;
+    }
+    if (!key.startsWith('RACK:')) return;
+    if (location === 'KARACHI') warehouseRackCounts.KARACHI += 1;
+    if (location === 'LAHORE') warehouseRackCounts.LAHORE += 1;
+    const rackId = key.slice('RACK:'.length);
+    const rack = racks.find((item: any) => String(item?.id || '') === rackId);
+    const type = String(rack?.rack_template_code || 'UNKNOWN_RACK').toUpperCase();
+    const counts = warehouseRackTypeCounts.get(type) || { KARACHI: 0, LAHORE: 0 };
+    if (location === 'KARACHI') counts.KARACHI += 1;
+    if (location === 'LAHORE') counts.LAHORE += 1;
+    warehouseRackTypeCounts.set(type, counts);
+  });
+
+  return {
+    locationByCell,
+    latestByEntity,
+    warehouseRackCounts,
+    warehouseRackTypeCounts: Array.from(warehouseRackTypeCounts.entries()).map(([type, counts]) => ({ type, ...counts })),
+    warehouseBatteryCounts,
+    warehouseBatteryTypeCounts: Array.from(warehouseBatteryTypeCounts.entries()).map(([type, counts]) => ({ type, ...counts })),
+    lifecycleByCellId,
+  };
 }
 
 function mapQueryValue(method: string, value: any, index: number) {
@@ -528,13 +821,27 @@ async getUsers(): Promise<User[]> {
         assignedBms: (liveBms || []).filter((controller: any) => isAssignedController(controller, linkedBmsIds, controller.id)).length,
         assignedBmu: (liveBmus || []).filter((controller: any) => isAssignedController(controller, linkedBmuIds, controller.id)).length,
       };
+      const { locationByCell: warehouseCellLocations, lifecycleByCellId, warehouseRackCounts, warehouseRackTypeCounts, warehouseBatteryCounts, warehouseBatteryTypeCounts } = await resolveWarehouseCellLocations();
       const normalizedCellBuckets = reconcileDashboardCellBuckets(data?.cellBuckets, data?.inventory?.totalCells);
+      const warehouseAwareCellBuckets = buildWarehouseLocationBuckets(normalizedCellBuckets, warehouseCellLocations, lifecycleByCellId);
+      const karachiWarehouseCells = Array.from(warehouseCellLocations.values()).filter(location => location === 'KARACHI').length;
+      const lahoreWarehouseCells = Array.from(warehouseCellLocations.values()).filter(location => location === 'LAHORE').length;
       // Use data from RPC - it's already optimized at database level
       return {
-        inventory: data?.inventory || {
-          totalCells: 0, availableCells: 0, usedCells: 0, reservedCells: 0,
-          inProcessCells: 0, assembledCells: 0, quarantinedCells: 0,
-          finishedBatteries: 0, inProcessBatteries: 0
+        inventory: {
+          ...(data?.inventory || {
+            totalCells: 0, availableCells: 0, usedCells: 0, reservedCells: 0,
+            inProcessCells: 0, assembledCells: 0, quarantinedCells: 0,
+            finishedBatteries: 0, inProcessBatteries: 0,
+          }),
+          karachiWarehouseCells,
+          lahoreWarehouseCells,
+          karachiWarehouseRacks: warehouseRackCounts.KARACHI,
+          lahoreWarehouseRacks: warehouseRackCounts.LAHORE,
+          warehouseRackTypeCounts,
+          karachiWarehouseBatteries: warehouseBatteryCounts.KARACHI,
+          lahoreWarehouseBatteries: warehouseBatteryCounts.LAHORE,
+          warehouseBatteryTypeCounts,
         },
         quality: data?.quality || { firstPassYieldPercent: 0, quarantinedCount: 0 },
         orders: data?.orders || { total: 0, inProcess: 0, completed: 0, planned: 0 },
@@ -568,8 +875,10 @@ async getUsers(): Promise<User[]> {
           totalBms: Number(data?.inventory?.totalBms || 0),
           totalBmu: Number(data?.inventory?.totalBmu || 0),
         },
-        cellBuckets: normalizedCellBuckets,
-        cellTotal: Number(data?.inventory?.totalCells || normalizedCellBuckets.reduce((sum: number, bucket: any) => sum + (Number(bucket.value) || 0), 0)),
+        // Lifecycle buckets are authoritative. Warehouse location is reported separately
+        // and must not reclassify or duplicate cells in the inventory distribution.
+        cellBuckets: warehouseAwareCellBuckets,
+        cellTotal: Number(data?.inventory?.totalCells || warehouseAwareCellBuckets.reduce((sum: number, bucket: any) => sum + (Number(bucket.value) || 0), 0)),
         moduleTotal: liveModules?.length || 0,
         moduleStatusBuckets: liveModuleTypeBuckets,
         moduleTypeBuckets: liveModuleTypeBuckets,
@@ -625,7 +934,14 @@ async getUsers(): Promise<User[]> {
     ));
     const failedCellPage = reportCellPages.find(result => result.error);
     if (failedCellPage?.error) throw failedCellPage.error;
-    const cells = reportCellPages.flatMap(result => result.data || []) as CellItem[];
+    const cells = reportCellPages.flatMap(result => result.data || []).map((cell: any) => ({
+      ...cell,
+      supplierOcvV: cell.supplierOcvV ?? cell.supplier_ocv_v,
+      productionOcvV: cell.productionOcvV ?? cell.production_ocv_v,
+      reservedForOrderId: cell.reservedForOrderId ?? cell.reserved_for_order_id,
+      reservedForBatteryId: cell.reservedForBatteryId ?? cell.reserved_for_battery_id,
+      testedAt: cell.testedAt ?? cell.tested_at,
+    })) as CellItem[];
 
     const [batteriesResult, modulesResult, bmsResult, cellTestsResult, batteryTestsResult, quarantineResult] = await Promise.all([
       supabase.from('batteries').select('id,status,step_results_json,created_at'),
@@ -639,11 +955,20 @@ async getUsers(): Promise<User[]> {
     const failedResult = results.find(result => result.error);
     if (failedResult?.error) throw failedResult.error;
 
-    const batteries = (batteriesResult.data || []) as any[];
-    const modules = (modulesResult.data || []) as any[];
-    const bmsUnits = (bmsResult.data || []) as any[];
-    const cellTests = (cellTestsResult.data || []) as any[];
-    const batteryTests = (batteryTestsResult.data || []) as any[];
+    const batteries = (batteriesResult.data || []).map((battery: any) => ({
+      ...battery,
+      stepResults: battery.stepResults ?? battery.step_results_json,
+    }));
+    const modules = (modulesResult.data || []).map((module: any) => ({
+      ...module,
+      weldingResult: module.weldingResult ?? module.welding_result_json,
+    }));
+    const bmsUnits = (bmsResult.data || []).map((controller: any) => ({
+      ...controller,
+      testResult: controller.testResult ?? controller.test_result_json,
+    }));
+    const cellTests = (cellTestsResult.data || []).map((test: any) => ({ ...test, cellId: test.cellId ?? test.cell_id }));
+    const batteryTests = (batteryTestsResult.data || []).map((test: any) => ({ ...test, batteryId: test.batteryId ?? test.battery_id }));
     const quarantine = (quarantineResult.data || []) as any[];
     const testedCellIds = new Set(cellTests.map(test => test.cellId).filter(Boolean));
     const testedCells = testedCellIds.size || cells.filter(cell => cell.testedAt).length;
@@ -652,8 +977,10 @@ async getUsers(): Promise<User[]> {
     const totalQuarantined = quarantine.length;
     const reservedCells = cells.filter(cell => cell.reservedForOrderId || cell.reservedForBatteryId).length;
     const availableCells = cells.filter(cell => !cell.reservedForOrderId && !cell.reservedForBatteryId && cell.status !== 'QUARANTINED').length;
+    const passedTestCycles = cellTests.filter(test => test.passed === true).length
+      + batteryTests.filter(test => test.passed === true).length;
     const fpy = totalTestCycles > 0
-      ? Number(((Math.max(0, totalTestCycles - totalQuarantined) / totalTestCycles) * 100).toFixed(1))
+      ? Number(((passedTestCycles / totalTestCycles) * 100).toFixed(1))
       : 0;
     const weldedModules = modules.filter(module => module.weldingResult?.status);
     const passedWelds = weldedModules.filter(module => module.weldingResult.status === 'PASSED').length;
@@ -716,9 +1043,32 @@ async getUsers(): Promise<User[]> {
     if (batteriesResult.error) throw batteriesResult.error;
     if (cellsResult.error) throw cellsResult.error;
     return [
-      ...(batteriesResult.data || []).map((battery: any) => ({ label: `${battery.serialNumber} (Battery)`, serial: battery.serialNumber })),
-      ...(cellsResult.data || []).map((cell: any) => ({ label: `${cell.internalSerial} (Cell)`, serial: cell.internalSerial })),
+      ...(batteriesResult.data || []).map((battery: any) => {
+        const serial = battery.serialNumber || battery.serial_number || '';
+        return { label: `${serial} (Battery)`, serial };
+      }),
+      ...(cellsResult.data || []).map((cell: any) => {
+        const serial = cell.internalSerial || cell.internal_serial || '';
+        return { label: `${serial} (Cell)`, serial };
+      }),
     ].filter(item => Boolean(item.serial));
+  },
+
+  async getWarehouseEntityStatuses(): Promise<Record<string, 'KARACHI_WAREHOUSE' | 'LAHORE_WAREHOUSE'>> {
+    const resolved = await resolveWarehouseCellLocations();
+    const statuses: Record<string, 'KARACHI_WAREHOUSE' | 'LAHORE_WAREHOUSE'> = {};
+    const addStatus = (key: string, location: string) => {
+      const status = warehouseLocationStatus(location);
+      if (status) statuses[key] = status as 'KARACHI_WAREHOUSE' | 'LAHORE_WAREHOUSE';
+    };
+    Array.from(resolved.locationByCell.entries()).forEach(([cellId, location]) => addStatus(`CELL:${cellId}`, location));
+    resolved.latestByEntity?.forEach((location: string, key: string) => addStatus(key, location));
+    return statuses;
+  },
+
+  async getWarehouseCellStatuses(): Promise<Record<string, 'KARACHI_WAREHOUSE' | 'LAHORE_WAREHOUSE'>> {
+    const statuses = await api.getWarehouseEntityStatuses();
+    return Object.fromEntries(Object.entries(statuses).filter(([key]) => key.startsWith('CELL:')).map(([key, status]) => [key.slice(5), status])) as Record<string, 'KARACHI_WAREHOUSE' | 'LAHORE_WAREHOUSE'>;
   },
 
   // Products
@@ -964,7 +1314,7 @@ async getUsers(): Promise<User[]> {
       throw new Error('Invalid batch plan: no batteries to create.');
     }
 
-    // BUG-19 fix: add random suffix to prevent collision under concurrent imports
+    // Keep production order identifiers unique for concurrent imports.
     const productionOrderId = `PO-BULK-${Date.now()}-${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
     const timestampSuffix = Math.random().toString(36).substring(2, 8).toUpperCase();
     const now = new Date();
@@ -982,13 +1332,24 @@ async getUsers(): Promise<User[]> {
       const cellsPerModule = Math.max(1, Number(productTemplate?.cellsPerModule || productTemplate?.totalCells / Math.max(1, productTemplate?.numModules || 1)));
       const batteryPower = Number(productTemplate?.capacityKwh || 5).toString().replace(/\.0+$/, '');
       const serialPrefix = `P2G-BP-${batteryPower}KWH-${dayMonth}`;
-      const { data: existingSerialRows, error: serialLookupError } = await supabase
-        .from('batteries')
-        .select('serial_number')
-        .like('serial_number', `${serialPrefix}-%`);
-      if (serialLookupError) throw new Error(`Failed to verify battery serials: ${serialLookupError.message}`);
-      const usedSerials = new Set((existingSerialRows || []).map((row: any) => String(row.serial_number).toUpperCase()));
+      const existingSerialRows: any[] = [];
+      for (let offset = 0; ; offset += 1000) {
+        const { data: serialPage, error: serialLookupError } = await supabase
+          .from('batteries')
+          .select('serial_number')
+          .like('serial_number', `${serialPrefix}-%`)
+          .range(offset, offset + 999);
+        if (serialLookupError) throw new Error(`Failed to verify battery serials: ${serialLookupError.message}`);
+        existingSerialRows.push(...(serialPage || []));
+        if (!serialPage || serialPage.length < 1000) break;
+      }
+      const usedSerials = new Set(existingSerialRows.map((row: any) => String(row.serial_number).toUpperCase()));
       const batchSerials = new Set<string>();
+      const plannedSerials = params.batchPlan.batteries.map((plan: any) => String(plan.batterySerial || '').trim().toUpperCase()).filter(Boolean);
+      const duplicatePlannedSerials = plannedSerials.filter((serial: string, index: number) => plannedSerials.indexOf(serial) !== index);
+      if (duplicatePlannedSerials.length > 0) {
+        throw new Error(`Duplicate battery serials in batch plan: ${Array.from(new Set(duplicatePlannedSerials)).join(', ')}`);
+      }
       let nextSerialNumber = Math.max(0, ...Array.from(usedSerials)
         .map(serial => Number(String(serial).match(/-(\d{4})$/)?.[1] || 0))) + 1;
       const uniqueBatchSerial = () => {
@@ -996,6 +1357,18 @@ async getUsers(): Promise<User[]> {
         while (usedSerials.has(serial) || batchSerials.has(serial)) {
           nextSerialNumber += 1;
           serial = `${serialPrefix}-${String(nextSerialNumber).padStart(4, '0')}`;
+        }
+        nextSerialNumber += 1;
+        batchSerials.add(serial);
+        usedSerials.add(serial);
+        return serial;
+      };
+      const requestedBatchSerial = (value: unknown) => {
+        const requestedNumber = String(value || '').match(/-(\d+)$/)?.[1];
+        if (!requestedNumber) return uniqueBatchSerial();
+        const serial = `${serialPrefix}-${String(Number(requestedNumber)).padStart(4, '0')}`;
+        if (usedSerials.has(serial) || batchSerials.has(serial)) {
+          throw new Error(`Battery serial ${serial} is already used. Change the Battery number in the uploaded file.`);
         }
         nextSerialNumber += 1;
         batchSerials.add(serial);
@@ -1026,7 +1399,7 @@ async getUsers(): Promise<User[]> {
       const batteryInserts = params.batchPlan.batteries.map((plan: any, idx: number) => {
         const uniqueId = `bat-${timestampSuffix}-${String(idx + 1).padStart(6, '0')}`;
         // BUG-05 fix: use the serial from the batch plan (came from the Excel file), not a newly generated one
-        const serial = uniqueBatchSerial();
+        const serial = requestedBatchSerial(plan.batterySerial);
         return {
           id: uniqueId,
           serial_number: serial,
@@ -1157,12 +1530,9 @@ async getUsers(): Promise<User[]> {
 
           const uniqueModuleCellIds = dedupeModuleCellAssignments<string>(moduleCellIds);
           if (uniqueModuleCellIds.length !== cellsPerModule) {
-            console.error(
-              `❌ CRITICAL: Module ${moduleId} (Battery ${battery.serial_number}, Module ${moduleIndex}) ` +
-              `Expected ${cellsPerModule} cells but got ${uniqueModuleCellIds.length}. ` +
-              `Slice [${start}:${end}] from ${plan.cells.length} total. ` +
-              `Input IDs: [${moduleCellIds.join(', ')}]. ` +
-              `After dedup: [${uniqueModuleCellIds.join(', ')}]`
+            throw new Error(
+              `Module ${moduleId} (Battery ${battery.serial_number}, Module ${moduleIndex}) ` +
+              `requires ${cellsPerModule} unique cells but received ${uniqueModuleCellIds.length}.`
             );
           } else {
             console.log(
@@ -1238,33 +1608,33 @@ async getUsers(): Promise<User[]> {
         }
       }
 
-      const cellIds = Array.from(new Set(
-        params.batchPlan.batteries.flatMap((plan: any) => plan.cells.map((c: any) => c.id)),
-      ));
-
       // Keep each request small enough for PostgREST URLs when importing large batches.
       const reservationBatchSize = 200;
-      for (let start = 0; start < cellIds.length; start += reservationBatchSize) {
-        const reservationIds = cellIds.slice(start, start + reservationBatchSize);
-        const { data: reservedRows, error: cellError } = await supabase
-          .from('cells')
-          .update({
-            reserved_for_order_id: productionOrderId,
-            status: 'RESERVED',
-            updated_at: now.toISOString(),
-          })
-          .select('id')
-          .in('id', reservationIds);
+      for (let batteryIndex = 0; batteryIndex < params.batchPlan.batteries.length; batteryIndex += 1) {
+        const battery = batteriesData[batteryIndex];
+        const reservationIds = Array.from(new Set(params.batchPlan.batteries[batteryIndex].cells.map((cell: any) => cell.id).filter(Boolean)));
+        for (let start = 0; start < reservationIds.length; start += reservationBatchSize) {
+          const batchIds = reservationIds.slice(start, start + reservationBatchSize);
+          const { data: reservedRows, error: cellError } = await supabase
+            .from('cells')
+            .update({
+              reserved_for_order_id: productionOrderId,
+              reserved_for_battery_id: battery.id,
+              lifecycle_status: 'IN_PACK',
+              status: 'RESERVED',
+              updated_at: now.toISOString(),
+            })
+            .in('id', batchIds)
+            .is('reserved_for_order_id', null)
+            .is('reserved_for_battery_id', null)
+            .select('id');
 
-        // BUG-03 fix: throw on cell reservation failure — silently continuing causes double-allocation
-        if (cellError) {
-          throw new Error(
-            `Failed to reserve cells for production order ${productionOrderId} ` +
-            `(batch ${Math.floor(start / reservationBatchSize) + 1}): ${cellError.message}`,
-          );
-        }
-        if ((reservedRows || []).length !== reservationIds.length) {
-          throw new Error(`Cell allocation conflict: ${reservationIds.length - (reservedRows || []).length} cell(s) were allocated by another operation.`);
+          if (cellError) {
+            throw new Error(`Failed to reserve cells for production order ${productionOrderId}: ${cellError.message}`);
+          }
+          if ((reservedRows || []).length !== batchIds.length) {
+            throw new Error(`Cell allocation conflict: ${batchIds.length - (reservedRows || []).length} cell(s) were allocated by another operation.`);
+          }
         }
       }
 
@@ -1331,7 +1701,7 @@ async getUsers(): Promise<User[]> {
       return {
         productionOrderId,
         batteryCount: params.batchPlan.batchSize,
-        cellsAllocated: cellIds.length,
+        cellsAllocated: moduleCellInserts.length,
         status: 'RELEASED',
       };
     } catch (err: any) {
@@ -1395,7 +1765,9 @@ async getUsers(): Promise<User[]> {
     }
 
     for (let offset = 0; requestedLimit === undefined || cells.length < requestedLimit; offset += pageSize) {
-      let query = supabase.from('cells').select(params?.fields || '*');
+      let query = params?.fields
+        ? supabase.from('cells').select(params.fields)
+        : supabase.from('cells').select('*, supplier:suppliers(name)');
 
       if (params?.status) {
         if (params.status === 'AVAILABLE') {
@@ -1426,6 +1798,7 @@ async getUsers(): Promise<User[]> {
       if (error) throw error;
       const page = (data || []).map((cell: any) => ({
         ...cell,
+        manufacturerName: cell.manufacturerName ?? cell.manufacturer_name ?? cell.supplier?.name ?? '',
         internalSerial: cell.internalSerial ?? cell.internal_serial,
         supplierBarcode: cell.supplierBarcode ?? cell.supplier_barcode,
         reservedForOrderId: cell.reservedForOrderId ?? cell.reserved_for_order_id,
@@ -1767,12 +2140,18 @@ async getUsers(): Promise<User[]> {
   },
 
   async getBatteries(): Promise<BatteryUnit[]> {
-    const { data, error } = await supabase
-      .from('batteries')
-      .select('*')
-      .order('created_at', { ascending: false });
-    if (error) throw error;
-    const batteries = (data || []) as any[];
+    const batteries: any[] = [];
+    const pageSize = 1000;
+    for (let offset = 0; ; offset += pageSize) {
+      const { data, error } = await supabase
+        .from('batteries')
+        .select('*')
+        .range(offset, offset + pageSize - 1)
+        .order('created_at', { ascending: false });
+      if (error) throw error;
+      batteries.push(...(data || []));
+      if (!data || data.length < pageSize) break;
+    }
     const batteryIds = batteries.map(battery => battery.id).filter(Boolean);
     if (batteryIds.length === 0) return [];
     const [bmsResult, bmuResult] = await Promise.all([
@@ -1841,6 +2220,7 @@ async getUsers(): Promise<User[]> {
     const { data, error } = await supabase
       .from('batteries')
       .select('id,serial_number,production_order_id,current_step,progress_percent,status,lifecycle_status,bms_id,bmu_id,product_templates(name,capacity_kwh)')
+      .range(0, 9999)
       .order('created_at', { ascending: false });
     if (error) throw error;
     return (data || []).map((battery: any) => ({
@@ -3053,7 +3433,10 @@ async getUsers(): Promise<User[]> {
       const assignedCells = modules.reduce((total: number, module: any) => total + (Array.isArray(module.cells) ? module.cells.length : 0), 0);
       const cellsComplete = modules.length > 0 && assignedCells > 0 && (!requiredCells || assignedCells >= requiredCells);
       if (!cellsComplete) throw new Error('Cannot release battery: all module cell slots must be assigned.');
-      if (!current.bmsId && !current.bmuId) throw new Error('Cannot release battery: assign a BMS or BMU first.');
+      const bmsRequired = current.product?.bmsConfig?.required ?? current.product?.bms_config_json?.required ?? true;
+      const bmuRequired = current.product?.bmuConfig?.required ?? current.product?.bmu_config_json?.required ?? false;
+      if (bmsRequired && !current.bmsId) throw new Error('Cannot release battery: assign a BMS first.');
+      if (bmuRequired && !current.bmuId) throw new Error('Cannot release battery: assign a BMU first.');
       if (current.stepResults?.FINAL_TESTING?.status !== 'PASSED') throw new Error('Cannot release battery: pack testing must pass first.');
       const { data: openQuarantine, error: quarantineError } = await supabase
         .from('quarantine_records')
@@ -3117,9 +3500,9 @@ async getUsers(): Promise<User[]> {
     const cleanQuery = query.trim().toLowerCase();
     const find = async (table: string, columns: string[]) => {
       for (const column of columns) {
-        const result = await supabase.from(table).select('*').ilike(column, cleanQuery).maybeSingle();
+        const result = await supabase.from(table).select('*').ilike(column, cleanQuery).limit(1);
         if (result.error) throw result.error;
-        if (result.data) return result.data;
+        if (Array.isArray(result.data) && result.data.length > 0) return result.data[0];
       }
       return null;
     };
@@ -3153,6 +3536,18 @@ async getUsers(): Promise<User[]> {
       context.cells = context.modules.flatMap((module: any) => module.cells || []);
       if (battery.bmsId) context.bms = (await supabase.from('bms_units').select('*').eq('id', battery.bmsId).maybeSingle()).data;
       if (battery.bmuId) context.bmu = (await supabase.from('bmu_units').select('*').eq('id', battery.bmuId).maybeSingle()).data;
+      const { data: rackPack, error: rackPackError } = await supabase
+        .from('rack_packs')
+        .select('rack_id,pack_slot_index')
+        .eq('battery_id', battery.id)
+        .maybeSingle();
+      if (rackPackError) throw rackPackError;
+      if (rackPack?.rackId || rackPack?.rack_id) {
+        const rackId = rackPack.rackId || rackPack.rack_id;
+        const { data: rack, error: rackError } = await supabase.from('racks').select('*').eq('id', rackId).maybeSingle();
+        if (rackError) throw rackError;
+        if (rack) context.rack = { ...rack, packSlotIndex: rackPack.packSlotIndex ?? rackPack.pack_slot_index };
+      }
     };
 
     const loadRackContext = async (rack: any, context: any) => {
@@ -3187,7 +3582,18 @@ async getUsers(): Promise<User[]> {
         ? { ...entity, lifecycleStatus: entity.lifecycleStatus ?? entity.lifecycle_status }
         : entity;
       const lifecycleStatus = normalizedEntity.lifecycleStatus || normalizedEntity.lifecycle_status;
-      const context: any = { entityType, entity: normalizedEntity, identifier: query.trim(), status: lifecycleStatus || normalizedEntity.status };
+      const warehouseResolution = await resolveWarehouseCellLocations();
+      const warehouseLocation = entityType === 'CELL'
+        ? warehouseResolution.locationByCell.get(String(normalizedEntity.id))
+        : warehouseResolution.latestByEntity.get(`${entityType}:${String(normalizedEntity.id)}`);
+      const context: any = {
+        entityType,
+        entity: warehouseLocationStatus(warehouseLocation)
+          ? { ...normalizedEntity, status: warehouseLocationStatus(warehouseLocation) }
+          : normalizedEntity,
+        identifier: query.trim(),
+        status: warehouseLocationStatus(warehouseLocation) || lifecycleStatus || normalizedEntity.status,
+      };
       const formatGenealogyReason = (event: any): string | undefined => {
         const data = event.eventData || {};
         switch (event.eventType) {
@@ -3565,10 +3971,59 @@ async getUsers(): Promise<User[]> {
 
   async getWarehouseMovements(entityId?: string): Promise<any[]> {
     let query = supabase.from('warehouse_movements').select('*').order('moved_at', { ascending: false });
-    if (entityId) query = query.eq('entityId', entityId);
+    if (entityId) query = query.eq('entity_id', entityId);
     const { data, error } = await query;
     if (error) throw error;
-    return data || [];
+
+    const movements = data || [];
+    const entityRefs = new Map<string, Promise<{ serialNumber?: string; qrCode?: string } | null>>();
+    const addLookup = (entityType: string, entityIdValue: string) => {
+      if (!entityType || !entityIdValue) return Promise.resolve(null);
+      const key = `${entityType}:${entityIdValue}`;
+      if (entityRefs.has(key)) return entityRefs.get(key)!;
+
+      const promise = (async () => {
+        if (entityType === 'RACK') {
+          const { data: rack, error: rackError } = await supabase.from('racks').select('serial_number, qr_code').eq('id', entityIdValue).maybeSingle();
+          if (rackError || !rack) return null;
+          return { serialNumber: rack.serial_number || rack.serialNumber || rack.qr_code || entityIdValue, qrCode: rack.qr_code || rack.qrCode || rack.serial_number || entityIdValue };
+        }
+        if (entityType === 'BATTERY') {
+          const { data: battery, error: batteryError } = await supabase.from('batteries').select('serial_number, qr_code').eq('id', entityIdValue).maybeSingle();
+          if (batteryError || !battery) return null;
+          return { serialNumber: battery.serial_number || battery.serialNumber || battery.qr_code || entityIdValue, qrCode: battery.qr_code || battery.qrCode || battery.serial_number || entityIdValue };
+        }
+        if (entityType === 'MODULE') {
+          const { data: moduleRow, error: moduleError } = await supabase.from('modules').select('serial_number, qr_code').eq('id', entityIdValue).maybeSingle();
+          if (moduleError || !moduleRow) return null;
+          return { serialNumber: moduleRow.serial_number || moduleRow.serialNumber || moduleRow.qr_code || entityIdValue, qrCode: moduleRow.qr_code || moduleRow.qrCode || moduleRow.serial_number || entityIdValue };
+        }
+        if (entityType === 'CELL') {
+          const { data: cell, error: cellError } = await supabase.from('cells').select('internal_serial, qr_code').eq('id', entityIdValue).maybeSingle();
+          if (cellError || !cell) return null;
+          return { serialNumber: cell.internal_serial || cell.serialNumber || cell.qr_code || entityIdValue, qrCode: cell.qr_code || cell.qrCode || cell.internal_serial || entityIdValue };
+        }
+        return null;
+      })();
+
+      entityRefs.set(key, promise);
+      return promise;
+    };
+
+    const enriched = await Promise.all(movements.map(async (movement: any) => {
+      const entityType = String(movement.entity_type || movement.entityType || '').toUpperCase();
+      const entityIdValue = String(movement.entity_id || movement.entityId || '');
+      const metadata = entityIdValue ? await addLookup(entityType, entityIdValue) : null;
+      const serialNumber = metadata?.serialNumber || entityIdValue || movement.serial_number || movement.serialNumber || movement.id;
+      return {
+        ...movement,
+        entityType,
+        entityId: entityIdValue,
+        entitySerial: serialNumber,
+      };
+    }));
+
+    return enriched;
   },
 
   async dispatchBattery(batteryId: string, dispatchReference: string, destination: string): Promise<any> {
@@ -3580,6 +4035,78 @@ async getUsers(): Promise<User[]> {
     });
     if (error) throw error;
     return toAppValue(data);
+  },
+
+  async sellBattery(batteryId: string, client: string): Promise<any> {
+    if (!rawSupabase) throw new Error('Supabase is not configured.');
+    const { data, error } = await rawSupabase.rpc('sell_battery_transaction', {
+      p_battery_id: batteryId,
+      p_client: client,
+    });
+    if (error) throw error;
+    return toAppValue(data);
+  },
+
+  async getSaleHistory(): Promise<any[]> {
+    if (!rawSupabase) throw new Error('Supabase is not configured.');
+    const { data, error } = await rawSupabase.from('sale_history').select('*').order('sold_at', { ascending: false });
+    // Older sales were marked SOLD before sale_history existed. Include those
+    // records from the current entity status so the history is never blank.
+    const historyRows = error ? [] : (data || []);
+    const [{ data: batteries }, { data: racks }, { data: dispatches }, { data: rackEvents }, { data: warehouseDispatches }] = await Promise.all([
+      rawSupabase.from('batteries').select('id,serial_number,status,lifecycle_status,created_at,updated_at').eq('lifecycle_status', 'SOLD'),
+      rawSupabase.from('racks').select('id,serial_number,status,created_at,updated_at').eq('status', 'SOLD'),
+      rawSupabase.from('dispatches').select('battery_id,destination,dispatched_at').order('dispatched_at', { ascending: false }),
+      rawSupabase.from('lifecycle_events').select('entity_id,reason,recorded_at').eq('entity_type', 'RACK').eq('to_status', 'SOLD').order('recorded_at', { ascending: false }),
+      rawSupabase.from('warehouse_movements').select('entity_id,to_location,moved_at').eq('entity_type', 'BATTERY').eq('movement_type', 'DISPATCH').order('moved_at', { ascending: false }),
+    ]);
+    const soldRackIds = (racks || []).map(row => row.id);
+    const { data: soldRackPacks } = soldRackIds.length
+      ? await rawSupabase.from('rack_packs').select('rack_id,battery_id').in('rack_id', soldRackIds)
+      : { data: [] as any[] };
+    const batteriesInsideSoldRacks = new Set((soldRackPacks || []).map(row => row.battery_id));
+    const historyByKey = new Map(
+      historyRows
+        .filter(row => !(row.entity_type === 'BATTERY' && batteriesInsideSoldRacks.has(row.entity_id)))
+        .map(row => [`${row.entity_type}:${row.entity_id}`, row]),
+    );
+    const legacyClientByKey = new Map<string, string>([
+      ...(dispatches || []).map(row => [`BATTERY:${row.battery_id}`, row.destination] as [string, string]),
+      ...(warehouseDispatches || []).map(row => [`BATTERY:${row.entity_id}`, row.to_location] as [string, string]),
+      ...(rackEvents || []).map(row => [`RACK:${row.entity_id}`, row.reason] as [string, string]),
+    ]);
+    const currentSold = [
+      ...(batteries || []).filter(row => !batteriesInsideSoldRacks.has(row.id)).map(row => ({ ...row, entity_type: 'BATTERY' })),
+      ...(racks || []).map(row => ({ ...row, entity_type: 'RACK' })),
+    ];
+    return currentSold
+      .map(row => {
+        const key = `${row.entity_type}:${row.id}`;
+        const saved = historyByKey.get(key);
+        return {
+          id: saved?.id || `legacy-${key}`,
+          entityType: row.entity_type,
+          entityId: row.id,
+          serialNumber: row.serial_number || row.id,
+          clientName: saved?.client_name || legacyClientByKey.get(key) || 'Not recorded',
+          soldAt: saved?.sold_at || row.updated_at || row.created_at,
+          persisted: Boolean(saved),
+        };
+      })
+      .sort((left, right) => new Date(right.soldAt).getTime() - new Date(left.soldAt).getTime());
+  },
+
+  async updateSaleHistory(id: string, clientName: string): Promise<any> {
+    if (!rawSupabase) throw new Error('Supabase is not configured.');
+    const { data, error } = await rawSupabase.from('sale_history').update({ client_name: clientName, updated_at: new Date().toISOString() }).eq('id', id).select().single();
+    if (error) throw error;
+    return data;
+  },
+
+  async deleteSaleHistory(id: string): Promise<void> {
+    if (!rawSupabase) throw new Error('Supabase is not configured.');
+    const { error } = await rawSupabase.from('sale_history').delete().eq('id', id);
+    if (error) throw error;
   },
 
   async receiveBattery(batteryId: string, location: string): Promise<any> {
@@ -3599,8 +4126,250 @@ async getUsers(): Promise<User[]> {
       p_entity_id: entityId,
       p_location: location,
     });
-    if (error) throw error;
-    return toAppValue(data);
+    if (!error) return toAppValue(data);
+
+    const missingRpc = /schema cache|does not exist|could not find the function/i.test(error.message || '');
+    if (!missingRpc) throw error;
+
+    const trimmedId = String(entityId ?? '').trim();
+    if (!trimmedId) throw new Error('Entity identifier is required.');
+
+    const normalizedLocation = String(location).toUpperCase() as 'KARACHI' | 'LAHORE';
+
+    if (entityType === 'BATTERY') {
+      const { data: battery, error: batteryError } = await rawSupabase
+        .from('batteries')
+        .select('id, serial_number')
+        .or(`id.eq.${trimmedId},serial_number.eq.${trimmedId}`)
+        .maybeSingle();
+      if (batteryError) throw batteryError;
+      if (!battery) throw new Error(`Battery ${entityId} not found.`);
+
+      const { error: updateError } = await rawSupabase.from('batteries').update({
+        status: 'WAREHOUSE',
+        current_step: 'WAREHOUSE',
+        lifecycle_status: 'IN_STOCK',
+        updated_at: new Date().toISOString(),
+      }).eq('id', battery.id);
+      if (updateError) throw updateError;
+
+      try {
+        const { error: movementError } = await rawSupabase.from('warehouse_movements').insert({
+          id: `mov-${crypto.randomUUID()}`,
+          entity_type: 'BATTERY',
+          entity_id: battery.id,
+          movement_type: 'RECEIVE',
+          from_location: 'PRODUCTION',
+          to_location: normalizedLocation,
+          reference: 'Warehouse Receipt',
+          moved_by: null,
+          moved_at: new Date().toISOString(),
+        });
+        if (movementError) {
+          throw movementError;
+        }
+      } catch (movementFailure) {
+        throw movementFailure;
+      }
+
+      return buildWarehouseReceiveResult('BATTERY', battery.id, normalizedLocation);
+    }
+
+    if (entityType === 'MODULE') {
+      const { data: moduleRecord, error: moduleError } = await rawSupabase
+        .from('modules')
+        .select('id, serial_number')
+        .or(`id.eq.${trimmedId},serial_number.eq.${trimmedId}`)
+        .maybeSingle();
+      if (moduleError) throw moduleError;
+      if (!moduleRecord) throw new Error(`Module ${entityId} not found.`);
+
+      const { error: updateError } = await rawSupabase.from('modules').update({
+        lifecycle_status: 'IN_STOCK',
+        updated_at: new Date().toISOString(),
+      }).eq('id', moduleRecord.id);
+      if (updateError) throw updateError;
+
+      try {
+        const { error: movementError } = await rawSupabase.from('warehouse_movements').insert({
+          id: `mov-${crypto.randomUUID()}`,
+          entity_type: 'MODULE',
+          entity_id: moduleRecord.id,
+          movement_type: 'RECEIVE',
+          from_location: 'PRODUCTION',
+          to_location: normalizedLocation,
+          reference: 'Warehouse Receipt',
+          moved_by: null,
+          moved_at: new Date().toISOString(),
+        });
+        if (movementError) {
+          throw movementError;
+        }
+      } catch (movementFailure) {
+        throw movementFailure;
+      }
+
+      return buildWarehouseReceiveResult('MODULE', moduleRecord.id, normalizedLocation);
+    }
+
+    const { data: rackRecord, error: rackError } = await rawSupabase
+      .from('racks')
+      .select('id, serial_number, qr_code')
+      .or(`id.eq.${trimmedId},serial_number.eq.${trimmedId},qr_code.eq.${trimmedId}`)
+      .maybeSingle();
+    if (rackError) throw rackError;
+    if (!rackRecord) throw new Error(`Rack ${entityId} not found.`);
+
+    const { error: updateError } = await rawSupabase.from('racks').update({
+      location: normalizedLocation,
+      status: 'IN_STOCK',
+      updated_at: new Date().toISOString(),
+    }).eq('id', rackRecord.id);
+    if (updateError) throw updateError;
+
+    try {
+      const { error: movementError } = await rawSupabase.from('warehouse_movements').insert({
+        id: `mov-${crypto.randomUUID()}`,
+        entity_type: 'RACK',
+        entity_id: rackRecord.id,
+        movement_type: 'RECEIVE',
+        from_location: 'PRODUCTION',
+        to_location: normalizedLocation,
+        reference: 'Warehouse Receipt',
+        moved_by: null,
+        moved_at: new Date().toISOString(),
+      });
+      if (movementError) {
+        throw movementError;
+      }
+    } catch (movementFailure) {
+      throw movementFailure;
+    }
+
+    return buildWarehouseReceiveResult('RACK', rackRecord.id, normalizedLocation);
+  },
+
+  async updateWarehouseEntityLocation(entityType: 'MODULE' | 'BATTERY' | 'RACK', entityId: string, location: 'KARACHI' | 'LAHORE'): Promise<any> {
+    if (!rawSupabase) throw new Error('Supabase is not configured.');
+
+    const trimmedId = String(entityId ?? '').trim();
+    if (!trimmedId) throw new Error('Entity identifier is required.');
+
+    const normalizedLocation = String(location).toUpperCase() as 'KARACHI' | 'LAHORE';
+    const previousLocationQuery = await rawSupabase
+      .from('warehouse_movements')
+      .select('to_location')
+      .eq('entity_type', entityType)
+      .eq('entity_id', trimmedId)
+      .order('moved_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    const previousLocation = String(previousLocationQuery.data?.to_location || '').toUpperCase();
+
+    if (entityType === 'RACK') {
+      const { error: updateError } = await rawSupabase.from('racks').update({
+        location: normalizedLocation,
+        status: 'IN_STOCK',
+        updated_at: new Date().toISOString(),
+      }).eq('id', trimmedId);
+      if (updateError) throw updateError;
+    } else if (entityType === 'BATTERY') {
+      const { error: updateError } = await rawSupabase.from('batteries').update({
+        status: 'WAREHOUSE',
+        current_step: 'WAREHOUSE',
+        lifecycle_status: 'IN_STOCK',
+        updated_at: new Date().toISOString(),
+      }).eq('id', trimmedId);
+      if (updateError) throw updateError;
+    } else {
+      const { error: updateError } = await rawSupabase.from('modules').update({
+        lifecycle_status: 'IN_STOCK',
+        updated_at: new Date().toISOString(),
+      }).eq('id', trimmedId);
+      if (updateError) throw updateError;
+    }
+
+    try {
+      const { error: movementError } = await rawSupabase.from('warehouse_movements').insert({
+        id: `mov-${crypto.randomUUID()}`,
+        entity_type: entityType,
+        entity_id: trimmedId,
+        movement_type: 'MOVE',
+        from_location: previousLocation || 'UNKNOWN',
+        to_location: normalizedLocation,
+        reference: 'Warehouse Location Edit',
+        moved_by: null,
+        moved_at: new Date().toISOString(),
+      });
+      if (movementError) {
+        throw movementError;
+      }
+    } catch (movementFailure) {
+      throw movementFailure;
+    }
+
+    return {
+      success: true,
+      entityType,
+      entityId: trimmedId,
+      location: normalizedLocation,
+    };
+  },
+
+  async removeWarehouseEntity(entityType: 'MODULE' | 'BATTERY' | 'RACK', entityId: string): Promise<any> {
+    if (!rawSupabase) throw new Error('Supabase is not configured.');
+
+    const trimmedId = String(entityId ?? '').trim();
+    if (!trimmedId) throw new Error('Entity identifier is required.');
+
+    const previousLocationQuery = await rawSupabase
+      .from('warehouse_movements')
+      .select('to_location')
+      .eq('entity_type', entityType)
+      .eq('entity_id', trimmedId)
+      .order('moved_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    const previousLocation = String(previousLocationQuery.data?.to_location || '').toUpperCase();
+
+    if (entityType === 'RACK') {
+      const { error } = await rawSupabase.from('racks').update({
+        location: null,
+        status: 'IN_STOCK',
+        updated_at: new Date().toISOString(),
+      }).eq('id', trimmedId);
+      if (error) throw error;
+    } else if (entityType === 'BATTERY') {
+      const { error } = await rawSupabase.from('batteries').update({
+        status: 'IN_PROCESS',
+        current_step: 'PRODUCTION',
+        lifecycle_status: 'IN_PACK',
+        updated_at: new Date().toISOString(),
+      }).eq('id', trimmedId);
+      if (error) throw error;
+    } else {
+      const { error } = await rawSupabase.from('modules').update({
+        lifecycle_status: 'IN_MODULE',
+        updated_at: new Date().toISOString(),
+      }).eq('id', trimmedId);
+      if (error) throw error;
+    }
+
+    const { error: movementError } = await rawSupabase.from('warehouse_movements').insert({
+      id: `mov-${crypto.randomUUID()}`,
+      entity_type: entityType,
+      entity_id: trimmedId,
+      movement_type: 'MOVE',
+      from_location: previousLocation || 'WAREHOUSE',
+      to_location: 'PRODUCTION',
+      reference: 'Removed from Warehouse',
+      moved_by: null,
+      moved_at: new Date().toISOString(),
+    });
+    if (movementError) throw movementError;
+
+    return { success: true, entityType, entityId: trimmedId };
   },
 
   async movePalletToFloor(palletQr: string, location?: string): Promise<any> {
@@ -3629,9 +4398,19 @@ async getUsers(): Promise<User[]> {
   },
 
   async getRacks(): Promise<RackUnit[]> {
-    const { data, error } = await supabase.from('racks').select('*, rack_packs(battery_id, pack_slot_index)').order('created_at', { ascending: false });
-    if (error) throw error;
-    return (data || []).map((rack: any) => ({
+    const rows: any[] = [];
+    const pageSize = 1000;
+    for (let offset = 0; ; offset += pageSize) {
+      const { data, error } = await supabase
+        .from('racks')
+        .select('*, rack_packs(battery_id, pack_slot_index)')
+        .range(offset, offset + pageSize - 1)
+        .order('created_at', { ascending: false });
+      if (error) throw error;
+      rows.push(...(data || []));
+      if (!data || data.length < pageSize) break;
+    }
+    return rows.map((rack: any) => ({
       ...rack,
       id: rack.id,
       serialNumber: rack.serialNumber || rack.serial_number,
@@ -3664,6 +4443,14 @@ async getUsers(): Promise<User[]> {
       p_reference: reference,
     });
     if (error) throw error;
+    const { error: historyError } = await rawSupabase.from('sale_history').upsert({
+      entity_type: 'RACK',
+      entity_id: rackId,
+      client_name: destination,
+      sold_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    }, { onConflict: 'entity_type,entity_id' });
+    if (historyError) throw historyError;
     return toAppValue(data);
   },
 
@@ -3705,21 +4492,25 @@ async getUsers(): Promise<User[]> {
 
   // Audit
   async getAuditLogs(params?: { entityType?: string; search?: string; limit?: number }): Promise<AuditLog[]> {
-    let query = supabase.from('audit_logs').select('*');
-
-    if (params?.entityType) {
-      query = query.eq('entity_type', params.entityType);
+    const pageSize = 1000;
+    const requestedLimit = params?.limit && params.limit > 0 ? params.limit : undefined;
+    const logs: any[] = [];
+    for (let offset = 0; requestedLimit === undefined || logs.length < requestedLimit; offset += pageSize) {
+      let query = supabase.from('audit_logs').select('*');
+      if (params?.entityType) query = query.eq('entity_type', params.entityType);
+      if (params?.search && typeof params.search === 'string') {
+        const q = params.search.replace(/[%(),]/g, ' ').trim();
+        if (q) query = query.or(`actor.ilike.%${q}%,action.ilike.%${q}%,entity_id.ilike.%${q}%`);
+      }
+      const end = requestedLimit === undefined
+        ? offset + pageSize - 1
+        : Math.min(offset + pageSize - 1, requestedLimit - 1);
+      const { data, error } = await query.order('timestamp', { ascending: false }).range(offset, end);
+      if (error) throw error;
+      logs.push(...(data || []));
+      if (!data || data.length < pageSize) break;
     }
-    if (params?.search && typeof params.search === 'string') {
-      const q = params.search.replace(/[%(),]/g, ' ').trim();
-      if (q) query = query.or(`actor.ilike.%${q}%,action.ilike.%${q}%,entity_id.ilike.%${q}%`);
-    }
-    if (params?.limit) {
-      query = query.limit(params.limit);
-    }
-    const { data, error } = await query.order('timestamp', { ascending: false });
-    if (error) throw error;
-    return (data || []).map((log: any) => ({
+    return logs.slice(0, requestedLimit).map((log: any) => ({
       id: log.id,
       userId: log.actor || 'SYSTEM',
       userName: log.actor || 'SYSTEM',

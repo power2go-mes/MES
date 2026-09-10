@@ -515,6 +515,18 @@ create table if not exists public.dispatches (
     dispatched_at timestamptz not null default now()
 );
 
+create table if not exists public.sale_history (
+    id text primary key default ('sale-' || gen_random_uuid()::text),
+    entity_type text not null check (entity_type in ('BATTERY', 'RACK')),
+    entity_id text not null,
+    client_name text not null,
+    sold_at timestamptz not null default now(),
+    created_at timestamptz not null default now(),
+    updated_at timestamptz not null default now(),
+    unique (entity_type, entity_id)
+);
+create index if not exists idx_sale_history_sold_at on public.sale_history(sold_at desc);
+
 create table if not exists public.supplier_import_rows (
     id text primary key,
     import_id text not null references public.supplier_imports(id) on delete cascade,
@@ -623,6 +635,9 @@ begin
     end if;
     if p_module_index is null or p_module_index < 0 then
         raise exception 'A valid battery module slot is required';
+    end if;
+    if p_module_index >= coalesce((select num_modules from public.product_templates where id = v_battery.product_id), 0) then
+        raise exception 'Battery module slot % exceeds configured module count', p_module_index;
     end if;
 
     select m.* into v_module
@@ -1545,6 +1560,12 @@ begin
             raise exception 'BMS % is already assigned to battery %', v_bms_record.serial_number, v_bms_record.reserved_for_battery_id;
         end if;
 
+        if v_battery_record.bms_id is not null and v_battery_record.bms_id <> v_bms_record.id then
+            update public.bms_units
+            set reserved_for_battery_id = null, status = 'AVAILABLE', updated_at = now()
+            where id = v_battery_record.bms_id;
+        end if;
+
         update public.bms_units
         set reserved_for_battery_id = p_battery_id,
             status = 'ASSIGNED',
@@ -1584,6 +1605,12 @@ begin
 
         if v_bmu_record.reserved_for_battery_id is not null and v_bmu_record.reserved_for_battery_id <> p_battery_id then
             raise exception 'BMU % is already assigned to battery %', v_bmu_record.serial_number, v_bmu_record.reserved_for_battery_id;
+        end if;
+
+        if v_battery_record.bmu_id is not null and v_battery_record.bmu_id <> v_bmu_record.id then
+            update public.bmu_units
+            set reserved_for_battery_id = null, status = 'AVAILABLE', updated_at = now()
+            where id = v_battery_record.bmu_id;
         end if;
 
         update public.bmu_units
@@ -1678,6 +1705,13 @@ begin
 
     if v_source_module_id is null then
         raise exception 'Cell not assigned to a module';
+    end if;
+
+    if not exists (select 1 from public.modules where id = v_source_module_id and battery_id = p_battery_id) then
+        raise exception 'Source module does not belong to battery %', p_battery_id;
+    end if;
+    if not exists (select 1 from public.modules where id = p_target_module_id and battery_id = p_battery_id) then
+        raise exception 'Target module does not belong to battery %', p_battery_id;
     end if;
 
     if v_source_module_id = p_target_module_id and v_source_slot = p_target_slot then
@@ -2148,6 +2182,8 @@ create or replace function public.resolve_quarantine_transaction(
 ) returns jsonb as $$
 declare
     v_quarantine_record record;
+    v_cell_battery_id text;
+    v_cell_lifecycle text;
 begin
     perform public.require_permission('MANAGE_PRODUCTION');
     if upper(trim(p_disposition)) not in ('RELEASE_APPROVED', 'SCRAP', 'REWORK') then
@@ -2173,18 +2209,41 @@ begin
     );
 
     if v_quarantine_record.entity_type = 'CELL' then
-        update public.cells
-        set status = case when upper(trim(p_disposition)) = 'SCRAP' or lifecycle_status = 'SCRAP' then 'REJECTED'::cell_status else 'AVAILABLE'::cell_status end,
-            lifecycle_status = case when upper(trim(p_disposition)) = 'SCRAP' or lifecycle_status = 'SCRAP' then 'SCRAP' else 'FLOOR_STOCK' end
-        where id = v_quarantine_record.entity_id;
+        if upper(trim(p_disposition)) = 'SCRAP' then
+            update public.cells set status = 'REJECTED'::cell_status, lifecycle_status = 'SCRAP' where id = v_quarantine_record.entity_id;
+        else
+            select m.battery_id,
+                   case when exists (
+                       select 1 from public.rack_packs rp where rp.battery_id = m.battery_id
+                   ) then 'IN_RACK' when m.battery_id is not null then 'IN_PACK' else 'IN_MODULE' end
+              into v_cell_battery_id, v_cell_lifecycle
+              from public.module_cells mc
+              join public.modules m on m.id = mc.module_id
+             where mc.cell_id = v_quarantine_record.entity_id
+             limit 1;
+            update public.cells
+               set status = case when v_cell_battery_id is null then 'AVAILABLE'::cell_status else 'RESERVED'::cell_status end,
+                   lifecycle_status = coalesce(v_cell_lifecycle, 'FLOOR_STOCK'),
+                   reserved_for_battery_id = v_cell_battery_id
+             where id = v_quarantine_record.entity_id;
+        end if;
     elsif v_quarantine_record.entity_type = 'MODULE' then
-        update public.modules set status = case when upper(trim(p_disposition)) = 'SCRAP' then 'FAILED'::module_status else 'PASSED'::module_status end where id = v_quarantine_record.entity_id;
+        update public.modules
+        set status = case when upper(trim(p_disposition)) = 'SCRAP' then 'FAILED'::module_status else 'PASSED'::module_status end,
+            lifecycle_status = case when upper(trim(p_disposition)) = 'SCRAP' then 'SCRAP' else lifecycle_status end,
+            updated_at = now()
+        where id = v_quarantine_record.entity_id;
     elsif v_quarantine_record.entity_type = 'BATTERY' then
-        update public.batteries set status = case when upper(trim(p_disposition)) = 'SCRAP' then 'QUARANTINED'::battery_status else 'IN_PROCESS'::battery_status end where id = v_quarantine_record.entity_id;
+        update public.batteries
+        set status = case when upper(trim(p_disposition)) = 'SCRAP' then 'QUARANTINED'::battery_status else 'IN_PROCESS'::battery_status end,
+            current_step = case when upper(trim(p_disposition)) = 'SCRAP' then 'SCRAP' else current_step end,
+            lifecycle_status = case when upper(trim(p_disposition)) = 'SCRAP' then 'SCRAP' else lifecycle_status end,
+            updated_at = now()
+        where id = v_quarantine_record.entity_id;
     elsif v_quarantine_record.entity_type = 'BMS' then
-        update public.bms_units set status = case when upper(trim(p_disposition)) = 'SCRAP' then 'FAILED'::controller_status else 'AVAILABLE'::controller_status end where id = v_quarantine_record.entity_id;
+        update public.bms_units set status = case when upper(trim(p_disposition)) = 'SCRAP' then 'FAILED'::controller_status when reserved_for_battery_id is not null then 'ASSIGNED'::controller_status else 'AVAILABLE'::controller_status end where id = v_quarantine_record.entity_id;
     elsif v_quarantine_record.entity_type = 'BMU' then
-        update public.bmu_units set status = case when upper(trim(p_disposition)) = 'SCRAP' then 'FAILED'::controller_status else 'AVAILABLE'::controller_status end where id = v_quarantine_record.entity_id;
+        update public.bmu_units set status = case when upper(trim(p_disposition)) = 'SCRAP' then 'FAILED'::controller_status when reserved_for_battery_id is not null then 'ASSIGNED'::controller_status else 'AVAILABLE'::controller_status end where id = v_quarantine_record.entity_id;
     end if;
 
     insert into public.audit_logs (entity_type, entity_id, action, actor, result, details)
@@ -2234,6 +2293,65 @@ begin
     return to_jsonb(v_battery);
 end;
 $$ language plpgsql security definer;
+
+-- SELL BATTERY: terminal sale transition with full genealogy/status propagation.
+create or replace function public.sell_battery_transaction(
+    p_battery_id text,
+    p_client text
+) returns jsonb as $$
+declare
+    v_battery record;
+begin
+    perform public.require_permission('MANAGE_PRODUCTION');
+    if nullif(trim(p_client), '') is null then
+        raise exception 'Client name is required';
+    end if;
+
+    select * into v_battery from public.batteries where id = p_battery_id for update;
+    if not found then
+        raise exception 'Battery % not found', p_battery_id;
+    end if;
+    if v_battery.status <> 'RELEASED' and v_battery.status <> 'FINISHED' and v_battery.status <> 'WAREHOUSE' then
+        raise exception 'Battery status % is not valid for sale', v_battery.status;
+    end if;
+
+    update public.batteries
+    set status = 'DISPATCHED', current_step = 'SOLD', lifecycle_status = 'SOLD', updated_at = now()
+    where id = p_battery_id;
+
+    update public.modules
+    set lifecycle_status = 'SOLD', updated_at = now()
+    where battery_id = p_battery_id;
+
+    update public.cells c
+    set lifecycle_status = 'SOLD', updated_at = now()
+    where c.reserved_for_battery_id = p_battery_id
+       or exists (
+           select 1
+           from public.module_cells mc
+           join public.modules m on m.id = mc.module_id
+           where mc.cell_id = c.id and m.battery_id = p_battery_id
+       );
+
+    insert into public.dispatches (id, battery_id, dispatch_reference, destination, dispatched_by, dispatched_at)
+    values ('disp-' || gen_random_uuid()::text, p_battery_id, p_client, p_client, auth.uid(), now());
+
+    insert into public.warehouse_movements (id, entity_type, entity_id, movement_type, from_location, to_location, reference, moved_by, moved_at)
+    values ('mov-' || gen_random_uuid()::text, 'BATTERY', p_battery_id, 'DISPATCH', 'WAREHOUSE', p_client, p_client, auth.uid(), now());
+
+    insert into public.sale_history (entity_type, entity_id, client_name, sold_at, updated_at)
+    values ('BATTERY', p_battery_id, trim(p_client), now(), now())
+    on conflict (entity_type, entity_id) do update
+        set client_name = excluded.client_name, sold_at = excluded.sold_at, updated_at = excluded.updated_at;
+
+    insert into public.audit_logs (entity_type, entity_id, action, actor, result, details)
+    values ('BATTERY', p_battery_id, 'SELL_BATTERY', coalesce(auth.uid()::text, 'SYSTEM'), 'SUCCESS', 'Sold to ' || trim(p_client));
+
+    select * into v_battery from public.batteries where id = p_battery_id;
+    return to_jsonb(v_battery);
+end;
+$$ language plpgsql security definer set search_path = public;
+grant execute on function public.sell_battery_transaction(text, text) to authenticated;
 
 
 -- RECEIVE BATTERY
@@ -2330,6 +2448,8 @@ declare
     v_cell record;
     v_battery record;
     v_module record;
+    v_cell_matches integer;
+    v_cells_per_module integer;
 begin
     perform public.require_permission('MANAGE_PRODUCTION');
     select * into v_battery from public.batteries where id = p_battery_id for update;
@@ -2337,12 +2457,15 @@ begin
         raise exception 'Battery % not found', p_battery_id;
     end if;
 
+    select count(*) into v_cell_matches from public.cells
+    where id = p_cell_barcode or internal_serial = p_cell_barcode or supplier_barcode = p_cell_barcode;
+    if v_cell_matches = 0 then
+        raise exception 'Cell with barcode % not found in database', p_cell_barcode;
+    elsif v_cell_matches > 1 then
+        raise exception 'Cell barcode % is ambiguous; matching rows: %', p_cell_barcode, v_cell_matches;
+    end if;
     select * into v_cell from public.cells
     where id = p_cell_barcode or internal_serial = p_cell_barcode or supplier_barcode = p_cell_barcode for update;
-
-    if not found then
-        raise exception 'Cell with barcode % not found in database', p_cell_barcode;
-    end if;
 
     if exists (select 1 from public.module_cells where cell_id = v_cell.id) then
         raise exception 'Cell % is already assigned to a module', v_cell.internal_serial;
@@ -2362,6 +2485,17 @@ begin
         raise exception 'Module index % not found for battery %', p_module_index, p_battery_id;
     end if;
 
+    if p_cell_slot_index is null or p_cell_slot_index < 0 then
+        raise exception 'Cell slot must be zero or greater';
+    end if;
+    select coalesce(cells_per_module, case when upper(coalesce(v_module.module_type, '8S')) = '12S' then 12 else 8 end)
+      into v_cells_per_module
+      from public.product_templates
+     where id = v_battery.product_id;
+    if p_cell_slot_index >= coalesce(v_cells_per_module, 8) then
+        raise exception 'Cell slot % exceeds module capacity %', p_cell_slot_index, v_cells_per_module;
+    end if;
+
     if exists (select 1 from public.module_cells where module_id = v_module.id and cell_slot_index = p_cell_slot_index) then
         raise exception 'Module slot % is already occupied', p_cell_slot_index;
     end if;
@@ -2377,6 +2511,7 @@ begin
     update public.cells
     set status = 'SCANNED',
         reserved_for_battery_id = p_battery_id,
+        lifecycle_status = 'IN_PACK',
         updated_at = now()
     where id = v_cell.id;
 
@@ -2593,6 +2728,7 @@ alter table public.quarantine_records enable row level security;
 alter table public.warehouse_movements enable row level security;
 alter table public.release_records enable row level security;
 alter table public.dispatches enable row level security;
+alter table public.sale_history enable row level security;
 alter table public.supplier_import_rows enable row level security;
 alter table public.audit_logs enable row level security;
 alter table public.genealogy_records enable row level security;
@@ -2682,6 +2818,29 @@ create policy "Read Audit" on public.audit_logs for select using (public.has_per
 drop policy if exists "Write Audit" on public.audit_logs;
 create policy "Write Audit" on public.audit_logs for insert with check (public.has_permission('READ_MES') or public.has_permission('ALL'));
 revoke update, delete on public.audit_logs from anon, authenticated;
+
+drop policy if exists "Read Warehouse Movements" on public.warehouse_movements;
+create policy "Read Warehouse Movements" on public.warehouse_movements for select using (public.has_permission('READ_MES') or public.has_permission('ALL'));
+drop policy if exists "Write Warehouse Movements" on public.warehouse_movements;
+create policy "Write Warehouse Movements" on public.warehouse_movements for insert with check (
+    public.has_permission('MANAGE_PRODUCTION')
+    or public.has_permission('MANAGE_INVENTORY')
+    or public.has_permission('ALL')
+);
+
+drop policy if exists "Read Dispatches" on public.dispatches;
+create policy "Read Dispatches" on public.dispatches for select using (public.has_permission('READ_MES') or public.has_permission('ALL'));
+drop policy if exists "Write Dispatches" on public.dispatches;
+create policy "Write Dispatches" on public.dispatches for insert with check (public.has_permission('MANAGE_PRODUCTION') or public.has_permission('ALL'));
+
+drop policy if exists "Read Sale History" on public.sale_history;
+create policy "Read Sale History" on public.sale_history for select using (public.has_permission('READ_MES') or public.has_permission('ALL'));
+drop policy if exists "Write Sale History" on public.sale_history;
+create policy "Write Sale History" on public.sale_history for all using (
+    public.has_permission('MANAGE_PRODUCTION')
+    or public.has_permission('MANAGE_INVENTORY')
+    or public.has_permission('ALL')
+);
 
 -- Master Data
 drop policy if exists "Read Master" on public.product_templates;
@@ -3034,6 +3193,9 @@ begin
     v_serial := 'P2G-RACK-' || v_rack_power || 'KWH-' || to_char(current_date, 'DDMM') || '-' || lpad(v_next_number::text, 4, '0');
     if coalesce(array_length(p_battery_ids, 1), 0) <> v_required then raise exception 'Rack requires % packs', v_required; end if;
     if exists (select 1 from public.rack_packs where battery_id = any(p_battery_ids)) then raise exception 'One or more packs are already assigned to a rack'; end if;
+    if (select count(*) from public.batteries where id = any(p_battery_ids)) <> v_required then
+        raise exception 'All requested battery packs must exist';
+    end if;
     for v_battery in select b.*, p.capacity_kwh from public.batteries b join public.product_templates p on p.id = b.product_id where b.id = any(p_battery_ids) for update loop
         if coalesce(v_battery.pack_template_code, case when v_battery.capacity_kwh >= 7 then 'PACK_7_5KWH' else 'PACK_5KWH' end) <> v_pack_code then raise exception 'Pack % is incompatible with %', v_battery.serial_number, p_template_code; end if;
         if v_battery.status not in ('RELEASED','FINISHED','WAREHOUSE') then raise exception 'Pack % is not released', v_battery.serial_number; end if;
@@ -3069,8 +3231,20 @@ begin
     update public.racks set status = 'SOLD', updated_at = now() where id = v_rack.id;
     update public.batteries set lifecycle_status = 'SOLD', status = 'DISPATCHED', current_step = 'SOLD', updated_at = now() where id in (select battery_id from public.rack_packs where rack_id = v_rack.id);
     update public.modules set lifecycle_status = 'SOLD', updated_at = now() where battery_id in (select battery_id from public.rack_packs where rack_id = v_rack.id);
-    update public.cells set lifecycle_status = 'SOLD', updated_at = now() where reserved_for_battery_id in (select battery_id from public.rack_packs where rack_id = v_rack.id);
+        update public.cells c
+             set lifecycle_status = 'SOLD', updated_at = now()
+         where c.reserved_for_battery_id in (select battery_id from public.rack_packs where rack_id = v_rack.id)
+                or exists (
+                         select 1 from public.module_cells mc
+                         join public.modules m on m.id = mc.module_id
+                         where mc.cell_id = c.id
+                             and m.battery_id in (select battery_id from public.rack_packs where rack_id = v_rack.id)
+                );
     insert into public.lifecycle_events(entity_type, entity_id, from_status, to_status, reason, recorded_by) values ('RACK', v_rack.id, 'IN_RACK', 'SOLD', coalesce(p_destination, '') || ' ' || coalesce(p_reference, ''), auth.uid());
+    insert into public.sale_history (entity_type, entity_id, client_name, sold_at, updated_at)
+    values ('RACK', v_rack.id, trim(p_destination), now(), now())
+    on conflict (entity_type, entity_id) do update
+        set client_name = excluded.client_name, sold_at = excluded.sold_at, updated_at = excluded.updated_at;
     return jsonb_build_object('rackId', v_rack.id, 'status', 'SOLD');
 end $$;
 
@@ -3092,9 +3266,15 @@ begin
     update public.modules
     set lifecycle_status = 'IN_PACK', updated_at = now()
     where battery_id in (select battery_id from public.rack_packs where rack_id = v_rack.id);
-    update public.cells
-    set lifecycle_status = 'IN_PACK', updated_at = now()
-    where reserved_for_battery_id in (select battery_id from public.rack_packs where rack_id = v_rack.id);
+     update public.cells c
+     set lifecycle_status = 'IN_PACK', updated_at = now()
+     where c.reserved_for_battery_id in (select battery_id from public.rack_packs where rack_id = v_rack.id)
+         or exists (
+                select 1 from public.module_cells mc
+                join public.modules m on m.id = mc.module_id
+                where mc.cell_id = c.id
+                  and m.battery_id in (select battery_id from public.rack_packs where rack_id = v_rack.id)
+         );
     delete from public.rack_packs where rack_id = v_rack.id;
     delete from public.lifecycle_events where entity_type = 'RACK' and entity_id = v_rack.id;
     delete from public.racks where id = v_rack.id;
@@ -3331,6 +3511,19 @@ alter table public.cells add column if not exists lifecycle_status text default 
 alter table public.modules add column if not exists lifecycle_status text default 'IN_MODULE';
 alter table public.batteries add column if not exists lifecycle_status text default 'IN_PACK';
 
+create unique index if not exists cells_supplier_barcode_unique_idx
+    on public.cells (lower(trim(supplier_barcode)))
+    where supplier_barcode is not null and trim(supplier_barcode) <> '';
+create unique index if not exists batteries_bms_unique_idx
+    on public.batteries (bms_id)
+    where bms_id is not null;
+create unique index if not exists batteries_bmu_unique_idx
+    on public.batteries (bmu_id)
+    where bmu_id is not null;
+do $$ begin
+    alter table public.module_cells add constraint module_cells_slot_nonnegative check (cell_slot_index >= 0);
+exception when duplicate_object then null; end $$;
+
 create or replace function public.get_dashboard_summary(p_start_date date default null, p_end_date date default null)
 returns jsonb language sql security definer set search_path = public as $$
 with cell_bucket_assignments as (
@@ -3463,7 +3656,8 @@ select jsonb_build_object(
     'moduleStatusBuckets', jsonb_build_array(
         jsonb_build_object('label', 'Available', 'value', (select count(*)::int from public.modules where lifecycle_status = 'IN_MODULE')),
         jsonb_build_object('label', 'In Pack', 'value', (select count(*)::int from public.modules where lifecycle_status = 'IN_PACK')),
-        jsonb_build_object('label', 'In Rack', 'value', (select count(*)::int from public.modules where lifecycle_status = 'IN_RACK'))
+        jsonb_build_object('label', 'In Rack', 'value', (select count(*)::int from public.modules where lifecycle_status = 'IN_RACK')),
+        jsonb_build_object('label', 'Sold', 'value', (select count(*)::int from public.modules where lifecycle_status = 'SOLD'))
     ),
     'batteryStatusBuckets', jsonb_build_array(
         jsonb_build_object('label', 'Available', 'value', (select count(*)::int from public.batteries where lifecycle_status = 'IN_STOCK')),
@@ -3498,7 +3692,8 @@ select jsonb_build_object(
     'batteryBuildTrend', coalesce((select jsonb_agg(jsonb_build_object('label',day_label,'value',amount) order by day_label) from (select to_char(created_at,'YYYY-MM-DD') as day_label,count(*) as amount from public.batteries where status in ('FINISHED','RELEASED','DISPATCHED') group by 1 order by 1 desc limit 7) trend), '[]'::jsonb),
     'finishedPackTrend', coalesce((select jsonb_agg(jsonb_build_object('label',day_label,'value',amount) order by day_label) from (select to_char(created_at,'YYYY-MM-DD') as day_label,count(*) as amount from public.batteries where status in ('FINISHED','RELEASED','DISPATCHED') group by 1 order by 1 desc limit 7) trend), '[]'::jsonb),
     'quarantineOpenCount', (select count(*)::int from public.quarantine_records where status = 'OPEN')
-) from summary;
+) from summary
+where public.has_permission('READ_MES') or public.has_permission('ALL');
 $$;
 revoke all on function public.get_dashboard_summary() from public;
 revoke all on function public.get_dashboard_summary() from anon;
@@ -3537,6 +3732,7 @@ begin
         public.battery_tests,
         public.release_records,
         public.dispatches,
+        public.sale_history,
         public.warehouse_movements,
         public.quarantine_records,
         public.lifecycle_events,
@@ -3565,6 +3761,29 @@ grant execute on function public.reset_operational_data() to authenticated;
 -- ================================================================
 -- END OF AUTHORITATIVE SCHEMA
 -- ================================================================
+
+-- Reconcile historical terminal sales so linked genealogy uses the same
+-- business classification as the sold battery or rack.
+update public.modules m
+set lifecycle_status = 'SOLD', updated_at = now()
+where exists (
+    select 1 from public.batteries b
+    where b.id = m.battery_id and b.lifecycle_status = 'SOLD'
+);
+
+update public.cells c
+set lifecycle_status = 'SOLD', updated_at = now()
+where exists (
+    select 1 from public.batteries b
+    where b.id = c.reserved_for_battery_id and b.lifecycle_status = 'SOLD'
+)
+or exists (
+    select 1
+    from public.module_cells mc
+    join public.modules m on m.id = mc.module_id
+    join public.batteries b on b.id = m.battery_id
+    where mc.cell_id = c.id and b.lifecycle_status = 'SOLD'
+);
 
 -- Keep module lifecycle status aligned with the real production stage:
 -- rack-assigned modules become IN_RACK, pack-linked modules become IN_PACK,

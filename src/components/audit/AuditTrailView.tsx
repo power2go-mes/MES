@@ -27,7 +27,7 @@ export const AuditTrailView: React.FC = () => {
   const loadAuditLogs = async () => {
     setLoading(true);
     try {
-      const res = await api.getAuditLogs({ limit: 200 });
+      const res = await api.getAuditLogs({ limit: 10000 });
       setLogs(res);
     } catch (err) {
       console.error('Failed to load audit logs', err);

@@ -71,6 +71,8 @@ export const DashboardView: React.FC = () => {
     { label: 'In Module', value: cellBucketValues.get('In Module') ?? Number(inventory.inModuleCells || 0), color: '#1b1b1b' },
     { label: 'In Pack', value: cellBucketValues.get('In Pack') ?? Number(inventory.inPackCells || 0), color: '#e8a323' },
     { label: 'In Rack', value: cellBucketValues.get('In Rack') ?? Number(inventory.inRackCells || 0), color: '#0ea5e9' },
+    { label: 'Karachi Warehouse', value: cellBucketValues.get('Karachi Warehouse') ?? Number(inventory.karachiWarehouseCells || 0), color: '#14532d' },
+    { label: 'Lahore Warehouse', value: cellBucketValues.get('Lahore Warehouse') ?? Number(inventory.lahoreWarehouseCells || 0), color: '#2563eb' },
     { label: 'Sold', value: cellBucketValues.get('Sold') ?? Number(inventory.soldCells || 0), color: '#059669' },
     { label: 'Scrap', value: cellBucketValues.get('Scrap') ?? Number(inventory.scrapCells || 0), color: '#b7b7b7' },
   ];

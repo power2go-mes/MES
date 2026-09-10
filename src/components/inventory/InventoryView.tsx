@@ -27,7 +27,7 @@ import {
 type Tab = 'CELLS' | 'BMS' | 'BMU' | 'MODULES' | 'BATTERIES' | 'RACKS';
 
 const cellStatuses = [
-  'IN_STOCK', 'FLOOR_STOCK', 'IN_MODULE', 'IN_PACK', 'IN_RACK', 'SOLD', 'SCRAP',
+  'IN_STOCK', 'FLOOR_STOCK', 'IN_MODULE', 'IN_PACK', 'IN_RACK', 'KARACHI_WAREHOUSE', 'LAHORE_WAREHOUSE', 'SOLD', 'SCRAP',
 ] as const;
 
 export const InventoryView: React.FC = () => {
@@ -41,6 +41,8 @@ export const InventoryView: React.FC = () => {
   const [cells, setCells] = useState<CellItem[]>([]);
   const [allCells, setAllCells] = useState<CellItem[]>([]);
   const [cellBuckets, setCellBuckets] = useState<Array<{ cellId: string; bucket: 'AVAILABLE' | 'RESERVED' | 'IN_PROCESS' | 'DAMAGE' }>>([]);
+  const [warehouseCellStatuses, setWarehouseCellStatuses] = useState<Record<string, string>>({});
+  const [warehouseEntityStatuses, setWarehouseEntityStatuses] = useState<Record<string, string>>({});
   const [allCellsCount, setAllCellsCount] = useState(0);
   const [usedCellsCount, setUsedCellsCount] = useState(0);
   const [cellDisplayLimit, setCellDisplayLimit] = useState(50);
@@ -96,21 +98,23 @@ export const InventoryView: React.FC = () => {
     setLoading(true);
     try {
       if (activeTab === 'CELLS') {
-        const serverLifecycleStatus = cellStatuses.includes(statusFilter as typeof cellStatuses[number])
+        const serverLifecycleStatus = !['KARACHI_WAREHOUSE', 'LAHORE_WAREHOUSE'].includes(statusFilter) && cellStatuses.includes(statusFilter as typeof cellStatuses[number])
           ? statusFilter
           : undefined;
-        const [res, counts] = await Promise.all([
+        const [res, counts, warehouseStatuses] = await Promise.all([
           api.getCells({
             search: search || undefined,
             lifecycleStatus: serverLifecycleStatus,
             usedOnly: cellsView === 'USED' ? true : undefined,
-            limit: 50,
+            limit: statusFilter === 'KARACHI_WAREHOUSE' || statusFilter === 'LAHORE_WAREHOUSE' ? 10000 : 50,
           }),
           !search && !statusFilter
             ? api.getCellCounts()
             : Promise.resolve({ total: allCellsCount, used: usedCellsCount, available: 0, quarantined: 0 }),
+          api.getWarehouseCellStatuses(),
         ]);
         setCells(res);
+        setWarehouseCellStatuses(warehouseStatuses);
         setAllCellsCount(counts.total);
         setUsedCellsCount(counts.used);
         if (!search && !statusFilter) {
@@ -158,11 +162,13 @@ export const InventoryView: React.FC = () => {
         const res = await api.getModules();
         setModules(res);
       } else if (activeTab === 'BATTERIES') {
-        const res = await api.getBatteries();
+        const [res, warehouseStatuses] = await Promise.all([api.getBatteries(), api.getWarehouseEntityStatuses()]);
         setBatteries(res);
+        setWarehouseEntityStatuses(warehouseStatuses);
       } else if (activeTab === 'RACKS') {
-        const res = await api.getRacks();
+        const [res, warehouseStatuses] = await Promise.all([api.getRacks(), api.getWarehouseEntityStatuses()]);
         setRacks(res);
+        setWarehouseEntityStatuses(warehouseStatuses);
       }
     } catch (err) {
       console.error('Failed to load inventory', err);
@@ -188,8 +194,12 @@ export const InventoryView: React.FC = () => {
   const exportCellReport = async () => {
     setExportingCells(true);
     try {
-      const [exportCells, counts] = await Promise.all([api.getCells(), api.getCellCounts()]);
-      downloadCellReport(exportCells);
+      const [exportCells, counts, warehouseStatuses] = await Promise.all([
+        api.getCells(),
+        api.getCellCounts(),
+        api.getWarehouseCellStatuses(),
+      ]);
+      downloadCellReport(exportCells, undefined, { warehouseStatuses });
       addNotification('success', 'Cell report exported', `${counts.total.toLocaleString()} cell records were exported.`);
     } catch (error: any) {
       addNotification('error', 'Cell export failed', error?.message || 'Unable to export the cell inventory report.');
@@ -284,6 +294,10 @@ export const InventoryView: React.FC = () => {
       case 'IN_RACK':
       case 'SOLD':
         return 'bg-blue-50 text-blue-700 border-blue-200';
+      case 'KARACHI_WAREHOUSE':
+        return 'bg-green-50 text-green-800 border-green-200';
+      case 'LAHORE_WAREHOUSE':
+        return 'bg-blue-50 text-blue-800 border-blue-200';
       case 'FINISHED':
         return 'bg-emerald-50 text-emerald-800 border-emerald-300 font-bold';
       case 'QUARANTINED':
@@ -297,6 +311,8 @@ export const InventoryView: React.FC = () => {
   const batteryById = new Map(batteries.map(battery => [battery.id, battery]));
   const moduleById = new Map(modules.map(module => [module.id, module]));
   const getCellDisplayStatus = (cell: CellItem) => {
+    const warehouseStatus = warehouseCellStatuses[cell.id];
+    if (warehouseStatus) return warehouseStatus;
     const lifecycleStatus = String(cell.lifecycleStatus || '').toUpperCase();
     if (lifecycleStatus === 'SCRAP' || ['QUARANTINED', 'REJECTED'].includes(String(cell.status).toUpperCase())) return 'SCRAP';
     if (lifecycleStatus === 'SOLD') return 'SOLD';
@@ -310,6 +326,17 @@ export const InventoryView: React.FC = () => {
     if (lifecycleStatus) return lifecycleStatus;
     return String(cell.status || 'UNKNOWN').toUpperCase();
   };
+
+  const formatCellStatus = (status: string) => status === 'KARACHI_WAREHOUSE'
+    ? 'Karachi Warehouse'
+    : status === 'LAHORE_WAREHOUSE'
+      ? 'Lahore Warehouse'
+      : status;
+  const formatWarehouseStatus = (status: string) => status === 'KARACHI_WAREHOUSE'
+    ? 'Karachi Warehouse'
+    : status === 'LAHORE_WAREHOUSE'
+      ? 'Lahore Warehouse'
+      : status;
 
   const filteredCells = cells.filter(c => {
     const internalSerial = (c.internalSerial || '').toLowerCase();
@@ -326,7 +353,8 @@ export const InventoryView: React.FC = () => {
 
   const filteredBms = bmsUnits.filter(b => {
     const matchesSearch = !search || b.serialNumber.toLowerCase().includes(search.toLowerCase()) || b.model.toLowerCase().includes(search.toLowerCase());
-    const matchesStatus = !statusFilter || b.status === statusFilter;
+    const displayStatus = warehouseEntityStatuses[`BMS:${b.id}`] || b.status;
+    const matchesStatus = !statusFilter || displayStatus === statusFilter;
     return matchesSearch && matchesStatus;
   });
 
@@ -338,7 +366,8 @@ export const InventoryView: React.FC = () => {
 
   const filteredModules = modules.filter(m => {
     const matchesSearch = !search || m.serialNumber.toLowerCase().includes(search.toLowerCase());
-    const matchesStatus = !statusFilter || m.status === statusFilter;
+    const displayStatus = warehouseEntityStatuses[`MODULE:${m.id}`] || m.lifecycleStatus || m.status;
+    const matchesStatus = !statusFilter || displayStatus === statusFilter || m.status === statusFilter;
     return matchesSearch && matchesStatus;
   });
 
@@ -348,12 +377,14 @@ export const InventoryView: React.FC = () => {
     const productName = String(rawBattery.productName ?? rawBattery.product_name ?? '').toLowerCase();
     const query = String(search ?? '').toLowerCase();
     const matchesSearch = !query || serialNumber.includes(query) || productName.includes(query);
-    const matchesStatus = !statusFilter || b.status === statusFilter;
+    const displayStatus = warehouseEntityStatuses[`BATTERY:${b.id}`] || b.lifecycleStatus || b.status;
+    const matchesStatus = !statusFilter || displayStatus === statusFilter || b.status === statusFilter;
     return matchesSearch && matchesStatus;
   });
   const filteredRacks = racks.filter(rack => {
-    const haystack = [rack.serialNumber, rack.serial_number, rack.rackTemplateCode, rack.rack_template_code, rack.status, rack.location, rack.qrCode, rack.qr_code].filter(Boolean).join(' ').toLowerCase();
-    return !search || haystack.includes(search.toLowerCase());
+    const displayStatus = warehouseEntityStatuses[`RACK:${rack.id}`] || rack.status;
+    const haystack = [rack.serialNumber, rack.serial_number, rack.rackTemplateCode, rack.rack_template_code, displayStatus, rack.location, rack.qrCode, rack.qr_code].filter(Boolean).join(' ').toLowerCase();
+    return (!search || haystack.includes(search.toLowerCase())) && (!statusFilter || displayStatus === statusFilter);
   });
 
   const displayedCells = filteredCells.slice(0, cellDisplayLimit);
@@ -495,14 +526,23 @@ export const InventoryView: React.FC = () => {
           </button>
         )}
             {activeTab === 'CELLS' ? (
-              cellStatuses.map(status => <option key={status} value={status}>{status}</option>)
+              cellStatuses.map(status => <option key={status} value={status}>{formatCellStatus(status)}</option>)
             ) : (
               <>
+                <option value="IN_STOCK">IN STOCK</option>
+                <option value="FLOOR_STOCK">FLOOR STOCK</option>
+                <option value="IN_MODULE">IN MODULE</option>
+                <option value="IN_PACK">IN PACK</option>
+                <option value="IN_RACK">IN RACK</option>
+                <option value="SOLD">SOLD</option>
+                <option value="SCRAP">SCRAP</option>
                 <option value="AVAILABLE">AVAILABLE</option>
                 <option value="RESERVED">RESERVED</option>
                 <option value="IN_PROCESS">IN PROCESS</option>
                 <option value="VALIDATING">VALIDATING</option>
                 <option value="TESTING">TESTING</option>
+                <option value="KARACHI_WAREHOUSE">Karachi Warehouse</option>
+                <option value="LAHORE_WAREHOUSE">Lahore Warehouse</option>
                 <option value="SCANNED">SCANNED</option>
                 <option value="PASSED">PASSED</option>
                 <option value="ASSEMBLED">ASSEMBLED</option>
@@ -696,7 +736,7 @@ export const InventoryView: React.FC = () => {
                     </td>
                     <td className="px-5 py-3.5 font-sans">
                       <span className={`px-2.5 py-0.5 rounded-md text-[10px] font-bold border uppercase tracking-wider ${getStatusBadge(getCellDisplayStatus(cell))}`}>
-                        {getCellDisplayStatus(cell)}
+                        {formatCellStatus(getCellDisplayStatus(cell))}
                       </span>
                     </td>
                     <td className="px-5 py-3.5 text-right space-x-1 font-sans">
@@ -806,8 +846,8 @@ export const InventoryView: React.FC = () => {
                       )}
                     </td>
                     <td className="px-5 py-3.5 font-sans">
-                      <span className={`px-2.5 py-0.5 rounded-md text-[10px] font-bold border uppercase tracking-wider ${getStatusBadge(b.status)}`}>
-                        {b.status}
+                      <span className={`px-2.5 py-0.5 rounded-md text-[10px] font-bold border uppercase tracking-wider ${getStatusBadge(warehouseEntityStatuses[`BATTERY:${b.id}`] || b.status)}`}>
+                        {formatWarehouseStatus(warehouseEntityStatuses[`BATTERY:${b.id}`] || b.status)}
                       </span>
                     </td>
                     <td className="px-5 py-3.5 text-right font-sans space-x-1">
@@ -822,7 +862,7 @@ export const InventoryView: React.FC = () => {
                               MODEL: b.model,
                               PROTOCOL: b.protocol,
                               FIRMWARE: b.firmwareVersion,
-                              STATUS: b.status,
+                              STATUS: formatWarehouseStatus(warehouseEntityStatuses[`BATTERY:${b.id}`] || b.status),
                             },
                           });
                           setQrModalOpen(true);
@@ -1167,7 +1207,7 @@ export const InventoryView: React.FC = () => {
                   const serial = rack.serialNumber || rack.serial_number || rack.id;
                   const template = rack.rackTemplateCode || rack.rack_template_code || '-';
                   const batteryIds = rack.batteryIds || rack.battery_ids || rack.rackPacks?.map((pack: any) => pack.batteryId || pack.battery_id) || [];
-                  const status = rack.status || 'UNKNOWN';
+                  const status = warehouseEntityStatuses[`RACK:${rack.id}`] || rack.status || 'UNKNOWN';
                   return <tr key={rack.id} className="hover:bg-slate-50/70"><td className="px-3 py-3.5"><input type="checkbox" checked={selectedIds.RACKS.includes(rack.id)} onChange={() => toggleSelectItem('RACKS', rack.id)} className="h-4 w-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500" /></td><td className="px-5 py-3.5 font-mono font-bold text-slate-900">{serial}</td><td className="px-5 py-3.5 font-semibold text-slate-700">{template}</td><td className="px-5 py-3.5">{batteryIds.length} batteries</td><td className="px-5 py-3.5 text-slate-600">{rack.location || '-'}</td><td className="px-5 py-3.5"><span className={`rounded-md border px-2.5 py-0.5 text-[10px] font-bold uppercase ${getStatusBadge(status)}`}>{status}</span></td><td className="px-5 py-3.5 text-right font-sans space-x-1"><button onClick={() => { setQuickSearchQuery(serial); setActiveView('traceability'); }} className="p-1.5 text-slate-500 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors" title="View rack traceability"><Eye className="w-4 h-4" /></button><button onClick={() => { setQrData({ title: `Rack QR: ${serial}`, qrPayload: rack.qrCode || rack.qr_code || `${serial}|RACK:${rack.id}`, serial, itemType: 'RACK', metadata: { TEMPLATE: template, BATTERIES: batteryIds.length, LOCATION: rack.location || '-', STATUS: status } }); setQrModalOpen(true); }} className="p-1.5 text-slate-500 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors" title="Print QR"><QrCode className="w-4 h-4" /></button><button onClick={() => { setActiveView('rack-assembly'); addNotification('info', 'Rack Assembly Opened', `Open the rack builder to edit ${serial}.`); }} className="p-1.5 text-slate-500 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors" title="Edit rack"><Pencil className="w-4 h-4" /></button><button onClick={async () => { if (!window.confirm(`Delete rack ${serial}? Its connected packs will be returned to inventory.`)) return; try { await api.deleteRack(rack.id); triggerRefresh(); } catch (err: any) { addNotification('error', 'Delete Failed', err.message); } }} className="p-1.5 text-slate-500 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors" title="Delete rack"><Trash2 className="w-4 h-4" /></button></td></tr>;
                 })}
                 {!loading && filteredRacks.length === 0 && <tr><td colSpan={7} className="px-5 py-12 text-center text-xs text-slate-400">No racks recorded.</td></tr>}

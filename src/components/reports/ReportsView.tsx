@@ -16,14 +16,19 @@ export const ReportsView: React.FC = () => {
   const [stats, setStats] = useState<any | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [warehouseCells, setWarehouseCells] = useState({ KARACHI_WAREHOUSE: 0, LAHORE_WAREHOUSE: 0 });
 
   useEffect(() => {
     let cancelled = false;
     const refresh = async () => {
       try {
-        const res = await api.getReportsAnalytics();
+        const [res, warehouseStatuses] = await Promise.all([api.getReportsAnalytics(), api.getWarehouseCellStatuses()]);
         if (!cancelled) {
           setStats(res);
+          setWarehouseCells({
+            KARACHI_WAREHOUSE: Object.values(warehouseStatuses).filter(status => status === 'KARACHI_WAREHOUSE').length,
+            LAHORE_WAREHOUSE: Object.values(warehouseStatuses).filter(status => status === 'LAHORE_WAREHOUSE').length,
+          });
           setLoadError(null);
         }
       } catch (err: any) {
@@ -50,8 +55,12 @@ export const ReportsView: React.FC = () => {
     setLoading(true);
     setLoadError(null);
     try {
-      const res = await api.getReportsAnalytics();
+      const [res, warehouseStatuses] = await Promise.all([api.getReportsAnalytics(), api.getWarehouseCellStatuses()]);
       setStats(res);
+      setWarehouseCells({
+        KARACHI_WAREHOUSE: Object.values(warehouseStatuses).filter(status => status === 'KARACHI_WAREHOUSE').length,
+        LAHORE_WAREHOUSE: Object.values(warehouseStatuses).filter(status => status === 'LAHORE_WAREHOUSE').length,
+      });
     } catch (err: any) {
       setLoadError(err?.message || 'Unable to load report analytics.');
     } finally {
@@ -70,6 +79,8 @@ export const ReportsView: React.FC = () => {
     { label: 'Cells tracked', value: Number(stats?.totalCells || 0), color: 'bg-emerald-600' },
     { label: 'Available cells', value: Number(stats?.availableCells || 0), color: 'bg-emerald-500' },
     { label: 'Reserved / assigned', value: Number(stats?.reservedCells || 0), color: 'bg-slate-700' },
+    { label: 'Karachi warehouse cells', value: warehouseCells.KARACHI_WAREHOUSE, color: 'bg-green-800' },
+    { label: 'Lahore warehouse cells', value: warehouseCells.LAHORE_WAREHOUSE, color: 'bg-blue-600' },
     { label: 'Modules tracked', value: Number(stats?.totalModules || 0), color: 'bg-blue-500' },
     { label: 'Batteries tracked', value: Number(stats?.totalBatteries || 0), color: 'bg-amber-500' },
   ];

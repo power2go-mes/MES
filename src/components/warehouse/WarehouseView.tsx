@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { useApp } from '../../context/AppContext';
 import { api } from '../../services/api';
 import { BatteryUnit, ModuleItem, RackUnit } from '../../types';
-import { PackageCheck, RefreshCw, ScanLine } from 'lucide-react';
+import { PackageCheck, Pencil, RefreshCw, ScanLine, Trash2 } from 'lucide-react';
 import { ScannerModal } from '../common/ScannerModal';
 
 export const WarehouseView: React.FC = () => {
@@ -19,8 +19,26 @@ export const WarehouseView: React.FC = () => {
   const [serialSearch, setSerialSearch] = useState('');
   const [subFilter, setSubFilter] = useState('ALL');
   const [scannerOpen, setScannerOpen] = useState(false);
+  const [editingItem, setEditingItem] = useState<{ entityType: 'MODULE' | 'BATTERY' | 'RACK'; entityId: string; label: string; currentLocation: 'KARACHI' | 'LAHORE' } | null>(null);
+  const [editingLocation, setEditingLocation] = useState<'KARACHI' | 'LAHORE'>('KARACHI');
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+
+  const getWarehouseLocationForEntity = (entityType: 'MODULE' | 'BATTERY' | 'RACK', entityId: string): 'KARACHI' | 'LAHORE' => {
+    if (entityType === 'RACK') {
+      const rack = racks.find(item => item.id === entityId);
+      const rackLocation = String(rack?.location || '').toUpperCase();
+      return rackLocation === 'LAHORE' ? 'LAHORE' : 'KARACHI';
+    }
+
+    const historyEntry = [...movements]
+      .filter(entry => String(entry.entity_type || entry.entityType || '').toUpperCase() === entityType)
+      .filter(entry => String(entry.entity_id || entry.entityId || '') === entityId)
+      .sort((left, right) => new Date(right.movedAt || right.moved_at || 0).getTime() - new Date(left.movedAt || left.moved_at || 0).getTime())[0];
+
+    const latestLocation = String(historyEntry?.toLocation || historyEntry?.to_location || '').toUpperCase();
+    return latestLocation === 'LAHORE' ? 'LAHORE' : 'KARACHI';
+  };
 
   const load = async () => {
     setLoading(true);
@@ -79,6 +97,42 @@ export const WarehouseView: React.FC = () => {
       : Array.from(new Set([...current, ...visibleIds])));
   };
 
+  const openEditLocation = (entityType: 'MODULE' | 'BATTERY' | 'RACK', entityId: string, label: string) => {
+    const currentLocation = getWarehouseLocationForEntity(entityType, entityId);
+    setEditingItem({ entityType, entityId, label, currentLocation });
+    setEditingLocation(currentLocation);
+  };
+
+  const saveWarehouseLocationEdit = async () => {
+    if (!editingItem) return;
+    setSaving(true);
+    try {
+      await api.updateWarehouseEntityLocation(editingItem.entityType, editingItem.entityId, editingLocation);
+      addNotification('success', 'Warehouse Location Updated', `${editingItem.label} moved to ${editingLocation}.`);
+      setEditingItem(null);
+      triggerRefresh();
+    } catch (error: any) {
+      addNotification('error', 'Location Update Failed', error.message || 'Could not update warehouse location.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const removeFromWarehouse = async (entityType: 'MODULE' | 'BATTERY' | 'RACK', entityId: string, label: string) => {
+    if (!window.confirm(`Remove ${label} from warehouse stock?`)) return;
+    setSaving(true);
+    try {
+      await api.removeWarehouseEntity(entityType, entityId);
+      addNotification('success', 'Removed from Warehouse', `${label} was removed from warehouse stock.`);
+      setEditingItem(null);
+      triggerRefresh();
+    } catch (error: any) {
+      addNotification('error', 'Warehouse Removal Failed', error.message || 'Could not remove item from warehouse.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const searchValue = serialSearch.trim().toLowerCase();
   const matchesSerial = (serial: string) => !searchValue || serial.toLowerCase().endsWith(searchValue) || serial.toLowerCase().includes(searchValue);
   const matchesSubtype = (item: BatteryUnit | ModuleItem | RackUnit) => {
@@ -116,13 +170,26 @@ export const WarehouseView: React.FC = () => {
         <div className="flex items-center justify-between mb-3"><span className="text-xs font-bold uppercase tracking-wider text-slate-600">Select {receiveType.toLowerCase()} items</span><label className="flex items-center gap-2 text-xs font-semibold text-slate-600"><input type="checkbox" checked={filteredReceiveItems.length > 0 && filteredReceiveItems.every(item => selectedReceiveIds.includes(item.id))} onChange={selectAllVisible} className="h-4 w-4 accent-emerald-600" /> Select all visible</label></div>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-2 max-h-40 overflow-y-auto">{filteredReceiveItems.map(item => <label key={item.id} className="flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-xs hover:bg-slate-50"><input type="checkbox" checked={selectedReceiveIds.includes(item.id)} onChange={() => toggleReceiveSelection(item.id)} className="h-4 w-4 accent-emerald-600" /><span className="truncate font-mono font-semibold">{item.serialNumber}</span></label>)}</div>
       </div>
+      {editingItem && (
+        <div className="bg-white rounded-2xl border border-slate-200 p-4 shadow-xs">
+          <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+            <div>
+              <p className="text-xs font-bold uppercase tracking-wider text-slate-600">Edit warehouse location</p>
+              <p className="mt-1 text-sm font-semibold text-slate-900">{editingItem.label}</p>
+            </div>
+            <div className="flex items-center gap-2">
+              <select value={editingLocation} onChange={e => setEditingLocation(e.target.value as 'KARACHI' | 'LAHORE')} className="px-3 py-2 border border-slate-200 rounded-lg text-xs">
+                <option value="KARACHI">Karachi Warehouse</option>
+                <option value="LAHORE">Lahore Warehouse</option>
+              </select>
+              <button type="button" onClick={() => void saveWarehouseLocationEdit()} disabled={saving} className="px-3 py-2 bg-emerald-600 text-white rounded-lg text-xs font-bold disabled:bg-slate-300">Save</button>
+              <button type="button" onClick={() => setEditingItem(null)} className="px-3 py-2 border border-slate-200 rounded-lg text-xs font-semibold text-slate-600">Cancel</button>
+            </div>
+          </div>
+        </div>
+      )}
       <ScannerModal isOpen={scannerOpen} onClose={() => setScannerOpen(false)} onScan={value => { setScannerOpen(false); void receiveIdentifiers([value]); }} title={`Scan ${receiveType}`} subtitle={`Scan a ${receiveType.toLowerCase()} identifier for ${location} warehouse`} />
-      <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
-        <div className="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden"><div className="p-4 border-b border-slate-100 text-xs font-bold uppercase tracking-wider text-slate-600">Racks ({racks.length})</div><div className="max-h-64 overflow-y-auto">{racks.length === 0 ? <p className="p-5 text-xs text-slate-400">No racks in warehouse stock.</p> : racks.map(rack => <div key={rack.id} className="p-3 border-b border-slate-100"><p className="font-mono text-xs font-bold text-slate-900">{rack.serialNumber}</p><p className="mt-1 text-[11px] text-slate-500">{rack.rackTemplateCode} · {rack.status} · {rack.location || 'Unassigned warehouse'}</p></div>)}</div></div>
-        <div className="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden"><div className="p-4 border-b border-slate-100 text-xs font-bold uppercase tracking-wider text-slate-600">Battery Packs ({batteries.length})</div><div className="max-h-64 overflow-y-auto">{batteries.length === 0 ? <p className="p-5 text-xs text-slate-400">No available battery packs.</p> : batteries.map(battery => <div key={battery.id} className="p-3 border-b border-slate-100"><p className="font-mono text-xs font-bold text-slate-900">{battery.serialNumber}</p><p className="mt-1 text-[11px] text-slate-500">{battery.status} · {battery.productName}</p></div>)}</div></div>
-        <div className="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden"><div className="p-4 border-b border-slate-100 text-xs font-bold uppercase tracking-wider text-slate-600">Standalone Modules ({modules.length})</div><div className="max-h-64 overflow-y-auto">{modules.length === 0 ? <p className="p-5 text-xs text-slate-400">No standalone modules.</p> : modules.map(module => <div key={module.id} className="p-3 border-b border-slate-100"><p className="font-mono text-xs font-bold text-slate-900">{module.serialNumber}</p><p className="mt-1 text-[11px] text-slate-500">{module.moduleType || '-'} · {module.status} · {module.cells?.length || 0} cells</p></div>)}</div></div>
-      </div>
-      <div className="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden"><div className="p-4 border-b border-slate-100 text-xs font-bold uppercase tracking-wider text-slate-600">Movement History</div><table className="w-full text-left text-xs"><thead className="bg-slate-50"><tr><th className="p-3">Entity</th><th className="p-3">From</th><th className="p-3">To</th><th className="p-3">Time</th></tr></thead><tbody className="divide-y divide-slate-100">{movements.map(m => <tr key={m.id}><td className="p-3 font-mono">{m.entityId}</td><td className="p-3">{m.fromLocation || '-'}</td><td className="p-3">{m.toLocation}</td><td className="p-3">{new Date(m.movedAt).toLocaleString()}</td></tr>)}</tbody></table></div>
+      <div className="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden"><div className="p-4 border-b border-slate-100 text-xs font-bold uppercase tracking-wider text-slate-600">Movement History</div><div className="overflow-x-auto"><table className="w-full min-w-[760px] text-left text-xs"><thead className="bg-slate-50"><tr><th className="p-3">Entity</th><th className="p-3">From</th><th className="p-3">To</th><th className="p-3">Time</th><th className="p-3">Actions</th></tr></thead><tbody className="divide-y divide-slate-100">{movements.map(m => { const entityType = String(m.entityType || m.entity_type || '').toUpperCase() as 'MODULE' | 'BATTERY' | 'RACK'; const entityId = String(m.entityId || m.entity_id || ''); const label = String(m.entitySerial || entityId || m.id); const canManage = ['MODULE', 'BATTERY', 'RACK'].includes(entityType) && Boolean(entityId); return <tr key={m.id}><td className="p-3 font-mono">{label}</td><td className="p-3">{m.fromLocation || m.from_location || '-'}</td><td className="p-3">{m.toLocation || m.to_location}</td><td className="p-3">{new Date(m.movedAt || m.moved_at).toLocaleString()}</td><td className="p-3"><div className="flex items-center gap-1">{canManage && <><button type="button" onClick={() => openEditLocation(entityType, entityId, label)} className="inline-flex items-center gap-1 rounded-md border border-slate-200 px-2 py-1 text-[10px] font-semibold text-slate-600 hover:bg-slate-50"><Pencil className="h-3 w-3" />Edit</button><button type="button" onClick={() => void removeFromWarehouse(entityType, entityId, label)} disabled={saving} className="inline-flex items-center gap-1 rounded-md border border-red-200 px-2 py-1 text-[10px] font-semibold text-red-600 hover:bg-red-50 disabled:opacity-50"><Trash2 className="h-3 w-3" />Delete</button></>}</div></td></tr>; })}</tbody></table></div></div>
     </div>
   );
 };
