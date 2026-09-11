@@ -88,9 +88,19 @@ const DistributionBars: React.FC<{ distribution: DashboardDistribution; colors?:
 };
 
 const formatNumber = (value: number) => new Intl.NumberFormat('en-US').format(value);
-const formatMwh = (capacityKwh: number) => `${(capacityKwh / 1000).toFixed(2)} MWh`;
-const formatCellTotalMwh = (capacityKwh: number) => `${(Math.ceil((capacityKwh / 1000) * 10) / 10).toFixed(1)}MWh`;
-const formatCellRowMwh = (capacityKwh: number) => `${(capacityKwh / 1000).toFixed(2)}MWh`;
+const CELL_NOMINAL_CAPACITY_AH = 100;
+const CELL_NOMINAL_VOLTAGE_V = 3.2;
+const CELL_CAPACITY_KWH = (CELL_NOMINAL_CAPACITY_AH * CELL_NOMINAL_VOLTAGE_V) / 1000;
+const roundMwh = (capacityKwh: number, decimals = 2) => {
+  const factor = 10 ** decimals;
+  return Math.round(((capacityKwh / 1000) + Number.EPSILON) * factor) / factor;
+};
+const formatMwh = (capacityKwh: number) => {
+  const mwh = roundMwh(capacityKwh);
+  return `${mwh.toFixed(mwh > 0 && mwh < 0.01 ? 3 : 2)} MWh`;
+};
+const formatCellTotalMwh = (capacityKwh: number) => `${roundMwh(capacityKwh).toFixed(2)}MWh`;
+const formatCellRowMwh = (capacityKwh: number) => `${roundMwh(capacityKwh).toFixed(2)}MWh`;
 const formatShare = (value: number, total: number) => `${((value / Math.max(1, total)) * 100).toFixed(2)}%`;
 export const CEOMonitoringView: React.FC = () => {
   const { refreshKey, addNotification } = useApp();
@@ -269,7 +279,7 @@ export const CEOMonitoringView: React.FC = () => {
       const rackTypes = Array.isArray(row.rackTypes) ? row.rackTypes : [];
       rackTypes.forEach((type: any) => {
         const rackType = String(type.rackType || 'UNKNOWN_RACK');
-        const match = rackType.match(/RACK_(25|45|60|70)KWH/i);
+        const match = rackType.match(/RACK_(25|45|60|70|75)KWH/i);
         if (match) totals.set(match[1], (totals.get(match[1]) || 0) + numberOr(type.value));
       });
     });
@@ -350,9 +360,19 @@ export const CEOMonitoringView: React.FC = () => {
     try {
       const reportDate = new Date().toISOString().slice(0, 10);
       const rangeLabel = 'All available data';
-      const quarantineRecords = await api.getQuarantineRecords().catch(() => []);
-      const reusableScrapCount = quarantineRecords.filter((record: any) => ['RELEASE_APPROVED', 'REWORK'].includes(String(record.disposition || '').toUpperCase())).length;
-      const damageScrapCount = Math.max(0, quarantineRecords.length - reusableScrapCount);
+      const [quarantineRecords, currentScrapCells] = await Promise.all([
+        api.getQuarantineRecords().catch(() => []),
+        api.getCells({ lifecycleStatus: 'SCRAP', limit: 10000 }).catch(() => []),
+      ]);
+      const currentScrapCellIds = new Set(currentScrapCells.map((cell: any) => String(cell.id || '')));
+      const reusableScrapCount = quarantineRecords.filter((record: any) => {
+        const entityType = String(record.entityType || record.entity_type || '').toUpperCase();
+        const entityId = String(record.entityId || record.entity_id || '');
+        const disposition = String(record.disposition || '').toUpperCase();
+        return entityType === 'CELL' && currentScrapCellIds.has(entityId) && ['RELEASE_APPROVED', 'REWORK'].includes(disposition);
+      }).length;
+      const scrapCellCount = numberOr(source.cellBuckets?.find((row: any) => String(row.label || '').toUpperCase() === 'SCRAP')?.value);
+      const damageScrapCount = Math.max(0, scrapCellCount - reusableScrapCount);
       const statusRows = (statuses: string[], sourceRows: any[], colorMap: Record<string, string>, defaultCapacityKwh: (status: string) => number = () => 0) => {
         const values = new Map((sourceRows || []).map((row: any) => [String(row.label).replace(/_/g, ' ').toUpperCase(), { value: numberOr(row.value), capacityKwh: numberOr(row.capacityKwh) }]));
         return statuses.map((status) => ({
@@ -366,8 +386,12 @@ export const CEOMonitoringView: React.FC = () => {
         ['In Stock', 'Floor Stock', 'In Module', 'In Pack', 'In Rack', 'Karachi Warehouse', 'Lahore Warehouse', 'Sold', 'Scrap'],
         source.cellBuckets,
         statusColors,
-        () => 0.3125,
-      ).map((row) => row.label === 'Scrap' ? { ...row, label: 'Scrap / Recycle' } : row);
+        () => CELL_CAPACITY_KWH,
+      ).map((row) => row.label === 'In Module'
+        ? { ...row, label: 'In Module (standalone)' }
+        : row.label === 'Scrap'
+          ? { ...row, label: 'Scrap / Recycle' }
+          : row);
       const moduleReportRows = statusRows(
         ['8S', '12S'],
         source.moduleTypeBuckets,
@@ -390,12 +414,17 @@ export const CEOMonitoringView: React.FC = () => {
         color: reportGreen,
       }];
       const scrapReportRows = [
-        { label: 'Damage', value: damageScrapCount, capacityKwh: 0, color: reportDarkGrey },
-        { label: 'Reusable', value: reusableScrapCount, capacityKwh: 0, color: reportGreen },
+        { label: 'Damage (non-reusable)', value: damageScrapCount, capacityKwh: damageScrapCount * CELL_CAPACITY_KWH, color: reportDarkGrey },
+        { label: 'Reusable cells', value: reusableScrapCount, capacityKwh: reusableScrapCount * CELL_CAPACITY_KWH, color: reportGreen },
       ];
+      const soldBatteryCount = numberOr(source.soldBatteryPackCount ?? source.batteryStatusBuckets?.find((row: any) => String(row.label || '').toUpperCase() === 'SOLD')?.value);
+      const soldRackCount = numberOr(source.rackStatusBuckets?.find((row: any) => String(row.label || row.status || '').toUpperCase().replace(/_/g, ' ') === 'SOLD')?.value);
+      const soldBatteryCellCapacityKwh = numberOr(source.soldBatteryCellCount) * CELL_CAPACITY_KWH;
+      const soldRackCellCapacityKwh = numberOr(source.soldRackCellCount) * CELL_CAPACITY_KWH;
+      const soldCellQuantity = numberOr(source.soldCellCount ?? source.cellBuckets?.find((row: any) => String(row.label || '').toUpperCase() === 'SOLD')?.value);
       const soldReportRows = [
-        { label: 'Battery Packs', value: numberOr(source.batteryStatusBuckets?.find((row: any) => String(row.label || '').toUpperCase() === 'SOLD')?.value), capacityKwh: 0, color: reportDarkGrey },
-        { label: 'Racks', value: numberOr(source.rackStatusBuckets?.find((row: any) => String(row.label || row.status || '').toUpperCase().replace(/_/g, ' ') === 'SOLD')?.value), capacityKwh: 0, color: reportCabinetBlue },
+        { label: 'Battery Pack units', value: soldBatteryCount, capacityKwh: soldBatteryCellCapacityKwh, color: reportDarkGrey },
+        { label: 'Rack units', value: soldRackCount, capacityKwh: soldRackCellCapacityKwh, color: reportCabinetBlue },
       ];
       const rackTypeTotals = new Map<string, { value: number; capacityKwh: number }>();
       const rackColor = (rackType: string) => {
@@ -412,7 +441,7 @@ export const CEOMonitoringView: React.FC = () => {
         const typeRows = Array.isArray(row.rackTypes) ? row.rackTypes : [];
         typeRows.forEach((type: any) => {
           const rackType = String(type.rackType || 'UNKNOWN_RACK');
-          if (!/RACK_(25|45|60|70)KWH/i.test(rackType)) return;
+          if (!/RACK_(25|45|60|70|75)KWH/i.test(rackType)) return;
           const current = rackTypeTotals.get(rackType) || { value: 0, capacityKwh: 0 };
           current.value += numberOr(type.value);
           current.capacityKwh += numberOr(type.capacityKwh);
@@ -697,7 +726,7 @@ export const CEOMonitoringView: React.FC = () => {
       drawBars(leftChartX, 171, chartWidth, 34, bmsReportRows, 'BMS INVENTORY - TOTAL / AVAILABLE / USED', false, false, true);
       drawBars(rightChartX, 171, chartWidth, 34, bmuReportRows, 'BMU INVENTORY - TOTAL / AVAILABLE / USED', false, false, true);
       drawBars(leftChartX, 230, chartWidth, 32, scrapReportRows, 'SCRAP STATUS');
-      drawBars(rightChartX, 230, chartWidth, 32, soldReportRows, 'SOLD STATUS');
+      drawBars(rightChartX, 230, chartWidth, 32, soldReportRows, `SOLD STATUS (${formatNumber(soldCellQuantity)} SOLD CELLS; TOTAL ${formatMwh(numberOr(source.soldCellCapacityKwh))} CELL CAPACITY)`);
       const reportRows = (rows: { label: string; value: number; capacityKwh: number }[]) => {
         const total = rows.reduce((summary, row) => ({
           value: summary.value + row.value,
@@ -713,11 +742,6 @@ export const CEOMonitoringView: React.FC = () => {
       drawTable('MODULE CONFIGURATION', ['Type', 'Qty', 'Capacity'], reportRows(moduleReportRows), 39, margin + detailWidth + 6, detailWidth, true);
       drawTable('BATTERY PACK MODEL', ['Model', 'Qty', 'Capacity'], reportRows(batteryReportRows), 109, margin, detailWidth, true);
       drawTable('RACK/CABINET STATUS', ['Status', 'Qty', 'Capacity'], reportRows(rackReportRows), 109, margin + detailWidth + 6, detailWidth, true);
-      reportFontSize(7);
-      doc.setFont('helvetica', 'normal');
-      doc.setTextColor(...muted);
-      doc.text(`Active filters: Cells ${selectedCellStatus} | Packs ${selectedPackType} | Racks ${selectedRackType} | Modules ${selectedModuleConfig}`, margin, pageHeight - 12);
-
       doc.save(`power2go-ceo-report-${reportDate}.pdf`);
       addNotification('success', 'Report exported', 'The CEO monitoring report has been downloaded.');
     } catch (error: any) {

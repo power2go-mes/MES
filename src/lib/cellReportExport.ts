@@ -6,7 +6,7 @@ const exportDateOnly = (value?: string) => {
   if (!value) return '';
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return '';
-  return `${String(date.getDate()).padStart(2, '0')}-${String(date.getMonth() + 1).padStart(2, '0')}-${date.getFullYear()}`;
+  return `${String(date.getUTCDate()).padStart(2, '0')}-${String(date.getUTCMonth() + 1).padStart(2, '0')}-${date.getUTCFullYear()}`;
 };
 const exportRackType = (value?: string) => String(value || '').replace(/^RACK_/i, '').replace(/KWH$/i, 'kWh');
 
@@ -71,6 +71,7 @@ export const downloadCellReport = (
   dashboardSummary?: CellDashboardSummary,
   options: CellExportOptions = {},
 ) => {
+  if (cells.length === 0) throw new Error('No cell records are available to export.');
   const warehouseStatuses = options.warehouseStatuses || {};
   const cellRows = sortByClassification(cells.map(cell => ({
     'Supplier Barcode': cell.supplierBarcode || (cell as any).supplier_barcode || '',
@@ -83,12 +84,15 @@ export const downloadCellReport = (
   })));
   const workbook = XLSX.utils.book_new();
   if (dashboardSummary) {
+    const summaryRows = dashboardSummary.rows.length > 0
+      ? dashboardSummary.rows.map(row => ({ Status: row.label || '', Quantity: Number(row.value) || 0 }))
+      : Object.entries(cellRows.reduce<Record<string, number>>((counts, row) => {
+        counts[row.Classification] = (counts[row.Classification] || 0) + 1;
+        return counts;
+      }, {})).map(([Status, Quantity]) => ({ Status, Quantity }));
     const summaryTotal = Number(dashboardSummary.total) || dashboardSummary.rows.reduce((sum, row) => sum + (Number(row.value) || 0), 0);
-    const summaryRows = dashboardSummary.rows.map(row => ({
-      Status: row.label || '',
-      Quantity: Number(row.value) || 0,
-    }));
-    summaryRows.push({ Status: 'TOTAL', Quantity: summaryTotal });
+    const summaryQuantity = dashboardSummary.rows.length > 0 ? summaryTotal : cellRows.length;
+    summaryRows.push({ Status: 'TOTAL', Quantity: summaryQuantity });
     const summarySheet = XLSX.utils.json_to_sheet(summaryRows);
     autoFitColumns(summarySheet, summaryRows);
     XLSX.utils.book_append_sheet(workbook, summarySheet, 'CEO Dashboard Summary');
@@ -100,6 +104,7 @@ export const downloadCellReport = (
 };
 
 export const downloadBatteryReport = (batteries: BatteryUnit[], options: CellExportOptions = {}) => {
+  if (batteries.length === 0) throw new Error('No battery records are available to export.');
   const rows = batteries.map(battery => ({
     'Serial Number': battery.serialNumber || (battery as any).serial_number || '',
     BMU: battery.bmu?.serialNumber || (battery.bmu as any)?.serial_number || '',
@@ -117,6 +122,7 @@ export const downloadBatteryReport = (batteries: BatteryUnit[], options: CellExp
 };
 
 export const downloadRackReport = (racks: RackUnit[], options: CellExportOptions = {}) => {
+  if (racks.length === 0) throw new Error('No rack records are available to export.');
   const rows = racks.map(rack => ({
     'Serial Number': rack.serialNumber || (rack as any).serial_number || '',
     'Rack Type': exportRackType(rack.rackTemplateCode || (rack as any).rack_template_code),

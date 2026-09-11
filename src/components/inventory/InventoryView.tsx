@@ -199,8 +199,12 @@ export const InventoryView: React.FC = () => {
         api.getCellCounts(),
         api.getWarehouseCellStatuses(),
       ]);
-      downloadCellReport(exportCells, undefined, { warehouseStatuses });
-      addNotification('success', 'Cell report exported', `${counts.total.toLocaleString()} cell records were exported.`);
+      if (exportCells.length === 0) throw new Error('No cell records are available to export.');
+      downloadCellReport(exportCells, {
+        rows: [],
+        total: counts.total,
+      }, { warehouseStatuses });
+      addNotification('success', 'Cell report exported', `${exportCells.length.toLocaleString()} cell records were exported.`);
     } catch (error: any) {
       addNotification('error', 'Cell export failed', error?.message || 'Unable to export the cell inventory report.');
     } finally {

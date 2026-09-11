@@ -40,6 +40,9 @@ const columnAliases: Record<string, string> = {
 const reverseColumnAliases = Object.fromEntries(
   Object.entries(columnAliases).map(([appName, dbName]) => [dbName, appName]),
 );
+const CELL_NOMINAL_CAPACITY_AH = 100;
+const CELL_NOMINAL_VOLTAGE_V = 3.2;
+const CELL_CAPACITY_KWH = (CELL_NOMINAL_CAPACITY_AH * CELL_NOMINAL_VOLTAGE_V) / 1000;
 
 let dashboardStatsCache: { key: string; value: any; expiresAt: number } | null = null;
 let dashboardStatsRequest: { key: string; promise: Promise<any> } | null = null;
@@ -248,6 +251,7 @@ async function loadModuleCellAssignments(moduleIds: string[]): Promise<any[]> {
 
 async function resolveWarehouseCellLocations() {
   if (!rawSupabase) return { locationByCell: new Map<string, string>(), latestByEntity: new Map<string, string>(), warehouseRackCounts: { KARACHI: 0, LAHORE: 0 }, warehouseRackTypeCounts: [], warehouseBatteryCounts: { KARACHI: 0, LAHORE: 0 }, warehouseBatteryTypeCounts: [] };
+  const warehouseSupabase = rawSupabase;
 
   const normalizeWarehouseLocation = (value: unknown): 'KARACHI' | 'LAHORE' | '' => {
     const normalized = String(value || '').trim().toUpperCase().replace(/[_-]+/g, ' ');
@@ -260,7 +264,7 @@ async function resolveWarehouseCellLocations() {
     const rows: any[] = [];
     const pageSize = 1000;
     for (let offset = 0; ; offset += pageSize) {
-      const { data, error } = await rawSupabase.from(table).select(columns).range(offset, offset + pageSize - 1);
+      const { data, error } = await warehouseSupabase.from(table).select(columns).range(offset, offset + pageSize - 1);
       if (error) throw error;
       rows.push(...(data || []));
       if (!data || data.length < pageSize) return rows;
@@ -700,22 +704,24 @@ async getUsers(): Promise<User[]> {
         throw new Error(`Dashboard summary unavailable: ${error.message}`);
       }
 
-      const [{ data: liveModules }, { data: liveBatteries }, { data: liveRacks }, { data: liveRackPacks }] = await Promise.all([
+      const [{ data: liveModules }, { data: liveBatteries }, { data: liveRacks }, { data: liveRackPacks }, { data: soldBatteries }, { data: soldRacks }, { data: soldCells }, { data: soldModuleCells }, { data: soldRackPacks }] = await Promise.all([
         applyDateRange(rawSupabase.from('modules').select('module_type,created_at,battery:batteries(product_templates(capacity_kwh,num_modules))')),
-        applyDateRange(rawSupabase.from('batteries').select('id,bms_id,bmu_id,progress_percent,status,created_at,product_id,product_templates(name,capacity_kwh)')),
+        applyDateRange(rawSupabase.from('batteries').select('id,bms_id,bmu_id,progress_percent,status,lifecycle_status,created_at,product_id,product_templates(name,capacity_kwh)')),
         applyDateRange(rawSupabase.from('racks').select('id,status,rack_template_code,required_pack_count,required_pack_template_code,created_at')),
         rawSupabase.from('rack_packs').select('rack_id,battery:batteries(product_templates(capacity_kwh))'),
+        applyDateRange(rawSupabase.from('batteries').select('id,status,lifecycle_status,product_templates(capacity_kwh)').or('lifecycle_status.eq.SOLD,status.eq.DISPATCHED')),
+        applyDateRange(rawSupabase.from('racks').select('id,status,rack_template_code').eq('status', 'SOLD')),
+        applyDateRange(rawSupabase.from('cells').select('id,reserved_for_battery_id').eq('lifecycle_status', 'SOLD')),
+        rawSupabase.from('module_cells').select('cell_id,module:modules(battery_id)'),
+        rawSupabase.from('rack_packs').select('battery_id,rack:racks(status)'),
       ]);
       const moduleTypeCounts = new Map<string, number>();
       const moduleTypeCapacity = new Map<string, number>();
       (liveModules || []).forEach((module: any) => {
         const type = String(module.module_type || '8S').toUpperCase() === '12S' ? '12S' : '8S';
         moduleTypeCounts.set(type, (moduleTypeCounts.get(type) || 0) + 1);
-        const packCapacity = Number(module.battery?.product_templates?.capacity_kwh);
-        const moduleCount = Number(module.battery?.product_templates?.num_modules);
-        const capacityKwh = Number.isFinite(packCapacity) && packCapacity > 0 && Number.isFinite(moduleCount) && moduleCount > 0
-          ? packCapacity / moduleCount
-          : type === '12S' ? 3.75 : 2.5;
+        const cellsPerModule = type === '12S' ? 12 : 8;
+        const capacityKwh = cellsPerModule * CELL_CAPACITY_KWH;
         moduleTypeCapacity.set(type, (moduleTypeCapacity.get(type) || 0) + capacityKwh);
       });
       const liveModuleTypeBuckets = ['8S', '12S'].map(label => ({ label, value: moduleTypeCounts.get(label) || 0, capacityKwh: moduleTypeCapacity.get(label) || 0 }));
@@ -734,6 +740,31 @@ async getUsers(): Promise<User[]> {
       const capacityProducedKwh = (liveBatteries || [])
         .filter((battery: any) => ['FINISHED', 'RELEASED', 'DISPATCHED', 'WAREHOUSE'].includes(String(battery.status || '').toUpperCase()))
         .reduce((total: number, battery: any) => total + (Number(battery.product_templates?.capacity_kwh) || 0), 0);
+      const soldBatteryCapacityKwh = (soldBatteries || [])
+        .reduce((total: number, battery: any) => total + (Number(battery.product_templates?.capacity_kwh) || 0), 0);
+      const soldRackCapacityKwh = (soldRacks || [])
+        .reduce((total: number, rack: any) => total + (Number(String(rack.rack_template_code || '').match(/RACK_(\d+(?:\.\d+)?)KWH/i)?.[1]) || 0), 0);
+      const soldBatteryIds = new Set((soldBatteries || []).map((battery: any) => String(battery.id || '')).filter(Boolean));
+      const soldRackBatteryIds = new Set((soldRackPacks || [])
+        .filter((assignment: any) => String(assignment.rack?.status || '').toUpperCase() === 'SOLD')
+        .map((assignment: any) => String(assignment.battery_id || '')).filter(Boolean));
+      const soldBatteryPackCount = (soldBatteries || [])
+        .filter((battery: any) => !soldRackBatteryIds.has(String(battery.id || '')))
+        .length;
+      const soldBatteryByCellId = new Map<string, string>();
+      (soldModuleCells || []).forEach((assignment: any) => {
+        const batteryId = String(assignment.module?.battery_id || '');
+        if (batteryId) soldBatteryByCellId.set(String(assignment.cell_id), batteryId);
+      });
+      let soldRackCellCount = 0;
+      (soldCells || []).forEach((cell: any) => {
+        const cellId = String(cell.id || '');
+        const batteryId = String(cell.reserved_for_battery_id || soldBatteryByCellId.get(cellId) || '');
+        if (batteryId && soldRackBatteryIds.has(batteryId)) soldRackCellCount += 1;
+      });
+      const soldCellCount = (soldCells || []).length || Number(data?.inventory?.soldCells) || 0;
+      const soldBatteryCellCount = Math.max(0, soldCellCount - soldRackCellCount);
+      const soldCellCapacityKwh = soldCellCount * CELL_CAPACITY_KWH;
       const rackCapacities = new Map<string, Set<number>>();
       (liveRackPacks || []).forEach((assignment: any) => {
         const rackId = String(assignment.rack_id || '');
@@ -826,6 +857,20 @@ async getUsers(): Promise<User[]> {
       const warehouseAwareCellBuckets = buildWarehouseLocationBuckets(normalizedCellBuckets, warehouseCellLocations, lifecycleByCellId);
       const karachiWarehouseCells = Array.from(warehouseCellLocations.values()).filter(location => location === 'KARACHI').length;
       const lahoreWarehouseCells = Array.from(warehouseCellLocations.values()).filter(location => location === 'LAHORE').length;
+      const rackStatusMap = (liveRacks || []).reduce((counts: Map<string, { value: number; capacityKwh: number; rackTypes: Map<string, { value: number; capacityKwh: number }> }>, rack: any) => {
+        const status = String(rack.status || 'UNKNOWN').replace(/_/g, ' ');
+        const rackType = String(rack.rack_template_code || 'UNKNOWN_RACK');
+        const capacityKwh = Number(String(rack.rack_template_code || '').match(/RACK_(\d+(?:\.\d+)?)KWH/i)?.[1] || 0);
+        const current = counts.get(status) || { value: 0, capacityKwh: 0, rackTypes: new Map<string, { value: number; capacityKwh: number }>() };
+        const typeTotals = current.rackTypes.get(rackType) || { value: 0, capacityKwh: 0 };
+        current.rackTypes.set(rackType, { value: typeTotals.value + 1, capacityKwh: typeTotals.capacityKwh + capacityKwh });
+        counts.set(status, { value: current.value + 1, capacityKwh: current.capacityKwh + capacityKwh, rackTypes: current.rackTypes });
+        return counts;
+      }, new Map<string, { value: number; capacityKwh: number; rackTypes: Map<string, { value: number; capacityKwh: number }> }>());
+      const rackStatusEntries = Array.from(rackStatusMap.entries()) as Array<[
+        string,
+        { value: number; capacityKwh: number; rackTypes: Map<string, { value: number; capacityKwh: number }> },
+      ]>;
       // Use data from RPC - it's already optimized at database level
       return {
         inventory: {
@@ -884,6 +929,13 @@ async getUsers(): Promise<User[]> {
         moduleTypeBuckets: liveModuleTypeBuckets,
         batteryStatusBuckets: Array.isArray(data?.batteryStatusBuckets) ? data.batteryStatusBuckets : [],
         batteryPackTotal: liveBatteries?.length || 0,
+        soldBatteryCapacityKwh,
+        soldRackCapacityKwh,
+        soldCellCapacityKwh,
+        soldBatteryCellCount,
+        soldRackCellCount,
+        soldBatteryPackCount,
+        soldCellCount,
         completedBatteriesTotal: (liveBatteries || []).filter((battery: any) => ['FINISHED', 'RELEASED', 'DISPATCHED', 'WAREHOUSE'].includes(String(battery.status || '').toUpperCase())).length,
         producedCategoryBuckets,
         batteryPackBuckets: livePackBuckets,
@@ -892,20 +944,11 @@ async getUsers(): Promise<User[]> {
           : (Array.isArray(data?.batteryPackTrend) ? data.batteryPackTrend : []),
         moduleTypeTrend,
         rackTotal: liveRacks?.length || 0,
-        rackStatusBuckets: Array.from((liveRacks || []).reduce((counts: Map<string, { value: number; capacityKwh: number; rackTypes: Map<string, { value: number; capacityKwh: number }> }>, rack: any) => {
-          const status = String(rack.status || 'UNKNOWN').replace(/_/g, ' ');
-          const rackType = String(rack.rack_template_code || 'UNKNOWN_RACK');
-          const capacityKwh = Number(String(rack.rack_template_code || '').match(/RACK_(\d+(?:\.\d+)?)KWH/i)?.[1] || 0);
-          const current = counts.get(status) || { value: 0, capacityKwh: 0, rackTypes: new Map<string, { value: number; capacityKwh: number }>() };
-          const typeTotals = current.rackTypes.get(rackType) || { value: 0, capacityKwh: 0 };
-          current.rackTypes.set(rackType, { value: typeTotals.value + 1, capacityKwh: typeTotals.capacityKwh + capacityKwh });
-          counts.set(status, { value: current.value + 1, capacityKwh: current.capacityKwh + capacityKwh, rackTypes: current.rackTypes });
-          return counts;
-        }, new Map<string, { value: number; capacityKwh: number; rackTypes: Map<string, { value: number; capacityKwh: number }> }>())).map(([label, values]) => ({
+        rackStatusBuckets: rackStatusEntries.map(([label, values]) => ({
           label,
           value: values.value,
           capacityKwh: values.capacityKwh,
-          rackTypes: Array.from(values.rackTypes.entries()).map(([rackType, totals]) => ({ rackType, ...totals })),
+          rackTypes: (Array.from(values.rackTypes.entries()) as Array<[string, { value: number; capacityKwh: number }]>).map(([rackType, totals]) => ({ rackType, ...totals })),
         })),
         quarantineOpenCount: data?.inventory?.quarantinedCells || 0,
       };
@@ -970,22 +1013,22 @@ async getUsers(): Promise<User[]> {
     const cellTests = (cellTestsResult.data || []).map((test: any) => ({ ...test, cellId: test.cellId ?? test.cell_id }));
     const batteryTests = (batteryTestsResult.data || []).map((test: any) => ({ ...test, batteryId: test.batteryId ?? test.battery_id }));
     const quarantine = (quarantineResult.data || []) as any[];
-    const testedCellIds = new Set(cellTests.map(test => test.cellId).filter(Boolean));
+    const testedCellIds = new Set(cellTests.map((test: any) => test.cellId).filter(Boolean));
     const testedCells = testedCellIds.size || cells.filter(cell => cell.testedAt).length;
-    const testedBatteries = batteryTests.length || batteries.filter(battery => battery.stepResults?.FINAL_TESTING?.status).length;
+    const testedBatteries = batteryTests.length || batteries.filter((battery: any) => battery.stepResults?.FINAL_TESTING?.status).length;
     const totalTestCycles = cellTests.length + batteryTests.length;
     const totalQuarantined = quarantine.length;
     const reservedCells = cells.filter(cell => cell.reservedForOrderId || cell.reservedForBatteryId).length;
     const availableCells = cells.filter(cell => !cell.reservedForOrderId && !cell.reservedForBatteryId && cell.status !== 'QUARANTINED').length;
-    const passedTestCycles = cellTests.filter(test => test.passed === true).length
-      + batteryTests.filter(test => test.passed === true).length;
+    const passedTestCycles = cellTests.filter((test: any) => test.passed === true).length
+      + batteryTests.filter((test: any) => test.passed === true).length;
     const fpy = totalTestCycles > 0
       ? Number(((passedTestCycles / totalTestCycles) * 100).toFixed(1))
       : 0;
-    const weldedModules = modules.filter(module => module.weldingResult?.status);
-    const passedWelds = weldedModules.filter(module => module.weldingResult.status === 'PASSED').length;
-    const testedBms = bmsUnits.filter(controller => controller.testResult?.status);
-    const passedBms = testedBms.filter(controller => controller.testResult.status === 'PASSED').length;
+    const weldedModules = modules.filter((module: any) => module.weldingResult?.status);
+    const passedWelds = weldedModules.filter((module: any) => module.weldingResult.status === 'PASSED').length;
+    const testedBms = bmsUnits.filter((controller: any) => controller.testResult?.status);
+    const passedBms = testedBms.filter((controller: any) => controller.testResult.status === 'PASSED').length;
     const buckets: Record<string, number> = { '< 3.297V': 0, '3.298V': 0, '3.300V': 0, '3.302V': 0, '> 3.303V': 0 };
     cells.forEach(cell => {
       const voltage = Number(cell.productionOcvV ?? cell.supplierOcvV ?? 3.300);
