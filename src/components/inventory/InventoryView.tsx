@@ -644,7 +644,8 @@ export const InventoryView: React.FC = () => {
               return batteryById.get(cell.reservedForBatteryId || module?.batteryId || '');
             };
             const isDamage = (cell: CellItem) => (hasBucketProjection && bucketByCellId.get(cell.id) === 'DAMAGE') ||
-              ['QUARANTINED', 'FAILED'].includes(cell.status) ||
+              ['SCRAP', 'QUARANTINED', 'REJECTED', 'FAILED'].includes(String(cell.lifecycleStatus || '').toUpperCase()) ||
+              ['QUARANTINED', 'REJECTED', 'FAILED'].includes(String(cell.status || '').toUpperCase()) ||
               ['DAMAGED', 'FAILED'].includes(cell.productionGrade || cell.supplierGrade || '') ||
               Boolean(cell.quarantineReason);
             const isReleased = (cell: CellItem) => {

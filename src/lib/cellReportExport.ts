@@ -61,6 +61,8 @@ const getCellClassification = (cell: CellItem, warehouseStatuses: Record<string,
   const warehouseStatus = String(warehouseStatuses[getCellId(cell)] || '').trim().toUpperCase();
   if (warehouseStatus === 'KARACHI_WAREHOUSE' || warehouseStatus === 'LAHORE_WAREHOUSE') return warehouseStatus;
   const lifecycleStatus = getCellLifecycleStatus(cell);
+  const cellStatus = String(cell.status || '').trim().toUpperCase();
+  if (lifecycleStatus === 'SCRAP' || ['QUARANTINED', 'REJECTED'].includes(cellStatus)) return 'SCRAP';
   return cellClassificationStatuses.includes(lifecycleStatus) ? lifecycleStatus : lifecycleStatus || 'UNKNOWN';
 };
 

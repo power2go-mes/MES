@@ -511,17 +511,17 @@ export const CEOMonitoringView: React.FC = () => {
         doc.text('TOTAL', x, y + 7, { align: 'center' });
         reportFontSize(5);
         doc.text(capacityFormatter(totalCapacityKwh), x, y + 25, { align: 'center' });
-        rows.slice(0, 8).forEach((row, index) => {
+        rows.forEach((row, index) => {
           if (legendOnRight) {
             const legendX = x + radius + 4;
             const legendY = y + rightLegendOffset + index * 10;
             doc.setFillColor(...hexRgb(row.color));
-            doc.roundedRect(legendX, legendY - 3, 2.5, 2.5, 0.5, 0.5, 'F');
-            doc.setFont('helvetica', 'normal');
-            reportFontSize(includeValueInLegend ? 5.4 : 5.8);
+            doc.roundedRect(legendX, legendY - 4.2, 2.5, 2.5, 0.5, 0.5, 'F');
+            doc.setFont('helvetica', includeValueInLegend ? 'bold' : 'normal');
+            reportFontSize(includeValueInLegend ? 4.8 : 5.8);
             doc.setTextColor(...muted);
             if (includeValueInLegend) {
-              doc.text(`${row.label} (${formatCellRowMwh(row.capacityKwh)}) ${formatNumber(row.value)}`, legendX + 5, legendY, { maxWidth: legendRightX - legendX - 7 });
+              doc.text(`${row.label} (${formatCellRowMwh(row.capacityKwh)}) ${formatNumber(row.value)}`, legendX + 5, legendY - 2.6);
               return;
             }
             doc.text(row.label, legendX + 5, legendY);
@@ -681,10 +681,10 @@ export const CEOMonitoringView: React.FC = () => {
       doc.setFont('helvetica', 'bold');
       reportFontSize(9);
       doc.setTextColor(...green);
-      drawDonut(leftChartX + 23, 150, 20, cellReportRows, 'CELL INVENTORY', true, leftChartX + chartWidth, false, formatCellTotalMwh, true);
-      drawBars(rightChartX, 136, chartWidth, 36, moduleReportRows, 'MODULE CONFIGURATION');
-      drawBars(leftChartX, 230, chartWidth, 36, batteryReportRows, 'BATTERY PACK MODEL');
-      drawDonut(rightChartX + 23, 244, 20, rackReportRows, 'RACK/CABINET STATUS', true, rightChartX + chartWidth, false, formatMwh, true, -15);
+      drawDonut(leftChartX + 23, 158, 20, cellReportRows, 'CELL INVENTORY', true, leftChartX + chartWidth, false, formatCellTotalMwh, true);
+      drawBars(rightChartX, 144, chartWidth, 36, moduleReportRows, 'MODULE CONFIGURATION');
+      drawBars(leftChartX, 240, chartWidth, 36, batteryReportRows, 'BATTERY PACK MODEL');
+      drawDonut(rightChartX + 23, 254, 20, rackReportRows, 'RACK/CABINET STATUS', true, rightChartX + chartWidth, false, formatMwh, true, -15);
       doc.addPage();
       drawTitle('POWER2GO MES | CEO PERFORMANCE REPORT', `Operational detail   |   ${rangeLabel}   |   ${reportDate}`);
       drawSingleKpi(leftChartX, 70, chartWidth, cabinetReportRows, 'CABINET STATUS');
