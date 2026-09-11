@@ -16,6 +16,11 @@ const rackTemplateConfig: Record<RackTemplate, { capacity: number; requiredCount
   RACK_75KWH: { capacity: 75, requiredCount: 10, packLabel: '7.5 kWh', packCapacity: 7.5 },
 };
 
+const rackCapacityLabel = (templateCode: string) => {
+  const match = templateCode.match(/^RACK_(\d+)KWH$/);
+  return match ? `${match[1]} kWh` : templateCode;
+};
+
 export const RackAssemblyView: React.FC = () => {
   const { addNotification, refreshKey, triggerRefresh } = useApp();
   const [template, setTemplate] = useState<RackTemplate>('RACK_25KWH');
@@ -46,8 +51,13 @@ export const RackAssemblyView: React.FC = () => {
     setLoading(true);
     try {
       const [allBatteries, allRacks] = await Promise.all([api.getBatterySummaries(), api.getRacks()]);
-      setBatteries(allBatteries.filter(item => ['RELEASED', 'FINISHED', 'WAREHOUSE'].includes(item.status)) as BatteryUnit[]);
+      const assignedBatteryIds = new Set(allRacks.flatMap(rack => rack.batteryIds || []));
+      setBatteries(allBatteries.filter(item => (
+        ['RELEASED', 'FINISHED', 'WAREHOUSE'].includes(item.status)
+        && !assignedBatteryIds.has(item.id)
+      )) as BatteryUnit[]);
       setRacks(allRacks);
+      setSelected(current => current.filter(id => !assignedBatteryIds.has(id)));
     } catch (error: any) {
       addNotification('error', 'Rack Load Failed', error.message || 'Could not load rack data.');
     } finally {
@@ -170,7 +180,7 @@ export const RackAssemblyView: React.FC = () => {
           <button type="button" onClick={() => void assemble()} disabled={saving || selected.length !== requiredCount || !physicalQc || !voltageQc} className="mt-4 w-full rounded-lg bg-cyan-600 px-4 py-3 text-xs font-bold text-white disabled:bg-slate-300">{saving ? 'Assembling rack...' : 'Assemble rack'}</button>
         </section>
 
-        <section className="rounded-2xl border border-slate-200 bg-white shadow-sm"><div className="border-b border-slate-100 p-5"><p className="text-[10px] font-black uppercase tracking-widest text-cyan-600">Rack register and sale</p><h2 className="text-base font-black text-slate-900">Completed racks</h2></div><div className="overflow-x-auto"><table className="w-full text-left text-xs"><thead className="bg-slate-50 text-[10px] font-black uppercase text-slate-500"><tr><th className="p-3">Rack</th><th className="p-3">Template</th><th className="p-3">QR</th><th className="p-3">Status</th><th className="p-3">Action</th></tr></thead><tbody className="divide-y divide-slate-100">{racks.map(rack => <tr key={rack.id}><td className="p-3 font-mono font-bold">{rack.serialNumber}</td><td className="p-3">{rack.rackTemplateCode} · {rack.requiredPackCount} packs</td><td className="p-3 font-mono"><button type="button" onClick={() => setQrRack(rack)} className="text-cyan-700"><QrCode className="mr-1 inline h-3.5 w-3.5" />{rack.qrCode}</button></td><td className="p-3 font-bold">{rack.status}</td><td className="p-3">{rack.status === 'IN_STOCK' && <div className="flex min-w-64 gap-1"><input value={reference} onChange={event => setReference(event.target.value)} placeholder="Reference" className="w-24 rounded border border-slate-200 px-2 py-1" /><input value={destination} onChange={event => setDestination(event.target.value)} placeholder="Destination" className="w-28 rounded border border-slate-200 px-2 py-1" /><button type="button" disabled={saving || !reference || !destination} onClick={() => void sell(rack)} className="rounded bg-emerald-600 px-2 py-1 font-bold text-white disabled:bg-slate-300"><Truck className="h-3.5 w-3.5" /></button></div>}</td></tr>)}</tbody></table></div></section>
+        <section className="rounded-2xl border border-slate-200 bg-white shadow-sm"><div className="border-b border-slate-100 p-5"><p className="text-[10px] font-black uppercase tracking-widest text-cyan-600">Rack register and sale</p><h2 className="text-base font-black text-slate-900">Completed racks</h2></div><div className="overflow-x-auto"><table className="w-full text-left text-xs"><thead className="bg-slate-50 text-[10px] font-black uppercase text-slate-500"><tr><th className="p-3">Rack</th><th className="p-3">Capacity</th><th className="p-3">QR</th><th className="p-3">Status</th><th className="p-3">Action</th></tr></thead><tbody className="divide-y divide-slate-100">{racks.map(rack => <tr key={rack.id}><td className="p-3 font-mono font-bold">{rack.serialNumber}</td><td className="p-3">{rackCapacityLabel(rack.rackTemplateCode)} · {rack.requiredPackCount} packs</td><td className="p-3 font-mono"><button type="button" onClick={() => setQrRack(rack)} className="text-cyan-700"><QrCode className="mr-1 inline h-3.5 w-3.5" />{rack.qrCode}</button></td><td className="p-3 font-bold">{rack.status}</td><td className="p-3">{rack.status === 'IN_STOCK' && <div className="flex min-w-64 gap-1"><input value={reference} onChange={event => setReference(event.target.value)} placeholder="Reference" className="w-24 rounded border border-slate-200 px-2 py-1" /><input value={destination} onChange={event => setDestination(event.target.value)} placeholder="Destination" className="w-28 rounded border border-slate-200 px-2 py-1" /><button type="button" disabled={saving || !reference || !destination} onClick={() => void sell(rack)} className="rounded bg-emerald-600 px-2 py-1 font-bold text-white disabled:bg-slate-300"><Truck className="h-3.5 w-3.5" /></button></div>}</td></tr>)}</tbody></table></div></section>
         <ScannerModal isOpen={scannerOpen} onClose={() => setScannerOpen(false)} onScan={handleBatteryScan} title="Scan battery pack" subtitle="Scan the QR code or serial number of a released battery pack" />
         <QRCodeModal isOpen={Boolean(qrRack)} onClose={() => setQrRack(null)} title="Rack Traceability QR" qrPayload={qrRack?.qrCode || `${qrRack?.serialNumber}|RACK:${qrRack?.id}` || ''} serialNumber={qrRack?.serialNumber || 'RACK'} itemType="RACK" metadata={{ template: qrRack?.rackTemplateCode || '-', status: qrRack?.status || '-' }} />
       </div>

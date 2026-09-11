@@ -42,6 +42,12 @@ const formatTraceStatus = (status: any): string => String(status || '')
   .replace(/^LAHORE_WAREHOUSE$/, 'Lahore Warehouse')
   .replace(/_/g, ' ');
 
+const getBatteryTraceStatus = (battery: any): string => String(
+  battery?.status === 'KARACHI_WAREHOUSE' || battery?.status === 'LAHORE_WAREHOUSE'
+    ? battery.status
+    : battery?.lifecycleStatus || battery?.lifecycle_status || battery?.status || '',
+);
+
 function makeNode(
   key: string,
   title: string,
@@ -68,7 +74,8 @@ function batterySubtree(bat: any, bms: any, bmu: any, modules = bat.modules || [
   if (bmu) children.push(makeNode('bmu-' + bat.serialNumber, bmu.serialNumber, 'BMU', bmu, 'BMS/BMU'));
   if (bat.finalQcResult)
     children.push(makeNode('finalqc-' + bat.serialNumber, 'Final QC', 'FINAL_QC', bat.finalQcResult, 'Final QC'));
-  children.push(makeNode('release-' + bat.serialNumber, 'Release', 'RELEASE', { status: bat.status }, bat.status));
+  const batteryStatus = getBatteryTraceStatus(bat);
+  children.push(makeNode('release-' + bat.serialNumber, 'Release', 'RELEASE', { status: batteryStatus }, batteryStatus));
   if (rack) children.push(makeNode('rack-' + (rack.serialNumber || rack.id), rack.serialNumber || rack.id, 'RACK', rack, 'Rack', rack.status));
   return makeNode('battery-' + bat.serialNumber, bat.serialNumber, 'BATTERY', bat, 'Battery Pack', undefined, children);
 }
@@ -95,7 +102,8 @@ function buildTree(t: any): TraceNode[] {
       if (t.bmu) bChildren.push(makeNode('bmu-' + t.battery.serialNumber, t.bmu.serialNumber, 'BMU', t.bmu, 'BMS/BMU'));
       if (t.battery.finalQcResult)
         bChildren.push(makeNode('finalqc-' + t.battery.serialNumber, 'Final QC', 'FINAL_QC', t.battery.finalQcResult, 'Final QC'));
-      bChildren.push(makeNode('release-' + t.battery.serialNumber, 'Release', 'RELEASE', { status: t.battery.status }, t.battery.status));
+      const batteryStatus = getBatteryTraceStatus(t.battery);
+      bChildren.push(makeNode('release-' + t.battery.serialNumber, 'Release', 'RELEASE', { status: batteryStatus }, batteryStatus));
       cellChildren.push(
         makeNode('battery-' + t.battery.serialNumber, t.battery.serialNumber, 'BATTERY', t.battery, 'Battery Pack', undefined, bChildren)
       );
@@ -115,7 +123,8 @@ function buildTree(t: any): TraceNode[] {
       if (t.bmu) bChildren.push(makeNode('bmu', t.bmu.serialNumber, 'BMU', t.bmu, 'BMS/BMU'));
       if (t.battery.finalQcResult)
         bChildren.push(makeNode('finalqc', 'Final QC', 'FINAL_QC', t.battery.finalQcResult, 'Final QC'));
-      bChildren.push(makeNode('release', 'Release', 'RELEASE', { status: t.battery.status }, t.battery.status));
+      const batteryStatus = getBatteryTraceStatus(t.battery);
+      bChildren.push(makeNode('release', 'Release', 'RELEASE', { status: batteryStatus }, batteryStatus));
       modChildren.push(
         makeNode('battery', t.battery.serialNumber, 'BATTERY', t.battery, 'Battery Pack', undefined, bChildren)
       );
@@ -253,7 +262,7 @@ function detailFields(node: TraceNode): { label: string; value: string }[] {
       return [
         { label: 'Battery Serial', value: fmt(d.serialNumber) },
         { label: 'Product', value: fmt(d.productName) },
-        { label: 'Status', value: fmt(d.status) },
+        { label: 'Status', value: fmt(getBatteryTraceStatus(d)) },
         { label: 'Modules', value: fmt((d.modules || []).length) },
         { label: 'Pack IR (mΩ)', value: fmt(d.finalQcResult?.internalResistanceMilliOhm) },
         { label: 'Pack Voltage (V)', value: fmt(d.finalQcResult?.packVoltageV) },
@@ -273,7 +282,7 @@ function detailFields(node: TraceNode): { label: string; value: string }[] {
         { label: 'Connected Batteries', value: fmt((d.batteries || []).length) },
         ...(d.batteries || []).flatMap((battery: any, index: number) => ([
           { label: `Battery ${index + 1} Serial`, value: fmt(battery.serialNumber) },
-          { label: `Battery ${index + 1} Status`, value: fmt(battery.status) },
+          { label: `Battery ${index + 1} Status`, value: fmt(getBatteryTraceStatus(battery)) },
           { label: `Battery ${index + 1} Product`, value: fmt(battery.productName) },
         ])),
       ];

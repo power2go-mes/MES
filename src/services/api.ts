@@ -166,7 +166,7 @@ export function warehouseLocationStatus(location: string | undefined): string | 
 }
 
 export function normalizeBatteryRecord(battery: any): any {
-  const serialNumber = String(battery?.serial_number ?? battery?.serialNumber ?? battery?.id ?? '').trim();
+  const serialNumber = normalizeBatterySerial(battery?.serial_number ?? battery?.serialNumber ?? battery?.id);
   const productName = String(
     battery?.product_templates?.name
     ?? battery?.productName
@@ -181,6 +181,10 @@ export function normalizeBatteryRecord(battery: any): any {
     currentStep,
     status: battery?.status || 'UNKNOWN',
   };
+}
+
+function normalizeBatterySerial(value: unknown): string {
+  return String(value || '').trim().replace(/^P2G-BP-8KWH(?=-)/i, 'P2G-BP-7.5KWH');
 }
 
 function reconcileDashboardCellBuckets(buckets: any[], totalCells: any): any[] {
@@ -2268,7 +2272,7 @@ async getUsers(): Promise<User[]> {
     if (error) throw error;
     return (data || []).map((battery: any) => ({
       id: battery.id,
-      serialNumber: battery.serialNumber || battery.serial_number || battery.id,
+      serialNumber: normalizeBatterySerial(battery.serialNumber || battery.serial_number || battery.id),
       productName: battery.productTemplates?.name || battery.product_templates?.name || '',
       capacityKwh: Number(battery.productTemplates?.capacityKwh ?? battery.product_templates?.capacity_kwh ?? 0) || undefined,
       productionOrderId: battery.productionOrderId || battery.production_order_id,

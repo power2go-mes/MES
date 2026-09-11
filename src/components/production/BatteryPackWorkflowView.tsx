@@ -28,6 +28,8 @@ export const BatteryPackWorkflowView: React.FC = () => {
   const [battery, setBattery] = useState<BatteryUnit | null>(null);
   const [product, setProduct] = useState<ProductTemplate | null>(null);
   const [products, setProducts] = useState<ProductTemplate[]>([]);
+  const [availableBatteries, setAvailableBatteries] = useState<Array<Pick<BatteryUnit, 'id' | 'serialNumber' | 'productName' | 'status'>>>([]);
+  const [selectedExistingBatteryId, setSelectedExistingBatteryId] = useState('');
   const [selectedProductId, setSelectedProductId] = useState('');
   const [builderOpen, setBuilderOpen] = useState(false);
   const [builderEditMode, setBuilderEditMode] = useState(false);
@@ -47,7 +49,10 @@ export const BatteryPackWorkflowView: React.FC = () => {
   useEffect(() => {
     void api.getProducts().then(productRows => {
       setProducts(productRows);
-    }).catch((err: any) => addNotification('error', 'Pack Setup Unavailable', err.message || 'Could not load product templates and batteries.'));
+    }).catch((err: any) => addNotification('error', 'Pack Templates Unavailable', err.message || 'Could not load product templates.'));
+    void api.getBatteries().then(batteryRows => {
+      setAvailableBatteries(batteryRows as Array<Pick<BatteryUnit, 'id' | 'serialNumber' | 'productName' | 'status'>>);
+    }).catch((err: any) => addNotification('error', 'Pack Inventory Unavailable', err.message || 'Could not load battery packs.'));
     if (activeBatteryId) {
       if (batteryBuilderEditRequested) {
         setBuilderEditMode(true);
@@ -213,6 +218,14 @@ export const BatteryPackWorkflowView: React.FC = () => {
           >
             {creatingBattery ? 'Creating battery...' : 'Continue'}
           </button>
+          <div className="my-6 flex items-center gap-3 text-[10px] font-black uppercase tracking-widest text-slate-400"><span className="h-px flex-1 bg-slate-200" />Or open an existing pack<span className="h-px flex-1 bg-slate-200" /></div>
+          <div className="flex gap-2">
+            <select value={selectedExistingBatteryId} onChange={event => setSelectedExistingBatteryId(event.target.value)} className="min-w-0 flex-1 rounded-lg border border-slate-200 px-3 py-2.5 text-sm">
+              <option value="">Select battery pack ({availableBatteries.length})</option>
+              {availableBatteries.map(item => <option key={item.id} value={item.id}>{item.serialNumber} · {item.productName || 'Unknown product'} · {item.status}</option>)}
+            </select>
+            <button type="button" onClick={() => { if (selectedExistingBatteryId) { setActiveBatteryId(selectedExistingBatteryId); setBuilderEditMode(true); } }} disabled={!selectedExistingBatteryId || loading} className="rounded-lg bg-slate-900 px-4 py-2.5 text-xs font-bold text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-300">Open pack</button>
+          </div>
           </> : null}
           {builderOpen && <>
           <div className="mt-5 rounded-xl border border-blue-200 bg-blue-50 p-4">

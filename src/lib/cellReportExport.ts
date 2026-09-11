@@ -9,6 +9,22 @@ const exportDateOnly = (value?: string) => {
   return `${String(date.getUTCDate()).padStart(2, '0')}-${String(date.getUTCMonth() + 1).padStart(2, '0')}-${date.getUTCFullYear()}`;
 };
 const exportRackType = (value?: string) => String(value || '').replace(/^RACK_/i, '').replace(/KWH$/i, 'kWh');
+const exportBatterySerial = (battery: BatteryUnit) => {
+  const serial = battery.serialNumber || (battery as any).serial_number || battery.id;
+  const capacity = Number((battery as any).capacityKwh ?? (battery as any).capacity_kwh ?? (battery as any).product_templates?.capacity_kwh);
+  const productName = String(battery.productName || (battery as any).product_name || (battery as any).product_templates?.name || '');
+  const configuredCapacity = Number.isFinite(capacity) && capacity > 0
+    ? capacity
+    : Number(productName.match(/(\d+(?:\.\d+)?)\s*kwh/i)?.[1] || 0);
+  const capacityLabel = configuredCapacity >= 7 && configuredCapacity <= 8
+    ? '7.5'
+    : Math.abs(configuredCapacity - 5) < 0.001
+      ? '5'
+      : '';
+  return capacityLabel
+    ? String(serial).replace(/^P2G-BP-[^-]+KWH(?=-)/i, `P2G-BP-${capacityLabel}KWH`)
+    : String(serial);
+};
 
 const autoFitColumns = (sheet: XLSX.WorkSheet, rows: Record<string, unknown>[]) => {
   const headers = rows.length > 0 ? Object.keys(rows[0]) : [];
@@ -42,6 +58,13 @@ type CellDashboardSummary = {
 
 type CellExportOptions = {
   warehouseStatuses?: Record<string, string>;
+};
+
+type WarehouseExportRow = {
+  Location: string;
+  Entity: string;
+  'Serial / QR': string;
+  'Type / Model': string;
 };
 
 const cellClassificationStatuses = [
@@ -136,6 +159,97 @@ export const downloadRackReport = (racks: RackUnit[], options: CellExportOptions
   autoFitColumns(sheet, rows);
   XLSX.utils.book_append_sheet(workbook, sheet, 'Rack-Cabinet');
   XLSX.writeFile(workbook, 'MES_Rack_Cabinet_Report.xlsx');
+};
+
+export const downloadWarehouseReport = (
+  batteries: BatteryUnit[],
+  racks: RackUnit[],
+  warehouseStatuses: Record<string, string>,
+) => {
+  const batteryById = new Map(batteries.map(battery => [String(battery.id), battery]));
+  const rows: WarehouseExportRow[] = [];
+  const normalizeWarehouseLocation = (value: unknown): 'Karachi' | 'Lahore' | '' => {
+    const normalized = String(value || '').trim().toUpperCase().replace(/[_-]+/g, ' ');
+    if (normalized === 'KARACHI' || normalized === 'KARACHI WAREHOUSE') return 'Karachi';
+    if (normalized === 'LAHORE' || normalized === 'LAHORE WAREHOUSE') return 'Lahore';
+    return '';
+  };
+  const entityLocation = (key: string, entity: any) => normalizeWarehouseLocation(
+    warehouseStatuses[key] || entity?.location || entity?.warehouseLocation || entity?.warehouse_location,
+  );
+  const warehouseRackRows = racks
+    .map(rack => {
+      const rawLocation = String(rack.location || (rack as any).warehouseLocation || (rack as any).warehouse_location || '').trim();
+      const rackTemplateCode = String(rack.rackTemplateCode || (rack as any).rack_template_code || '').toUpperCase();
+      return {
+        rack,
+        location: entityLocation(`RACK:${rack.id}`, rack) || (rackTemplateCode === 'RACK_25KWH' ? rawLocation || 'Unassigned' : ''),
+      };
+    })
+    .filter(({ location }) => Boolean(location))
+    .sort((left, right) => left.location.localeCompare(right.location));
+
+  warehouseRackRows.forEach(({ rack, location }) => {
+    const rackBatteries = (rack.batteryIds || [])
+      .map(batteryId => batteryById.get(String(batteryId)))
+      .filter(Boolean) as BatteryUnit[];
+    const rackTemplateCode = String(rack.rackTemplateCode || (rack as any).rack_template_code || '').toUpperCase();
+    const rackCategory = rackTemplateCode === 'RACK_25KWH' ? 'Rack' : 'Cabinet';
+    rows.push({
+      Location: location,
+      Entity: rackCategory,
+      'Serial / QR': rack.serialNumber || (rack as any).serial_number || rack.id,
+      'Type / Model': exportRackType(rack.rackTemplateCode || (rack as any).rack_template_code),
+    });
+    rackBatteries.forEach(battery => {
+      rows.push({
+        Location: location,
+        Entity: `${rackCategory} Battery Pack`,
+        'Serial / QR': exportBatterySerial(battery),
+        'Type / Model': '',
+      });
+    });
+  });
+
+  batteries
+    .map(battery => ({ battery, location: entityLocation(`BATTERY:${battery.id}`, battery) }))
+    .filter(({ location }) => Boolean(location))
+    .sort((left, right) => left.location.localeCompare(right.location))
+    .forEach(({ battery, location }) => rows.push({
+      Location: location,
+      Entity: 'Standalone Battery Pack',
+      'Serial / QR': exportBatterySerial(battery),
+      'Type / Model': '',
+    }));
+
+  if (rows.length === 0) throw new Error('No Karachi or Lahore warehouse records are available to export.');
+  const workbook = XLSX.utils.book_new();
+  const overviewRows = [
+    { Location: 'Karachi', Racks: rows.filter(row => row.Location === 'Karachi' && row.Entity === 'Rack').length, Cabinets: rows.filter(row => row.Location === 'Karachi' && row.Entity === 'Cabinet').length, 'Standalone Battery Packs': rows.filter(row => row.Location === 'Karachi' && row.Entity === 'Standalone Battery Pack').length },
+    { Location: 'Lahore', Racks: rows.filter(row => row.Location === 'Lahore' && row.Entity === 'Rack').length, Cabinets: rows.filter(row => row.Location === 'Lahore' && row.Entity === 'Cabinet').length, 'Standalone Battery Packs': rows.filter(row => row.Location === 'Lahore' && row.Entity === 'Standalone Battery Pack').length },
+    { Location: 'TOTAL', Racks: rows.filter(row => row.Entity === 'Rack').length, Cabinets: rows.filter(row => row.Entity === 'Cabinet').length, 'Standalone Battery Packs': rows.filter(row => row.Entity === 'Standalone Battery Pack').length },
+  ];
+  const overviewSheet = XLSX.utils.json_to_sheet(overviewRows);
+  autoFitColumns(overviewSheet, overviewRows);
+  XLSX.utils.book_append_sheet(workbook, overviewSheet, 'Warehouse Overview');
+  const batteryRows = rows.filter(row => row.Entity === 'Standalone Battery Pack');
+  const rackRows = rows.filter(row => row.Entity === 'Rack' || row.Entity === 'Rack Battery Pack');
+  const cabinetRows = rows.filter(row => row.Entity === 'Cabinet' || row.Entity === 'Cabinet Battery Pack');
+  const appendWarehouseSheet = (sheetName: string, sheetRows: WarehouseExportRow[]) => {
+    const outputRows = sheetName === 'Battery Packs'
+      ? sheetRows.map(row => ({ Location: row.Location, 'Serial / QR': row['Serial / QR'] }))
+      : sheetRows.map(row => ({ Location: row.Location, 'Serial / QR': row['Serial / QR'], 'Type / Model': row['Type / Model'] }));
+    const emptyRow = sheetName === 'Battery Packs'
+      ? { Location: '', 'Serial / QR': `No ${sheetName.toLowerCase()} found` }
+      : { Location: '', 'Serial / QR': `No ${sheetName.toLowerCase()} found`, 'Type / Model': '' };
+    const sheet = XLSX.utils.json_to_sheet(outputRows.length > 0 ? outputRows : [emptyRow]);
+    autoFitColumns(sheet, outputRows.length > 0 ? outputRows : [emptyRow]);
+    XLSX.utils.book_append_sheet(workbook, sheet, sheetName);
+  };
+  appendWarehouseSheet('Battery Packs', batteryRows);
+  appendWarehouseSheet('Cabinets', cabinetRows);
+  appendWarehouseSheet('Racks', rackRows);
+  XLSX.writeFile(workbook, `MES_Warehouse_Report_${new Date().toISOString().slice(0, 10)}.xlsx`);
 };
 
 const getBatteryClassification = (battery: BatteryUnit, warehouseStatuses: Record<string, string> = {}) => {
