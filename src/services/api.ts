@@ -4101,7 +4101,7 @@ async getUsers(): Promise<User[]> {
     // records from the current entity status so the history is never blank.
     const historyRows = error ? [] : (data || []);
     const [{ data: batteries }, { data: racks }, { data: dispatches }, { data: rackEvents }, { data: warehouseDispatches }] = await Promise.all([
-      rawSupabase.from('batteries').select('id,serial_number,status,lifecycle_status,created_at,updated_at').eq('lifecycle_status', 'SOLD'),
+      rawSupabase.from('batteries').select('id,serial_number,status,lifecycle_status,created_at,updated_at').or('lifecycle_status.eq.SOLD,status.eq.DISPATCHED'),
       rawSupabase.from('racks').select('id,serial_number,status,created_at,updated_at').eq('status', 'SOLD'),
       rawSupabase.from('dispatches').select('battery_id,destination,dispatched_at').order('dispatched_at', { ascending: false }),
       rawSupabase.from('lifecycle_events').select('entity_id,reason,recorded_at').eq('entity_type', 'RACK').eq('to_status', 'SOLD').order('recorded_at', { ascending: false }),

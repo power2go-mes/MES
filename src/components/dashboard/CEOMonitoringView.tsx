@@ -3,7 +3,7 @@ import { jsPDF } from 'jspdf';
 import { Activity, AlertTriangle, Boxes, Download, Factory, PackageCheck, Truck, Zap } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
 import { api } from '../../services/api';
-import { downloadBatteryReport, downloadCellReport, downloadRackReport } from '../../lib/cellReportExport';
+import { downloadBatteryReport, downloadCellReport, downloadRackReport, downloadSoldReport, downloadWarehouseReport } from '../../lib/cellReportExport';
 import { buildDashboardDistribution, DashboardDistribution, DashboardChartRow } from '../../lib/dashboardCharts';
 
 const numberOr = (value: any, fallback = 0) => {
@@ -110,6 +110,8 @@ export const CEOMonitoringView: React.FC = () => {
   const [exportingCells, setExportingCells] = useState(false);
   const [exportingBatteryReport, setExportingBatteryReport] = useState(false);
   const [exportingRackReport, setExportingRackReport] = useState(false);
+  const [exportingWarehouseReport, setExportingWarehouseReport] = useState(false);
+  const [exportingSoldReport, setExportingSoldReport] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [selectedCellStatus, setSelectedCellStatus] = useState<'All' | string>('All');
   const [selectedPackType, setSelectedPackType] = useState('All');
@@ -352,6 +354,36 @@ export const CEOMonitoringView: React.FC = () => {
       addNotification('error', 'Rack export failed', error?.message || 'Unable to export the rack report.');
     } finally {
       setExportingRackReport(false);
+    }
+  };
+
+  const exportWarehouseReport = async () => {
+    setExportingWarehouseReport(true);
+    try {
+      const [batteries, racks, warehouseStatuses] = await Promise.all([
+        api.getBatteries(),
+        api.getRacks(),
+        api.getWarehouseEntityStatuses(),
+      ]);
+      downloadWarehouseReport(batteries, racks, warehouseStatuses);
+      addNotification('success', 'Warehouse report exported', 'Karachi and Lahore racks and battery packs were exported.');
+    } catch (error: any) {
+      addNotification('error', 'Warehouse export failed', error?.message || 'Unable to export warehouse inventory.');
+    } finally {
+      setExportingWarehouseReport(false);
+    }
+  };
+
+  const exportSoldReport = async () => {
+    setExportingSoldReport(true);
+    try {
+      const [batteries, racks, saleHistory] = await Promise.all([api.getBatteries(), api.getRacks(), api.getSaleHistory()]);
+      downloadSoldReport(batteries, racks, saleHistory);
+      addNotification('success', 'Sold report exported', 'Sold battery packs and racks were exported.');
+    } catch (error: any) {
+      addNotification('error', 'Sold export failed', error?.message || 'Unable to export sold inventory.');
+    } finally {
+      setExportingSoldReport(false);
     }
   };
 
@@ -823,6 +855,25 @@ export const CEOMonitoringView: React.FC = () => {
               >
                 <Download className="h-3.5 w-3.5" />
                 {exportingRackReport ? 'Exporting Racks...' : 'Export Rack Report'}
+              </button>
+              <button
+                type="button"
+                onClick={() => void exportWarehouseReport()}
+                disabled={exportingWarehouseReport}
+                className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-700 shadow-sm transition-colors hover:border-emerald-200 hover:bg-emerald-50 hover:text-emerald-700 disabled:cursor-wait disabled:opacity-60"
+                title="Export Karachi and Lahore warehouse inventory to Excel"
+              >
+                <Download className="h-3.5 w-3.5" />
+                {exportingWarehouseReport ? 'Exporting Warehouse...' : 'Export Warehouse Report'}
+              </button>
+              <button
+                type="button"
+                onClick={() => void exportSoldReport()}
+                disabled={exportingSoldReport}
+                className="inline-flex items-center gap-2 rounded-lg border border-emerald-200 bg-white px-3 py-2 text-xs font-bold text-emerald-700 hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                <Download className="h-4 w-4" />
+                {exportingSoldReport ? 'Exporting Sold...' : 'Export Sold Report'}
               </button>
             </div>
           </div>

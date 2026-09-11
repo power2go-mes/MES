@@ -9,6 +9,13 @@ const exportDateOnly = (value?: string) => {
   return `${String(date.getUTCDate()).padStart(2, '0')}-${String(date.getUTCMonth() + 1).padStart(2, '0')}-${date.getUTCFullYear()}`;
 };
 const exportRackType = (value?: string) => String(value || '').replace(/^RACK_/i, '').replace(/KWH$/i, 'kWh');
+const normalizeClientName = (value: unknown) => {
+  const name = String(value || '').trim();
+  const midpoint = Math.floor(name.length / 2);
+  const firstHalf = name.slice(0, midpoint).trim();
+  const secondHalf = name.slice(midpoint).trim();
+  return firstHalf && firstHalf === secondHalf ? firstHalf : name;
+};
 const exportBatterySerial = (battery: BatteryUnit) => {
   const serial = battery.serialNumber || (battery as any).serial_number || battery.id;
   const capacity = Number((battery as any).capacityKwh ?? (battery as any).capacity_kwh ?? (battery as any).product_templates?.capacity_kwh);
@@ -159,6 +166,63 @@ export const downloadRackReport = (racks: RackUnit[], options: CellExportOptions
   autoFitColumns(sheet, rows);
   XLSX.utils.book_append_sheet(workbook, sheet, 'Rack-Cabinet');
   XLSX.writeFile(workbook, 'MES_Rack_Cabinet_Report.xlsx');
+};
+
+export const downloadSoldReport = (batteries: BatteryUnit[], racks: RackUnit[], saleHistory: Array<{ entityType?: string; entity_type?: string; entityId?: string; entity_id?: string; clientName?: string; client_name?: string }> = []) => {
+  const soldRacks = racks.filter(rack => String(rack.status || '').toUpperCase() === 'SOLD');
+  const batteriesInsideSoldRacks = new Set(soldRacks.flatMap(rack => (rack.batteryIds || []).map(batteryId => String(batteryId))));
+  const soldBatteries = batteries.filter(battery => !batteriesInsideSoldRacks.has(String(battery.id)) && (['SOLD', 'DISPATCHED'].includes(String(battery.status || '').toUpperCase()) || String(battery.lifecycleStatus || (battery as any).lifecycle_status || '').toUpperCase() === 'SOLD'));
+  if (soldBatteries.length === 0 && soldRacks.length === 0) throw new Error('No sold battery packs or racks are available to export.');
+  const clientByKey = new Map(saleHistory.map(sale => [
+    `${String(sale.entityType || sale.entity_type || '').toUpperCase()}:${String(sale.entityId || sale.entity_id || '')}`,
+    normalizeClientName(sale.clientName || sale.client_name || 'Not recorded'),
+  ]));
+
+  const batteryRows = soldBatteries.map(battery => ({
+    'Serial Number': battery.serialNumber || (battery as any).serial_number || '',
+    'Client Name': clientByKey.get(`BATTERY:${battery.id}`) || 'Not recorded',
+    Status: 'SOLD',
+  })).sort((left, right) => String(left['Client Name']).localeCompare(String(right['Client Name'])) || left['Serial Number'].localeCompare(right['Serial Number']));
+  const rackRows = [...soldRacks]
+    .sort((left, right) => String(clientByKey.get(`RACK:${left.id}`) || 'Not recorded').localeCompare(String(clientByKey.get(`RACK:${right.id}`) || 'Not recorded')))
+    .flatMap(rack => {
+    const packSerials = (rack.batteryIds || [])
+      .map(batteryId => batteries.find(battery => String(battery.id) === String(batteryId)))
+      .filter(Boolean)
+      .map(battery => exportBatterySerial(battery as BatteryUnit));
+    const rackSummary = {
+      'Rack Serial Number': rack.serialNumber || (rack as any).serial_number || '',
+      'Rack Type': exportRackType(rack.rackTemplateCode || (rack as any).rack_template_code),
+      'Battery Pack Serial Number': '',
+      'Client Name': clientByKey.get(`RACK:${rack.id}`) || 'Not recorded',
+      Status: 'SOLD',
+    };
+    const packRows = packSerials.map(packSerial => ({
+      'Rack Serial Number': '',
+      'Rack Type': '',
+      'Battery Pack Serial Number': packSerial,
+      'Client Name': '',
+      Status: '',
+    }));
+      return [rackSummary, ...packRows];
+    });
+  const workbook = XLSX.utils.book_new();
+  const overviewRows = [
+    { Entity: 'Battery Packs', Quantity: batteryRows.length },
+    { Entity: 'Racks', Quantity: soldRacks.length },
+    { Entity: 'TOTAL', Quantity: batteryRows.length + soldRacks.length },
+  ];
+  const overviewSheet = XLSX.utils.json_to_sheet(overviewRows);
+  autoFitColumns(overviewSheet, overviewRows);
+  XLSX.utils.book_append_sheet(workbook, overviewSheet, 'Sold Overview');
+  const appendSoldSheet = (name: string, rows: Record<string, unknown>[]) => {
+    const sheet = XLSX.utils.json_to_sheet(rows.length > 0 ? rows : [{ 'Serial Number': `No sold ${name.toLowerCase()} found` }]);
+    autoFitColumns(sheet, rows.length > 0 ? rows : [{ 'Serial Number': `No sold ${name.toLowerCase()} found` }]);
+    XLSX.utils.book_append_sheet(workbook, sheet, name);
+  };
+  appendSoldSheet('Battery Packs', batteryRows);
+  appendSoldSheet('Racks', rackRows);
+  XLSX.writeFile(workbook, `MES_Sold_Report_${new Date().toISOString().slice(0, 10)}.xlsx`);
 };
 
 export const downloadWarehouseReport = (
