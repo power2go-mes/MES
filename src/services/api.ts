@@ -4263,8 +4263,8 @@ async getUsers(): Promise<User[]> {
     };
     const [rackRows, batteryRows, moduleRows, cellRows] = await Promise.all([
       loadRefs('RACK', 'racks', 'id,serial_number,qr_code'),
-      loadRefs('BATTERY', 'batteries', 'id,serial_number,qr_code'),
-      loadRefs('MODULE', 'modules', 'id,serial_number,qr_code'),
+      loadRefs('BATTERY', 'batteries', 'id,serial_number'),
+      loadRefs('MODULE', 'modules', 'id,serial_number'),
       loadRefs('CELL', 'cells', 'id,internal_serial,qr_code'),
     ]);
     const refs = new Map<string, { serialNumber?: string; qrCode?: string }>();
