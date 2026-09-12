@@ -211,12 +211,29 @@ create table if not exists public.machine_configurations (
 -- ================================================================
 create table if not exists public.qr_registry (
     qr_code text primary key,
-    entity_type text not null check (entity_type in ('CELL', 'MODULE', 'BATTERY', 'BMS', 'BMU')),
+    entity_type text not null check (entity_type in ('CELL', 'MODULE', 'BATTERY', 'BMS', 'BMU', 'RACK')),
     entity_id text not null,
     registered_at timestamptz not null default now()
 );
 
 create index if not exists idx_qr_registry_entity on public.qr_registry(entity_type, entity_id);
+
+do $$
+declare
+    constraint_name text;
+begin
+    select conname into constraint_name
+      from pg_constraint
+     where conrelid = 'public.qr_registry'::regclass
+       and contype = 'c'
+       and pg_get_constraintdef(oid) like '%entity_type%';
+    if constraint_name is not null then
+        execute format('alter table public.qr_registry drop constraint %I', constraint_name);
+    end if;
+    alter table public.qr_registry add constraint qr_registry_entity_type_check
+        check (entity_type in ('CELL', 'MODULE', 'BATTERY', 'BMS', 'BMU', 'RACK'));
+exception when duplicate_object then null;
+end $$;
 
 -- ================================================================
 -- 5. IMPORTS & PRODUCTION ORDERS
@@ -464,7 +481,7 @@ create table if not exists public.battery_tests (
 
 create table if not exists public.quarantine_records (
     id text primary key,
-    entity_type text not null check (entity_type in ('CELL', 'MODULE', 'BATTERY', 'BMS', 'BMU')),
+    entity_type text not null check (entity_type in ('CELL', 'MODULE', 'BATTERY', 'BMS', 'BMU', 'RACK')),
     entity_id text not null,
     reason text not null,
     status quarantine_status not null default 'OPEN',
@@ -588,6 +605,23 @@ create table if not exists public.genealogy_records (
 
 create index if not exists idx_genealogy_entity on public.genealogy_records(entity_type, entity_id);
 create index if not exists idx_genealogy_parent on public.genealogy_records(parent_entity_type, parent_entity_id);
+
+do $$
+declare
+    constraint_name text;
+begin
+    select conname into constraint_name
+      from pg_constraint
+     where conrelid = 'public.genealogy_records'::regclass
+       and contype = 'c'
+       and pg_get_constraintdef(oid) like '%entity_type%';
+    if constraint_name is not null then
+        execute format('alter table public.genealogy_records drop constraint %I', constraint_name);
+    end if;
+    alter table public.genealogy_records add constraint genealogy_records_entity_type_check
+        check (entity_type in ('CELL', 'MODULE', 'BATTERY', 'BMS', 'BMU', 'RACK'));
+exception when duplicate_object then null;
+end $$;
 
 -- Helper to record genealogy
 create or replace function public.record_genealogy_event(
@@ -1514,6 +1548,7 @@ begin
 
     insert into public.audit_logs (entity_type, entity_id, action, actor, result, details)
     values ('BATTERY', v_battery_id, 'CREATE_PACK_BATTERY_SHELL', coalesce(auth.uid()::text, 'SYSTEM'), 'SUCCESS', 'Pack shell created; modules come from standalone module assembly');
+    perform public.record_genealogy_event('BATTERY', v_battery_id, 'CREATED', null, null, jsonb_build_object('production_order_id', v_order_id, 'product_id', p_product_id));
 
     select * into v_order from public.production_orders where id = v_order_id;
     select * into v_battery from public.batteries where id = v_battery_id;
@@ -2167,6 +2202,7 @@ begin
 
     insert into public.audit_logs (entity_type, entity_id, action, actor, result, details)
     values ('BATTERY', p_battery_id, 'RELEASE', coalesce(auth.uid()::text, 'SYSTEM'), 'SUCCESS', 'Battery released successfully');
+    perform public.record_genealogy_event('BATTERY', p_battery_id, 'RELEASED', null, null, jsonb_build_object('release_recorded', true));
 
     select * into v_battery from public.batteries where id = p_battery_id;
     return to_jsonb(v_battery);
@@ -2288,6 +2324,7 @@ begin
 
     insert into public.audit_logs (entity_type, entity_id, action, actor, result, details)
     values ('BATTERY', p_battery_id, 'DISPATCH', coalesce(auth.uid()::text, 'SYSTEM'), 'SUCCESS', 'Dispatched to ' || p_destination || ' (Ref: ' || p_reference || ')');
+    perform public.record_genealogy_event('BATTERY', p_battery_id, 'DISPATCHED', null, null, jsonb_build_object('destination', p_destination, 'reference', p_reference));
 
     select * into v_battery from public.batteries where id = p_battery_id;
     return to_jsonb(v_battery);
@@ -2346,6 +2383,7 @@ begin
 
     insert into public.audit_logs (entity_type, entity_id, action, actor, result, details)
     values ('BATTERY', p_battery_id, 'SELL_BATTERY', coalesce(auth.uid()::text, 'SYSTEM'), 'SUCCESS', 'Sold to ' || trim(p_client));
+    perform public.record_genealogy_event('BATTERY', p_battery_id, 'SOLD', null, null, jsonb_build_object('client', trim(p_client)));
 
     select * into v_battery from public.batteries where id = p_battery_id;
     return to_jsonb(v_battery);
@@ -3201,6 +3239,9 @@ begin
         if v_battery.status not in ('RELEASED','FINISHED','WAREHOUSE') then raise exception 'Pack % is not released', v_battery.serial_number; end if;
     end loop;
     insert into public.racks(id, serial_number, qr_code, rack_template_code, status, required_pack_count, required_pack_template_code, location, created_by) values (v_rack_id, v_serial, 'RACK-QR-' || upper(substr(replace(v_rack_id, '-', ''), 1, 12)), p_template_code, 'IN_STOCK', v_required, v_pack_code, coalesce(nullif(trim(p_location), ''), 'RACK_ASSEMBLY'), auth.uid());
+    insert into public.qr_registry (qr_code, entity_type, entity_id)
+    values ('RACK-QR-' || upper(substr(replace(v_rack_id, '-', ''), 1, 12)), 'RACK', v_rack_id)
+    on conflict (qr_code) do nothing;
     for v_index in 1..v_required loop
         insert into public.rack_packs(rack_id, battery_id, pack_slot_index) values (v_rack_id, p_battery_ids[v_index], v_index - 1);
         update public.batteries set lifecycle_status = 'IN_RACK', updated_at = now() where id = p_battery_ids[v_index];
@@ -3217,6 +3258,7 @@ begin
                         );
     end loop;
     insert into public.lifecycle_events(entity_type, entity_id, from_status, to_status, reason, recorded_by) values ('RACK', v_rack_id, 'IN_STOCK', 'IN_STOCK', 'Rack assembled and placed in stock', auth.uid());
+    perform public.record_genealogy_event('RACK', v_rack_id, 'ASSEMBLED', null, null, jsonb_build_object('template_code', p_template_code, 'battery_count', v_required));
     return jsonb_build_object('rackId', v_rack_id, 'serialNumber', v_serial, 'qrCode', 'RACK-QR-' || upper(substr(replace(v_rack_id, '-', ''), 1, 12)), 'status', 'IN_STOCK');
 end $$;
 
@@ -3241,6 +3283,7 @@ begin
                              and m.battery_id in (select battery_id from public.rack_packs where rack_id = v_rack.id)
                 );
     insert into public.lifecycle_events(entity_type, entity_id, from_status, to_status, reason, recorded_by) values ('RACK', v_rack.id, 'IN_RACK', 'SOLD', coalesce(p_destination, '') || ' ' || coalesce(p_reference, ''), auth.uid());
+    perform public.record_genealogy_event('RACK', v_rack.id, 'SOLD', null, null, jsonb_build_object('destination', p_destination, 'reference', p_reference));
     insert into public.sale_history (entity_type, entity_id, client_name, sold_at, updated_at)
     values ('RACK', v_rack.id, trim(p_destination), now(), now())
     on conflict (entity_type, entity_id) do update

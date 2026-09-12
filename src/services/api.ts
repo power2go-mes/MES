@@ -3734,6 +3734,7 @@ async getUsers(): Promise<User[]> {
           BATTERY: 'batteries',
           BMS: 'bms_units',
           BMU: 'bmu_units',
+          RACK: 'racks',
         };
         const table = tableByType[qrMatch.entityType];
         if (table) {
@@ -3768,6 +3769,10 @@ async getUsers(): Promise<User[]> {
         ...lookup,
         entity: await find(lookup.table, lookup.columns),
       })));
+      const matches = directResults.filter(result => result.entity);
+      if (candidateLookups.length > 1 && matches.length > 1) {
+        throw new Error(`Identifier '${query.trim()}' matches multiple record types: ${matches.map(result => result.entityType).join(', ')}. Use a more specific identifier.`);
+      }
       for (const result of directResults) {
         if (result.entity) return { entityType: result.entityType, entity: result.entity };
       }
@@ -3786,7 +3791,7 @@ async getUsers(): Promise<User[]> {
 
       const { data, error } = await supabase
         .from('module_cells')
-        .select('module_id, cell_id, cell_slot_index, cell:cells(*)')
+        .select('module_id, cell_id, cell_slot_index, cell:cells(id,internal_serial,supplier_barcode,qr_code,supplier_id,batch_number,pallet_number,box_number,supplier_ocv_v,supplier_ir_mohm,production_ocv_v,production_ir_mohm,grade,status,lifecycle_status,reserved_for_order_id,reserved_for_battery_id,tested_at)')
         .in('module_id', uniqueModuleIds)
         .order('cell_slot_index', { ascending: true });
       if (error) throw error;
@@ -3958,6 +3963,8 @@ async getUsers(): Promise<User[]> {
           userRole: event.recordedBy ? 'Authenticated operator' : 'System event',
           timestamp: event.recordedAt,
         }));
+      } else {
+        context.traceabilityWarning = `Genealogy history could not be loaded: ${genealogyError.message || 'database query failed'}`;
       }
       if (entityType === 'CELL') {
         const supplier = normalizedEntity.supplierId ? await supabase.from('suppliers').select('*').eq('id', normalizedEntity.supplierId).maybeSingle() : null;
@@ -4042,7 +4049,7 @@ async getUsers(): Promise<User[]> {
     if (supplier) return buildContext('SUPPLIER', supplier);
     const { data: batchCells, error: batchError } = await supabase
       .from('cells')
-      .select('*')
+      .select('*, supplier:suppliers(name)')
       .or(`batchNumber.eq.${query.trim()},palletNumber.eq.${query.trim()},boxNumber.eq.${query.trim()}`)
       .limit(1000);
     if (!batchError && batchCells?.length) {
@@ -4050,7 +4057,7 @@ async getUsers(): Promise<User[]> {
       return {
         entityType: 'SUPPLIER_BATCH',
         identifier: query.trim(),
-        entity: { batchIdentifier: query.trim(), cellCount: batchCells.length, supplierName: batchCells[0].supplierName },
+        entity: { batchIdentifier: query.trim(), cellCount: batchCells.length, supplierName: batchCells[0].supplierName || batchCells[0].supplier?.name },
         supplier: supplierResult.data,
         cells: batchCells,
       };
