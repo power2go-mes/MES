@@ -22,15 +22,17 @@ export const ReportsView: React.FC = () => {
     let cancelled = false;
     const refresh = async () => {
       try {
-        const [res, warehouseStatuses] = await Promise.all([api.getReportsAnalytics(), api.getWarehouseCellStatuses()]);
+        const res = await api.getReportsAnalytics();
         if (!cancelled) {
           setStats(res);
-          setWarehouseCells({
+          setLoadError(null);
+        }
+        void api.getWarehouseCellStatuses().then(warehouseStatuses => {
+          if (!cancelled) setWarehouseCells({
             KARACHI_WAREHOUSE: Object.values(warehouseStatuses).filter(status => status === 'KARACHI_WAREHOUSE').length,
             LAHORE_WAREHOUSE: Object.values(warehouseStatuses).filter(status => status === 'LAHORE_WAREHOUSE').length,
           });
-          setLoadError(null);
-        }
+        }).catch(error => console.error('Failed to load warehouse report counts', error));
       } catch (err: any) {
         if (!cancelled) setLoadError(err?.message || 'Unable to load report analytics.');
       } finally {
@@ -55,12 +57,12 @@ export const ReportsView: React.FC = () => {
     setLoading(true);
     setLoadError(null);
     try {
-      const [res, warehouseStatuses] = await Promise.all([api.getReportsAnalytics(), api.getWarehouseCellStatuses()]);
+      const res = await api.getReportsAnalytics();
       setStats(res);
-      setWarehouseCells({
+      void api.getWarehouseCellStatuses().then(warehouseStatuses => setWarehouseCells({
         KARACHI_WAREHOUSE: Object.values(warehouseStatuses).filter(status => status === 'KARACHI_WAREHOUSE').length,
         LAHORE_WAREHOUSE: Object.values(warehouseStatuses).filter(status => status === 'LAHORE_WAREHOUSE').length,
-      });
+      })).catch(error => console.error('Failed to load warehouse report counts', error));
     } catch (err: any) {
       setLoadError(err?.message || 'Unable to load report analytics.');
     } finally {

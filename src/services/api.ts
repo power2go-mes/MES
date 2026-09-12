@@ -48,6 +48,8 @@ let dashboardStatsCache: { key: string; value: any; expiresAt: number } | null =
 let dashboardStatsRequest: { key: string; promise: Promise<any> } | null = null;
 let warehouseLocationCache: { value: any; expiresAt: number } | null = null;
 let warehouseLocationRequest: Promise<any> | null = null;
+let reportsAnalyticsCache: { value: any; expiresAt: number } | null = null;
+let reportsAnalyticsRequest: Promise<any> | null = null;
 let recentTraceItemsCache: { value: Array<{ label: string; serial: string }>; expiresAt: number } | null = null;
 let recentTraceItemsRequest: Promise<Array<{ label: string; serial: string }>> | null = null;
 
@@ -1017,10 +1019,33 @@ async getUsers(): Promise<User[]> {
 
   // Reports & Quality Analytics
   async getReportsAnalytics(): Promise<any> {
+    const now = Date.now();
+    if (reportsAnalyticsCache && reportsAnalyticsCache.expiresAt > now) return reportsAnalyticsCache.value;
+    if (reportsAnalyticsRequest) return reportsAnalyticsRequest;
+    reportsAnalyticsRequest = api.loadReportsAnalytics();
+    try {
+      const value = await reportsAnalyticsRequest;
+      reportsAnalyticsCache = { value, expiresAt: Date.now() + 30000 };
+      return value;
+    } finally {
+      reportsAnalyticsRequest = null;
+    }
+  },
+
+  async loadReportsAnalytics(): Promise<any> {
     const reportCellFields = 'id,internal_serial,supplier_barcode,supplier_ocv_v,production_ocv_v,status,reserved_for_order_id,reserved_for_battery_id,tested_at';
-    const { count: cellCount, error: cellCountError } = await supabase
+    const cellCountRequest = supabase
       .from('cells')
       .select('id', { count: 'exact', head: true });
+    const analyticsRequests = Promise.all([
+      supabase.from('batteries').select('id,status,step_results_json,created_at'),
+      supabase.from('modules').select('id,status,welding_result_json'),
+      supabase.from('bms_units').select('id,status,test_result_json'),
+      supabase.from('cell_tests').select('id,cell_id,battery_id,passed,tested_at'),
+      supabase.from('battery_tests').select('id,battery_id,passed,tested_at'),
+      supabase.from('quarantine_records').select('id,entity_type,entity_id,reason,status'),
+    ]);
+    const { count: cellCount, error: cellCountError } = await cellCountRequest;
     if (cellCountError) throw cellCountError;
 
     const reportPageSize = 1000;
@@ -1043,14 +1068,7 @@ async getUsers(): Promise<User[]> {
       testedAt: cell.testedAt ?? cell.tested_at,
     })) as CellItem[];
 
-    const [batteriesResult, modulesResult, bmsResult, cellTestsResult, batteryTestsResult, quarantineResult] = await Promise.all([
-      supabase.from('batteries').select('id,status,step_results_json,created_at'),
-      supabase.from('modules').select('id,status,welding_result_json'),
-      supabase.from('bms_units').select('id,status,test_result_json'),
-      supabase.from('cell_tests').select('id,cell_id,battery_id,passed,tested_at'),
-      supabase.from('battery_tests').select('id,battery_id,passed,tested_at'),
-      supabase.from('quarantine_records').select('id,entity_type,entity_id,reason,status'),
-    ]);
+    const [batteriesResult, modulesResult, bmsResult, cellTestsResult, batteryTestsResult, quarantineResult] = await analyticsRequests;
     const results = [batteriesResult, modulesResult, bmsResult, cellTestsResult, batteryTestsResult, quarantineResult];
     const failedResult = results.find(result => result.error);
     if (failedResult?.error) throw failedResult.error;
