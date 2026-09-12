@@ -108,7 +108,7 @@ export const InventoryView: React.FC = () => {
             lifecycleStatus: serverLifecycleStatus,
             usedOnly: cellsView === 'USED' ? true : undefined,
             limit: warehouseFilterSelected ? 10000 : 50,
-            fields: 'id,internal_serial,supplier_barcode,supplier_name,supplier_capacity_ah,supplier_ocv_v,supplier_ir_mohm,supplier_grade,pallet_number,box_number,status,lifecycle_status,reserved_for_order_id,reserved_for_battery_id,assigned_to_module_id,created_at',
+            fields: 'id,internal_serial,supplier_barcode,qr_code,supplier_id,batch_number,pallet_number,box_number,supplier_ocv_v,supplier_ir_mohm,production_ocv_v,production_ir_mohm,grade,status,lifecycle_status,reserved_for_order_id,reserved_for_battery_id,tested_at,created_at,updated_at,supplier:suppliers(name)',
           }),
           !search && !statusFilter
             ? api.getCellCounts()

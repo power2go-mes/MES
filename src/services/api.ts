@@ -1912,6 +1912,8 @@ async getUsers(): Promise<User[]> {
       const page = (data || []).map((cell: any) => ({
         ...cell,
         manufacturerName: cell.manufacturerName ?? cell.manufacturer_name ?? cell.supplier?.name ?? '',
+        supplierName: cell.supplierName ?? cell.supplier_name ?? cell.supplier?.name ?? '',
+        supplierGrade: cell.supplierGrade ?? cell.supplier_grade ?? cell.grade ?? '',
         internalSerial: cell.internalSerial ?? cell.internal_serial,
         supplierBarcode: cell.supplierBarcode ?? cell.supplier_barcode,
         reservedForOrderId: cell.reservedForOrderId ?? cell.reserved_for_order_id,
