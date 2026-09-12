@@ -13,6 +13,7 @@ import LoginPage from './components/auth/LoginPage';
 import { CheckCircle2, AlertTriangle, Info, X } from 'lucide-react';
 
 const DashboardView = lazy(() => import('./components/dashboard/DashboardView').then(module => ({ default: module.DashboardView })));
+const CEOMonitoringView = lazy(() => import('./components/dashboard/CEOMonitoringView').then(module => ({ default: module.CEOMonitoringView })));
 const ProductionFlowView = lazy(() => import('./components/production/ProductionFlowView').then(module => ({ default: module.ProductionFlowView })));
 const VisualBatteryBuilder = lazy(() => import('./components/production/VisualBatteryBuilder').then(module => ({ default: module.VisualBatteryBuilder })));
 const CellWorkflowView = lazy(() => import('./components/production/CellWorkflowView').then(module => ({ default: module.CellWorkflowView })));
@@ -60,6 +61,8 @@ const AppContent: React.FC = () => {
     switch (activeView) {
       case 'dashboard':
         return <DashboardView />;
+      case 'ceo-monitoring':
+        return <CEOMonitoringView />;
       case 'production-flow':
         return <ProductionFlowView />;
       case 'container-floor':
