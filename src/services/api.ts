@@ -2197,8 +2197,8 @@ async getUsers(): Promise<User[]> {
     if (error) throw error;
   },
 
-  async getModules(params?: { limit?: number; offset?: number }): Promise<ModuleItem[]> {
-    let query = supabase.from('modules').select('*').order('created_at', { ascending: false });
+  async getModules(params?: { limit?: number; offset?: number; includeCells?: boolean }): Promise<ModuleItem[]> {
+    let query = supabase.from('modules').select(params?.includeCells === false ? 'id,serial_number,battery_id,module_type,lifecycle_status,status' : '*').order('created_at', { ascending: false });
     if (params?.limit && params.limit > 0) {
       const offset = Math.max(0, params.offset || 0);
       query = query.range(offset, offset + params.limit - 1);
@@ -2208,7 +2208,7 @@ async getUsers(): Promise<User[]> {
     const modules = (data || []) as any[];
     console.log(`getModules: Loaded ${modules.length} modules`);
     const moduleIds = modules.map(module => module.id).filter(Boolean);
-    if (moduleIds.length === 0) return modules;
+    if (moduleIds.length === 0 || params?.includeCells === false) return modules.map(module => toAppValue(module)) as ModuleItem[];
 
     // Explicitly select with snake_case and map to camelCase
     const assignments = await loadModuleCellAssignments(moduleIds);
@@ -4236,9 +4236,10 @@ async getUsers(): Promise<User[]> {
     */
   },
 
-  async getWarehouseMovements(entityId?: string): Promise<any[]> {
-    let query = supabase.from('warehouse_movements').select('*').order('moved_at', { ascending: false });
+  async getWarehouseMovements(entityId?: string, limit = 500): Promise<any[]> {
+    let query = supabase.from('warehouse_movements').select('id,entity_type,entity_id,from_location,to_location,movement_type,reference,moved_at').order('moved_at', { ascending: false });
     if (entityId) query = query.eq('entity_id', entityId);
+    if (!entityId) query = query.limit(limit);
     const { data, error } = await query;
     if (error) throw error;
 
@@ -4316,18 +4317,18 @@ async getUsers(): Promise<User[]> {
     return toAppValue(data);
   },
 
-  async getSaleHistory(): Promise<any[]> {
+  async getSaleHistory(limit = 500): Promise<any[]> {
     if (!rawSupabase) throw new Error('Supabase is not configured.');
-    const { data, error } = await rawSupabase.from('sale_history').select('*').order('sold_at', { ascending: false });
+    const { data, error } = await rawSupabase.from('sale_history').select('*').order('sold_at', { ascending: false }).limit(limit);
     // Older sales were marked SOLD before sale_history existed. Include those
     // records from the current entity status so the history is never blank.
     const historyRows = error ? [] : (data || []);
     const [{ data: batteries }, { data: racks }, { data: dispatches }, { data: rackEvents }, { data: warehouseDispatches }] = await Promise.all([
       rawSupabase.from('batteries').select('id,serial_number,status,lifecycle_status,created_at,updated_at').or('lifecycle_status.eq.SOLD,status.eq.DISPATCHED'),
       rawSupabase.from('racks').select('id,serial_number,status,created_at,updated_at').eq('status', 'SOLD'),
-      rawSupabase.from('dispatches').select('battery_id,destination,dispatched_at').order('dispatched_at', { ascending: false }),
-      rawSupabase.from('lifecycle_events').select('entity_id,reason,recorded_at').eq('entity_type', 'RACK').eq('to_status', 'SOLD').order('recorded_at', { ascending: false }),
-      rawSupabase.from('warehouse_movements').select('entity_id,to_location,moved_at').eq('entity_type', 'BATTERY').eq('movement_type', 'DISPATCH').order('moved_at', { ascending: false }),
+      rawSupabase.from('dispatches').select('battery_id,destination,dispatched_at').order('dispatched_at', { ascending: false }).limit(limit),
+      rawSupabase.from('lifecycle_events').select('entity_id,reason,recorded_at').eq('entity_type', 'RACK').eq('to_status', 'SOLD').order('recorded_at', { ascending: false }).limit(limit),
+      rawSupabase.from('warehouse_movements').select('entity_id,to_location,moved_at').eq('entity_type', 'BATTERY').eq('movement_type', 'DISPATCH').order('moved_at', { ascending: false }).limit(limit),
     ]);
     const soldRackIds = (racks || []).map(row => row.id);
     const { data: soldRackPacks } = soldRackIds.length
@@ -4666,7 +4667,7 @@ async getUsers(): Promise<User[]> {
     return toAppValue(data);
   },
 
-  async getRacks(params?: { limit?: number; offset?: number }): Promise<RackUnit[]> {
+  async getRacks(params?: { limit?: number; offset?: number; summaryOnly?: boolean }): Promise<RackUnit[]> {
     const rows: any[] = [];
     const pageSize = 1000;
     const requestedLimit = params?.limit && params.limit > 0 ? params.limit : undefined;
@@ -4674,7 +4675,7 @@ async getUsers(): Promise<User[]> {
     for (let offset = requestedLimit === undefined ? 0 : requestedOffset; ; offset += pageSize) {
       let query = supabase
         .from('racks')
-        .select('*, rack_packs(battery_id, pack_slot_index)')
+        .select(`${params?.summaryOnly ? 'id,serial_number,qr_code,rack_template_code,location,status,created_at' : '*'}, rack_packs(battery_id, pack_slot_index)`)
         .order('created_at', { ascending: false });
       query = query.range(offset, offset + (requestedLimit === undefined ? pageSize : Math.min(pageSize, requestedLimit)) - 1);
       const { data, error } = await query;

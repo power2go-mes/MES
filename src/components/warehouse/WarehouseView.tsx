@@ -45,9 +45,9 @@ export const WarehouseView: React.FC = () => {
     try {
       const [allBatteries, history, allRacks, allModules] = await Promise.all([
         api.getBatterySummaries(),
-        api.getWarehouseMovements(),
-        api.getRacks(),
-        api.getModules(),
+        api.getWarehouseMovements(undefined, 500),
+        api.getRacks({ summaryOnly: true }),
+        api.getModules({ includeCells: false }),
       ]);
       const rackBatteryIds = new Set(allRacks.flatMap(rack => rack.batteryIds || []));
       setBatteries(allBatteries.filter(b => (

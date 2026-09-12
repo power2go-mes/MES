@@ -37,7 +37,7 @@ export const SoldView: React.FC = () => {
   const loadItems = async () => {
     setLoading(true);
     try {
-      const [allBatteries, allRacks, saleHistory] = await Promise.all([api.getBatterySummaries(), api.getRacks(), api.getSaleHistory()]);
+      const [allBatteries, allRacks, saleHistory] = await Promise.all([api.getBatterySummaries(), api.getRacks({ summaryOnly: true }), api.getSaleHistory(500)]);
       setBatteries(allBatteries as BatterySummary[]);
       setRacks(allRacks);
       setHistory(saleHistory as SaleHistoryItem[]);
