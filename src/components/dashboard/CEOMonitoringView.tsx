@@ -46,8 +46,8 @@ const DistributionDonut: React.FC<{ distribution: DashboardDistribution; ariaLab
   const visible = distribution.rows.filter((row) => row.value > 0 && row.share > 0);
   let offset = 0;
   return (
-    <div className="flex min-w-0 items-center gap-6">
-      <div className="h-[190px] w-[190px] shrink-0">
+    <div className="flex min-w-0 flex-col items-center gap-4 sm:flex-row sm:gap-6">
+      <div className="h-[150px] w-[150px] shrink-0 sm:h-[190px] sm:w-[190px]">
         {distribution.total === 0 ? <div className="grid h-full place-items-center rounded-full border-[14px] border-slate-100 text-center"><span className="text-[11px] font-semibold text-slate-400">No recorded data</span></div> : <svg viewBox="0 0 100 100" className="h-full w-full" aria-label={ariaLabel}>
           <circle cx="50" cy="50" r="35" fill="none" stroke="#e5e7eb" strokeWidth="14" />
           {visible.map((row) => {
@@ -64,7 +64,7 @@ const DistributionDonut: React.FC<{ distribution: DashboardDistribution; ariaLab
           <text x="50" y="57" textAnchor="middle" fontSize="4.5" fill="#94a3b8">TOTAL</text>
         </svg>}
       </div>
-      <div className="min-w-0 flex-1 space-y-2.5 py-2">
+      <div className="min-w-0 w-full flex-1 space-y-2.5 py-2 sm:w-auto">
         {distribution.rows.map((row) => <div key={row.label} className="flex items-center justify-between gap-3 text-[12px]"><div className="flex items-center gap-2 text-slate-600"><span className="h-2.5 w-2.5 rounded-sm" style={{ backgroundColor: row.color }} />{row.label}</div><span className="font-semibold text-slate-900">{formatNumber(row.value)}{showShare && <span className="font-normal text-slate-400"> ({row.share.toFixed(2)}%)</span>}</span></div>)}
         {extraRows.map((row) => <div key={row.label} className="flex items-center justify-between gap-3 text-[12px]"><div className="flex items-center gap-2 text-slate-600"><span className="h-2.5 w-2.5 rounded-sm" style={{ backgroundColor: row.color }} />{row.label}</div><span className="font-semibold text-slate-900">{formatNumber(row.value)}</span></div>)}
       </div>
@@ -798,15 +798,15 @@ export const CEOMonitoringView: React.FC = () => {
   }
 
   return (
-    <div className="flex-1 overflow-y-auto bg-[#f4f5f7] p-5">
+    <div className="min-w-0 flex-1 overflow-y-auto bg-[#f4f5f7] p-3 sm:p-5">
       <div className="mx-auto max-w-[1440px] space-y-5">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
           <div>
             <h1 className="text-[30px] font-extrabold tracking-[-0.05em] text-slate-900">CEO Dashboard</h1>
             <p className="mt-1 text-sm text-slate-500">Live production, inventory, quality and traceability overview</p>
           </div>
-          <div className="flex flex-col items-end gap-2">
-            <div className="flex flex-wrap items-center justify-end gap-2">
+          <div className="flex flex-col items-stretch gap-2 lg:items-end">
+            <div className="flex flex-wrap items-center gap-2 lg:justify-end">
               <button
                 type="button"
                 onClick={exportReport}
@@ -870,7 +870,7 @@ export const CEOMonitoringView: React.FC = () => {
           </div>
         </div>
 
-        <div className="grid grid-cols-2 gap-3 xl:grid-cols-6">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-6">
           {kpiCards.map((card) => (
             <div key={card.label} className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
               <div className="mb-3 flex items-center gap-2">
@@ -962,7 +962,7 @@ export const CEOMonitoringView: React.FC = () => {
               <div className="text-[18px] font-extrabold text-slate-900">{formatNumber(moduleDistribution.total)}</div>
             </div>
 
-            <div className="mb-3 flex gap-2 text-[10px]">
+            <div className="mb-3 flex flex-wrap gap-2 text-[10px]">
               {['All', ...moduleData.map((item) => item.label)].map((option) => (
                 <button
                   key={option}
@@ -1024,7 +1024,7 @@ export const CEOMonitoringView: React.FC = () => {
               <div className="text-[18px] font-extrabold text-slate-900">{formatNumber(batteryPackDistribution.total)}</div>
             </div>
 
-            <div className="mb-3 flex gap-2 text-[10px]">
+            <div className="mb-3 flex flex-wrap gap-2 text-[10px]">
               {['All', ...batteryPackData.map((item) => item.label)].map((size) => (
                 <button
                   key={size}
@@ -1054,7 +1054,7 @@ export const CEOMonitoringView: React.FC = () => {
               <div className="text-[18px] font-extrabold text-slate-900">{formatNumber(rackTotal)}</div>
             </div>
 
-            <div className="mb-3 flex gap-2 text-[10px]">
+            <div className="mb-3 flex flex-wrap gap-2 text-[10px]">
               {['All', ...rackData.map((item) => item.label)].map((size) => (
                 <button
                   key={size}
