@@ -886,6 +886,16 @@ export const InventoryView: React.FC = () => {
                         <QrCode className="w-4 h-4" />
                       </button>
                       <button
+                        onClick={() => {
+                          setQuickSearchQuery(b.serialNumber);
+                          setActiveView('traceability');
+                        }}
+                        className="p-1.5 text-slate-500 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors"
+                        title="View Full Genealogy"
+                      >
+                        <Eye className="w-4 h-4" />
+                      </button>
+                      <button
                         onClick={async () => {
                           const status = window.prompt('BMS status', b.status);
                           if (!status || status === b.status) return;
@@ -965,6 +975,7 @@ export const InventoryView: React.FC = () => {
                     <td className="px-5 py-3.5 font-sans"><span className={`px-2.5 py-0.5 rounded-md text-[10px] font-bold border uppercase tracking-wider ${getStatusBadge(b.status)}`}>{b.status}</span></td>
                     <td className="px-5 py-3.5 text-right font-sans space-x-1">
                       <button onClick={() => { setQrData({ title: `BMU Controller QR: ${b.serialNumber}`, qrPayload: `${b.serialNumber}|${b.model}|${b.protocol || 'CAN'}`, serial: b.serialNumber, itemType: 'BMU', metadata: { MODEL: b.model, PROTOCOL: b.protocol || 'CAN', STATUS: b.status } }); setQrModalOpen(true); }} className="p-1.5 text-slate-500 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors" title="Print QR"><QrCode className="w-4 h-4" /></button>
+                      <button onClick={() => { setQuickSearchQuery(b.serialNumber); setActiveView('traceability'); }} className="p-1.5 text-slate-500 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors" title="View Full Genealogy"><Eye className="w-4 h-4" /></button>
                       <button onClick={async () => { const status = window.prompt('BMU status', b.status); if (!status || status === b.status) return; try { await api.updateBmu(b.id, { status }); triggerRefresh(); } catch (err: any) { addNotification('error', 'Update Failed', err.message); } }} className="p-1.5 text-slate-500 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors" title="Update BMU"><Pencil className="w-4 h-4" /></button>
                       <button onClick={async () => { if (!window.confirm(`Delete BMU ${b.serialNumber}?`)) return; try { await api.deleteBmu(b.id); triggerRefresh(); } catch (err: any) { addNotification('error', 'Delete Failed', err.message); } }} className="p-1.5 text-slate-500 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors" title="Delete BMU"><Trash2 className="w-4 h-4" /></button>
                     </td>
@@ -1060,8 +1071,19 @@ export const InventoryView: React.FC = () => {
                           setQrModalOpen(true);
                         }}
                         className="p-1.5 text-slate-500 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors"
+                        title="Print QR"
                       >
                         <QrCode className="w-4 h-4" />
+                      </button>
+                      <button
+                        onClick={() => {
+                          setQuickSearchQuery(m.serialNumber);
+                          setActiveView('traceability');
+                        }}
+                        className="p-1.5 text-slate-500 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors"
+                        title="View Full Genealogy"
+                      >
+                        <Eye className="w-4 h-4" />
                       </button>
                       <button
                         onClick={() => {
