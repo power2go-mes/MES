@@ -2040,11 +2040,12 @@ async getUsers(): Promise<User[]> {
   },
 
   async getBmsUnits(): Promise<BMSItem[]> {
-    const [{ data, error }, { data: batteries, error: batteriesError }] = await Promise.all([
-      supabase.from('bms_units').select('*').order('created_at', { ascending: false }),
-      supabase.from('batteries').select('id, bmsId'),
-    ]);
+    const { data, error } = await supabase.from('bms_units').select('*').order('created_at', { ascending: false });
     if (error) throw error;
+    const unassignedControllers = (data || []).filter((bms: any) => !bms.assignedToBatteryId && !bms.reservedForBatteryId && !bms.reserved_for_battery_id);
+    const { data: batteries, error: batteriesError } = unassignedControllers.length > 0
+      ? await supabase.from('batteries').select('id, bmsId')
+      : { data: [], error: null };
     if (batteriesError) throw batteriesError;
     const assignedBatteryByController = new Map<string, string>(
       (batteries || [])
@@ -2100,11 +2101,12 @@ async getUsers(): Promise<User[]> {
   },
 
   async getBmuUnits(): Promise<BMUItem[]> {
-    const [{ data, error }, { data: batteries, error: batteriesError }] = await Promise.all([
-      supabase.from('bmu_units').select('*').order('created_at', { ascending: false }),
-      supabase.from('batteries').select('id, bmuId'),
-    ]);
+    const { data, error } = await supabase.from('bmu_units').select('*').order('created_at', { ascending: false });
     if (error) throw error;
+    const unassignedControllers = (data || []).filter((bmu: any) => !bmu.assignedToBatteryId && !bmu.reservedForBatteryId && !bmu.reserved_for_battery_id);
+    const { data: batteries, error: batteriesError } = unassignedControllers.length > 0
+      ? await supabase.from('batteries').select('id, bmuId')
+      : { data: [], error: null };
     if (batteriesError) throw batteriesError;
     const assignedBatteryByController = new Map<string, string>(
       (batteries || [])

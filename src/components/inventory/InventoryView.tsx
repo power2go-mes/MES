@@ -139,27 +139,11 @@ export const InventoryView: React.FC = () => {
           }
         }
       } else if (activeTab === 'BMS') {
-        const [res, loadedBatteries] = await Promise.all([api.getBmsUnits(), api.getBatterySummaries()]);
-        const assignedBatteryByBmsId = new Map(
-          loadedBatteries
-            .filter((battery: any) => battery.bmsId)
-            .map((battery: any) => [battery.bmsId, battery.id]),
-        );
-        setBmsUnits(res.map((bms: any) => {
-          const assignedToBatteryId = bms.assignedToBatteryId || bms.reservedForBatteryId || assignedBatteryByBmsId.get(bms.id);
-          return assignedToBatteryId ? { ...bms, status: 'ASSIGNED', assignedToBatteryId } : bms;
-        }));
+        const res = await api.getBmsUnits();
+        setBmsUnits(res);
       } else if (activeTab === 'BMU') {
-        const [res, loadedBatteries] = await Promise.all([api.getBmuUnits(), api.getBatterySummaries()]);
-        const assignedBatteryByBmuId = new Map(
-          loadedBatteries
-            .filter((battery: any) => battery.bmuId)
-            .map((battery: any) => [battery.bmuId, battery.id]),
-        );
-        setBmuUnits(res.map((bmu: any) => {
-          const assignedToBatteryId = bmu.assignedToBatteryId || bmu.reservedForBatteryId || assignedBatteryByBmuId.get(bmu.id);
-          return assignedToBatteryId ? { ...bmu, status: 'ASSIGNED', assignedToBatteryId } : bmu;
-        }));
+        const res = await api.getBmuUnits();
+        setBmuUnits(res);
       } else if (activeTab === 'MODULES') {
         const res = await api.getModules();
         setModules(res);
