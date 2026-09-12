@@ -2073,8 +2073,13 @@ async getUsers(): Promise<User[]> {
     });
   },
 
-  async getBmsUnits(params?: { limit?: number; offset?: number }): Promise<BMSItem[]> {
+  async getBmsUnits(params?: { limit?: number; offset?: number; search?: string; status?: string }): Promise<BMSItem[]> {
     let query = supabase.from('bms_units').select('*').order('created_at', { ascending: false });
+    if (params?.search) {
+      const value = params.search.trim().replace(/[%(),]/g, ' ');
+      query = query.or(`serial_number.ilike.%${value}%,model.ilike.%${value}%`);
+    }
+    if (params?.status) query = query.eq('status', params.status);
     if (params?.limit && params.limit > 0) {
       const offset = Math.max(0, params.offset || 0);
       query = query.range(offset, offset + params.limit - 1);
@@ -2139,8 +2144,13 @@ async getUsers(): Promise<User[]> {
     return { count: effectiveCount, items: created };
   },
 
-  async getBmuUnits(params?: { limit?: number; offset?: number }): Promise<BMUItem[]> {
+  async getBmuUnits(params?: { limit?: number; offset?: number; search?: string; status?: string }): Promise<BMUItem[]> {
     let query = supabase.from('bmu_units').select('*').order('created_at', { ascending: false });
+    if (params?.search) {
+      const value = params.search.trim().replace(/[%(),]/g, ' ');
+      query = query.or(`serial_number.ilike.%${value}%,model.ilike.%${value}%`);
+    }
+    if (params?.status) query = query.eq('status', params.status);
     if (params?.limit && params.limit > 0) {
       const offset = Math.max(0, params.offset || 0);
       query = query.range(offset, offset + params.limit - 1);
@@ -2228,8 +2238,13 @@ async getUsers(): Promise<User[]> {
     if (error) throw error;
   },
 
-  async getModules(params?: { limit?: number; offset?: number; includeCells?: boolean }): Promise<ModuleItem[]> {
+  async getModules(params?: { limit?: number; offset?: number; includeCells?: boolean; search?: string; status?: string }): Promise<ModuleItem[]> {
     let query = supabase.from('modules').select(params?.includeCells === false ? 'id,serial_number,battery_id,module_type,lifecycle_status,status' : '*').order('created_at', { ascending: false });
+    if (params?.search) {
+      const value = params.search.trim().replace(/[%(),]/g, ' ');
+      query = query.ilike('serial_number', `%${value}%`);
+    }
+    if (params?.status) query = query.or(`lifecycle_status.eq.${params.status},status.eq.${params.status}`);
     if (params?.limit && params.limit > 0) {
       const offset = Math.max(0, params.offset || 0);
       query = query.range(offset, offset + params.limit - 1);
@@ -2303,7 +2318,7 @@ async getUsers(): Promise<User[]> {
     if (error) throw error;
   },
 
-  async getBatteries(params?: { limit?: number; offset?: number }): Promise<BatteryUnit[]> {
+  async getBatteries(params?: { limit?: number; offset?: number; search?: string; status?: string }): Promise<BatteryUnit[]> {
     const batteries: any[] = [];
     const pageSize = 1000;
     const requestedLimit = params?.limit && params.limit > 0 ? params.limit : undefined;
@@ -2313,7 +2328,12 @@ async getUsers(): Promise<User[]> {
         .from('batteries')
         .select('*')
         .order('created_at', { ascending: false });
-      query = query.range(offset, offset + (requestedLimit === undefined ? pageSize : Math.min(pageSize, requestedLimit) ) - 1);
+      if (params?.search) {
+        const value = params.search.trim().replace(/[%(),]/g, ' ');
+        query = query.ilike('serial_number', `%${value}%`);
+      }
+      if (params?.status) query = query.or(`lifecycle_status.eq.${params.status},status.eq.${params.status}`);
+      query = query.range(offset, offset + (requestedLimit === undefined ? pageSize : Math.min(pageSize, requestedLimit)) - 1);
       const { data, error } = await query;
       if (error) throw error;
       batteries.push(...(data || []));
@@ -4698,7 +4718,7 @@ async getUsers(): Promise<User[]> {
     return toAppValue(data);
   },
 
-  async getRacks(params?: { limit?: number; offset?: number; summaryOnly?: boolean }): Promise<RackUnit[]> {
+  async getRacks(params?: { limit?: number; offset?: number; summaryOnly?: boolean; search?: string; status?: string }): Promise<RackUnit[]> {
     const rows: any[] = [];
     const pageSize = 1000;
     const requestedLimit = params?.limit && params.limit > 0 ? params.limit : undefined;
@@ -4708,6 +4728,11 @@ async getUsers(): Promise<User[]> {
         .from('racks')
         .select(`${params?.summaryOnly ? 'id,serial_number,qr_code,rack_template_code,location,status,created_at' : '*'}, rack_packs(battery_id, pack_slot_index)`)
         .order('created_at', { ascending: false });
+      if (params?.search) {
+        const value = params.search.trim().replace(/[%(),]/g, ' ');
+        query = query.or(`serial_number.ilike.%${value}%,rack_template_code.ilike.%${value}%,location.ilike.%${value}%`);
+      }
+      if (params?.status) query = query.eq('status', params.status);
       query = query.range(offset, offset + (requestedLimit === undefined ? pageSize : Math.min(pageSize, requestedLimit)) - 1);
       const { data, error } = await query;
       if (error) throw error;

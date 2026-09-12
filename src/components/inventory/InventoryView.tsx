@@ -146,28 +146,28 @@ export const InventoryView: React.FC = () => {
           }
         }
       } else if (activeTab === 'BMS') {
-        const res = await api.getBmsUnits({ limit: pageSize, offset: page * pageSize });
+        const res = await api.getBmsUnits({ limit: pageSize, offset: page * pageSize, search, status: statusFilter });
         setBmsUnits(previous => append ? [...previous, ...res] : res);
         setHasMoreInventory(res.length === pageSize);
         setInventoryPage(page);
       } else if (activeTab === 'BMU') {
-        const res = await api.getBmuUnits({ limit: pageSize, offset: page * pageSize });
+        const res = await api.getBmuUnits({ limit: pageSize, offset: page * pageSize, search, status: statusFilter });
         setBmuUnits(previous => append ? [...previous, ...res] : res);
         setHasMoreInventory(res.length === pageSize);
         setInventoryPage(page);
       } else if (activeTab === 'MODULES') {
-        const res = await api.getModules({ limit: pageSize, offset: page * pageSize });
+        const res = await api.getModules({ limit: pageSize, offset: page * pageSize, search, status: statusFilter });
         setModules(previous => append ? [...previous, ...res] : res);
         setHasMoreInventory(res.length === pageSize);
         setInventoryPage(page);
       } else if (activeTab === 'BATTERIES') {
-        const res = await api.getBatteries({ limit: pageSize, offset: page * pageSize });
+        const res = await api.getBatteries({ limit: pageSize, offset: page * pageSize, search, status: statusFilter });
         setBatteries(previous => append ? [...previous, ...res] : res);
         setHasMoreInventory(res.length === pageSize);
         setInventoryPage(page);
         void api.getWarehouseEntityStatuses().then(setWarehouseEntityStatuses).catch(error => console.error('Failed to load battery warehouse statuses', error));
       } else if (activeTab === 'RACKS') {
-        const [res, warehouseStatuses] = await Promise.all([api.getRacks({ limit: pageSize, offset: page * pageSize }), api.getWarehouseEntityStatuses()]);
+        const [res, warehouseStatuses] = await Promise.all([api.getRacks({ limit: pageSize, offset: page * pageSize, search, status: statusFilter }), api.getWarehouseEntityStatuses()]);
         setRacks(previous => append ? [...previous, ...res] : res);
         setWarehouseEntityStatuses(warehouseStatuses);
         setHasMoreInventory(res.length === pageSize);
