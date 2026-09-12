@@ -1362,13 +1362,13 @@ begin
     v_production_period := to_char(current_date, 'DDMM');
     v_capacity_suffix := regexp_replace(regexp_replace(trim(to_char(coalesce(v_capacity_kwh, 5), 'FM99990.99')), '0+$', '', 'g'), '\.$', '', 'g');
     v_serial_override := trim(coalesce(p_battery_serial_prefix, ''));
-    v_serial_base := 'P2G-BP-' || regexp_replace(to_char(coalesce(v_capacity_kwh, 5), 'FM999990.##'), '0+$', '') || 'KWH-' || v_production_period;
+    v_serial_base := 'P2G-BP-' || regexp_replace(to_char(case when coalesce(v_capacity_kwh, 5) = 8 then 7.5 else coalesce(v_capacity_kwh, 5) end, 'FM999990.##'), '0+$', '') || 'KWH-' || v_production_period;
     v_next_battery_number := 0;
     perform pg_advisory_xact_lock(hashtext('P2G-battery-serials'));
     select coalesce(max((substring(serial_number from '([0-9]+)$'))::integer), 0) + 1
     into v_next_battery_number
     from public.batteries
-    where serial_number ~ ('^P2G-BP-' || regexp_replace(to_char(coalesce(v_capacity_kwh, 5), 'FM999990.##'), '0+$', '') || 'KWH-' || v_production_period || '-[0-9]{4}$');
+    where serial_number ~ ('^P2G-BP-' || regexp_replace(to_char(case when coalesce(v_capacity_kwh, 5) = 8 then 7.5 else coalesce(v_capacity_kwh, 5) end, 'FM999990.##'), '0+$', '') || 'KWH-' || v_production_period || '-[0-9]{4}$');
     perform pg_advisory_xact_lock(hashtext('P2G-module-serials')); 
     select coalesce(max((substring(serial_number from '([0-9]+)$'))::integer), 0) + 1
     into v_next_module_number
@@ -1494,8 +1494,8 @@ begin
     select coalesce(max((substring(serial_number from '([0-9]+)$'))::integer), 0) + 1
       into v_next_number
       from public.batteries
-         where serial_number like 'P2G-BP-' || regexp_replace(to_char(coalesce(v_product.capacity_kwh, 5), 'FM999990.##'), '0+$', '') || 'KWH-' || to_char(current_date, 'DDMM') || '-%';
-        v_battery_serial := 'P2G-BP-' || regexp_replace(to_char(coalesce(v_product.capacity_kwh, 5), 'FM999990.##'), '0+$', '') || 'KWH-' || to_char(current_date, 'DDMM') || '-' || lpad(v_next_number::text, 4, '0');
+         where serial_number like 'P2G-BP-' || regexp_replace(to_char(case when coalesce(v_product.capacity_kwh, 5) = 8 then 7.5 else coalesce(v_product.capacity_kwh, 5) end, 'FM999990.##'), '0+$', '') || 'KWH-' || to_char(current_date, 'DDMM') || '-%';
+        v_battery_serial := 'P2G-BP-' || regexp_replace(to_char(case when coalesce(v_product.capacity_kwh, 5) = 8 then 7.5 else coalesce(v_product.capacity_kwh, 5) end, 'FM999990.##'), '0+$', '') || 'KWH-' || to_char(current_date, 'DDMM') || '-' || lpad(v_next_number::text, 4, '0');
 
     insert into public.production_orders (id, order_number, product_id, target_quantity, quantity_in_process, status)
     values (v_order_id, v_order_id, p_product_id, 1, 1, 'IN_PROCESS');
@@ -2983,9 +2983,9 @@ begin
     with ranked_batteries as (
         select
             b.id,
-            'P2G-BP-' || regexp_replace(to_char(coalesce(p.capacity_kwh, 5), 'FM999990.##'), '0+$', '') || 'KWH-' || to_char(b.created_at, 'DDMM') as serial_prefix,
+            'P2G-BP-' || regexp_replace(to_char(case when coalesce(p.capacity_kwh, 5) = 8 then 7.5 else coalesce(p.capacity_kwh, 5) end, 'FM999990.##'), '0+$', '') || 'KWH-' || to_char(b.created_at, 'DDMM') as serial_prefix,
             row_number() over (
-                partition by coalesce(p.capacity_kwh, 5), b.created_at::date
+                partition by case when coalesce(p.capacity_kwh, 5) = 8 then 7.5 else coalesce(p.capacity_kwh, 5) end, b.created_at::date
                 order by b.created_at, b.id
             ) as serial_number
         from public.batteries b

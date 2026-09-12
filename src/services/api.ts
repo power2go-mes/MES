@@ -46,6 +46,10 @@ const CELL_CAPACITY_KWH = (CELL_NOMINAL_CAPACITY_AH * CELL_NOMINAL_VOLTAGE_V) / 
 
 let dashboardStatsCache: { key: string; value: any; expiresAt: number } | null = null;
 let dashboardStatsRequest: { key: string; promise: Promise<any> } | null = null;
+let warehouseLocationCache: { value: any; expiresAt: number } | null = null;
+let warehouseLocationRequest: Promise<any> | null = null;
+let recentTraceItemsCache: { value: Array<{ label: string; serial: string }>; expiresAt: number } | null = null;
+let recentTraceItemsRequest: Promise<Array<{ label: string; serial: string }>> | null = null;
 
 function toDbColumn(value: string) {
   return columnAliases[value] || value.replace(/[A-Z]/g, letter => `_${letter.toLowerCase()}`);
@@ -253,7 +257,7 @@ async function loadModuleCellAssignments(moduleIds: string[]): Promise<any[]> {
   return results.flatMap(result => result.data || []);
 }
 
-async function resolveWarehouseCellLocations() {
+async function loadWarehouseLocationSnapshot() {
   if (!rawSupabase) return { locationByCell: new Map<string, string>(), latestByEntity: new Map<string, string>(), warehouseRackCounts: { KARACHI: 0, LAHORE: 0 }, warehouseRackTypeCounts: [], warehouseBatteryCounts: { KARACHI: 0, LAHORE: 0 }, warehouseBatteryTypeCounts: [] };
   const warehouseSupabase = rawSupabase;
 
@@ -267,11 +271,18 @@ async function resolveWarehouseCellLocations() {
   const fetchAllRows = async (table: string, columns: string) => {
     const rows: any[] = [];
     const pageSize = 1000;
-    for (let offset = 0; ; offset += pageSize) {
-      const { data, error } = await warehouseSupabase.from(table).select(columns).range(offset, offset + pageSize - 1);
-      if (error) throw error;
-      rows.push(...(data || []));
-      if (!data || data.length < pageSize) return rows;
+    const pagesPerBatch = 4;
+    for (let offset = 0; ; offset += pageSize * pagesPerBatch) {
+      const results = await Promise.all(Array.from({ length: pagesPerBatch }, (_, pageIndex) => {
+        const pageOffset = offset + pageIndex * pageSize;
+        return warehouseSupabase.from(table).select(columns).range(pageOffset, pageOffset + pageSize - 1);
+      }));
+      for (const result of results) {
+        if (result.error) throw result.error;
+      }
+      const pages = results.map(result => result.data || []);
+      pages.forEach(page => rows.push(...page));
+      if (pages.some(page => page.length < pageSize)) return rows;
     }
   };
 
@@ -465,6 +476,40 @@ async function resolveWarehouseCellLocations() {
     warehouseBatteryTypeCounts: Array.from(warehouseBatteryTypeCounts.entries()).map(([type, counts]) => ({ type, ...counts })),
     lifecycleByCellId,
   };
+}
+
+async function resolveWarehouseCellLocations() {
+  const now = Date.now();
+  if (warehouseLocationCache && warehouseLocationCache.expiresAt > now) return warehouseLocationCache.value;
+  if (warehouseLocationRequest) return warehouseLocationRequest;
+
+  warehouseLocationRequest = loadWarehouseLocationSnapshot();
+  try {
+    const value = await warehouseLocationRequest;
+    warehouseLocationCache = { value, expiresAt: Date.now() + 15000 };
+    return value;
+  } finally {
+    warehouseLocationRequest = null;
+  }
+}
+
+async function getTraceWarehouseLocation(entityType: string, entityId: string): Promise<string | undefined> {
+  if (!rawSupabase || !entityId) return undefined;
+  const { data, error } = await rawSupabase
+    .from('warehouse_movements')
+    .select('to_location')
+    .eq('entity_type', entityType)
+    .eq('entity_id', entityId)
+    .order('moved_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (error) return undefined;
+  const location = String(data?.to_location || '').trim().toUpperCase().replace(/[_-]+/g, ' ');
+  return location === 'KARACHI' || location === 'KARACHI WAREHOUSE'
+    ? 'KARACHI'
+    : location === 'LAHORE' || location === 'LAHORE WAREHOUSE'
+      ? 'LAHORE'
+      : undefined;
 }
 
 function mapQueryValue(method: string, value: any, index: number) {
@@ -680,7 +725,7 @@ async getUsers(): Promise<User[]> {
     dashboardStatsRequest = { key: cacheKey, promise };
     try {
       const value = await promise;
-      dashboardStatsCache = { key: cacheKey, value, expiresAt: Date.now() + 10000 };
+      dashboardStatsCache = { key: cacheKey, value, expiresAt: Date.now() + 30000 };
       return value;
     } finally {
       if (dashboardStatsRequest?.key === cacheKey) dashboardStatsRequest = null;
@@ -697,6 +742,7 @@ async getUsers(): Promise<User[]> {
         if (endDate) scopedQuery = scopedQuery.lte(field, `${endDate}T23:59:59.999Z`);
         return scopedQuery;
       };
+      const warehouseLocationPromise = resolveWarehouseCellLocations();
       // Use RPC for dashboard summary (much faster than loading all cells)
       const { data, error } = await rawSupabase.rpc('get_dashboard_summary', {
         p_start_date: startDate || null,
@@ -709,7 +755,7 @@ async getUsers(): Promise<User[]> {
       }
 
       const [{ data: liveModules }, { data: liveBatteries }, { data: liveRacks }, { data: liveRackPacks }, { data: soldBatteries }, { data: soldRacks }, { data: soldCells }, { data: soldModuleCells }, { data: soldRackPacks }] = await Promise.all([
-        applyDateRange(rawSupabase.from('modules').select('module_type,created_at,battery:batteries(product_templates(capacity_kwh,num_modules))')),
+        applyDateRange(rawSupabase.from('modules').select('module_type,status,created_at,battery:batteries(product_templates(capacity_kwh,num_modules))')),
         applyDateRange(rawSupabase.from('batteries').select('id,bms_id,bmu_id,progress_percent,status,lifecycle_status,created_at,product_id,product_templates(name,capacity_kwh)')),
         applyDateRange(rawSupabase.from('racks').select('id,status,rack_template_code,required_pack_count,required_pack_template_code,created_at')),
         rawSupabase.from('rack_packs').select('rack_id,battery:batteries(product_templates(capacity_kwh))'),
@@ -729,6 +775,12 @@ async getUsers(): Promise<User[]> {
         moduleTypeCapacity.set(type, (moduleTypeCapacity.get(type) || 0) + capacityKwh);
       });
       const liveModuleTypeBuckets = ['8S', '12S'].map(label => ({ label, value: moduleTypeCounts.get(label) || 0, capacityKwh: moduleTypeCapacity.get(label) || 0 }));
+      const moduleStatusCounts = new Map<string, number>();
+      (liveModules || []).forEach((module: any) => {
+        const status = String(module.status || 'UNKNOWN').replace(/_/g, ' ');
+        moduleStatusCounts.set(status, (moduleStatusCounts.get(status) || 0) + 1);
+      });
+      const moduleProgressBuckets = Array.from(moduleStatusCounts.entries()).map(([label, value]) => ({ label, value }));
       const livePackCounts = new Map<string, number>();
       (liveBatteries || []).forEach((battery: any) => {
         const name = battery.product_templates?.name || 'Unnamed Pack';
@@ -856,7 +908,7 @@ async getUsers(): Promise<User[]> {
         assignedBms: (liveBms || []).filter((controller: any) => isAssignedController(controller, linkedBmsIds, controller.id)).length,
         assignedBmu: (liveBmus || []).filter((controller: any) => isAssignedController(controller, linkedBmuIds, controller.id)).length,
       };
-      const { locationByCell: warehouseCellLocations, lifecycleByCellId, warehouseRackCounts, warehouseRackTypeCounts, warehouseBatteryCounts, warehouseBatteryTypeCounts } = await resolveWarehouseCellLocations();
+      const { locationByCell: warehouseCellLocations, lifecycleByCellId, warehouseRackCounts, warehouseRackTypeCounts, warehouseBatteryCounts, warehouseBatteryTypeCounts } = await warehouseLocationPromise;
       const normalizedCellBuckets = reconcileDashboardCellBuckets(data?.cellBuckets, data?.inventory?.totalCells);
       const warehouseAwareCellBuckets = buildWarehouseLocationBuckets(normalizedCellBuckets, warehouseCellLocations, lifecycleByCellId);
       const karachiWarehouseCells = Array.from(warehouseCellLocations.values()).filter(location => location === 'KARACHI').length;
@@ -930,6 +982,7 @@ async getUsers(): Promise<User[]> {
         cellTotal: Number(data?.inventory?.totalCells || warehouseAwareCellBuckets.reduce((sum: number, bucket: any) => sum + (Number(bucket.value) || 0), 0)),
         moduleTotal: liveModules?.length || 0,
         moduleStatusBuckets: liveModuleTypeBuckets,
+        moduleProgressBuckets,
         moduleTypeBuckets: liveModuleTypeBuckets,
         batteryStatusBuckets: Array.isArray(data?.batteryStatusBuckets) ? data.batteryStatusBuckets : [],
         batteryPackTotal: liveBatteries?.length || 0,
@@ -1083,6 +1136,11 @@ async getUsers(): Promise<User[]> {
   },
 
   async getRecentTraceItems(): Promise<Array<{ label: string; serial: string }>> {
+    const now = Date.now();
+    if (recentTraceItemsCache && recentTraceItemsCache.expiresAt > now) return recentTraceItemsCache.value;
+    if (recentTraceItemsRequest) return recentTraceItemsRequest;
+
+    recentTraceItemsRequest = (async () => {
     const [batteriesResult, cellsResult] = await Promise.all([
       supabase.from('batteries').select('serial_number').order('created_at', { ascending: false }).limit(3),
       supabase.from('cells').select('internal_serial').order('created_at', { ascending: false }).limit(3),
@@ -1099,6 +1157,14 @@ async getUsers(): Promise<User[]> {
         return { label: `${serial} (Cell)`, serial };
       }),
     ].filter(item => Boolean(item.serial));
+    })();
+    try {
+      const value = await recentTraceItemsRequest;
+      recentTraceItemsCache = { value, expiresAt: Date.now() + 15000 };
+      return value;
+    } finally {
+      recentTraceItemsRequest = null;
+    }
   },
 
   async getWarehouseEntityStatuses(): Promise<Record<string, 'KARACHI_WAREHOUSE' | 'LAHORE_WAREHOUSE'>> {
@@ -1108,7 +1174,7 @@ async getUsers(): Promise<User[]> {
       const status = warehouseLocationStatus(location);
       if (status) statuses[key] = status as 'KARACHI_WAREHOUSE' | 'LAHORE_WAREHOUSE';
     };
-    Array.from(resolved.locationByCell.entries()).forEach(([cellId, location]) => addStatus(`CELL:${cellId}`, location));
+    (Array.from(resolved.locationByCell.entries()) as Array<[string, string]>).forEach(([cellId, location]) => addStatus(`CELL:${cellId}`, location));
     resolved.latestByEntity?.forEach((location: string, key: string) => addStatus(key, location));
     return statuses;
   },
@@ -3546,22 +3612,96 @@ async getUsers(): Promise<User[]> {
   async universalTrace(query: string): Promise<any> {
     const cleanQuery = query.trim().toLowerCase();
     const find = async (table: string, columns: string[]) => {
-      for (const column of columns) {
-        const result = await supabase.from(table).select('*').ilike(column, cleanQuery).limit(1);
+      const results = await Promise.all(columns.map(column =>
+        supabase.from(table).select('*').ilike(column, cleanQuery).limit(1),
+      ));
+      for (const result of results) {
         if (result.error) throw result.error;
         if (Array.isArray(result.data) && result.data.length > 0) return result.data[0];
       }
       return null;
     };
 
+    const findDirectTraceEntity = async () => {
+      const qrResult = await supabase.from('qr_registry').select('*').ilike('qrCode', cleanQuery).limit(1);
+      if (qrResult.error) throw qrResult.error;
+      if (qrResult.data?.[0]) {
+        const qrMatch = qrResult.data[0];
+        const tableByType: Record<string, string> = {
+          CELL: 'cells',
+          MODULE: 'modules',
+          BATTERY: 'batteries',
+          BMS: 'bms_units',
+          BMU: 'bmu_units',
+        };
+        const table = tableByType[qrMatch.entityType];
+        if (table) {
+          const registeredEntity = await supabase.from(table).select('*').eq('id', qrMatch.entityId).maybeSingle();
+          if (registeredEntity.error) throw registeredEntity.error;
+          if (registeredEntity.data) return { entityType: qrMatch.entityType, entity: registeredEntity.data };
+        }
+      }
+
+      const normalized = cleanQuery.toUpperCase();
+      const candidateLookups: Array<{ entityType: string; table: string; columns: string[] }> =
+        normalized.startsWith('P2G-MOD') || normalized.startsWith('MOD-')
+          ? [{ entityType: 'MODULE', table: 'modules', columns: ['serialNumber', 'id'] }]
+          : normalized.startsWith('P2G-BP') || normalized.startsWith('BAT-')
+            ? [{ entityType: 'BATTERY', table: 'batteries', columns: ['serialNumber', 'id'] }]
+            : normalized.startsWith('P2G-RACK') || normalized.startsWith('RACK-')
+              ? [{ entityType: 'RACK', table: 'racks', columns: ['serialNumber', 'qrCode', 'id'] }]
+              : normalized.startsWith('BMS-')
+                ? [{ entityType: 'BMS', table: 'bms_units', columns: ['serialNumber', 'id'] }]
+                : normalized.startsWith('BMU-')
+                  ? [{ entityType: 'BMU', table: 'bmu_units', columns: ['serialNumber', 'id'] }]
+                  : normalized.startsWith('CELL-') || /^\d/.test(normalized)
+                    ? []
+                    : [
+                        { entityType: 'MODULE', table: 'modules', columns: ['serialNumber', 'id'] },
+                        { entityType: 'BATTERY', table: 'batteries', columns: ['serialNumber', 'id'] },
+                        { entityType: 'BMS', table: 'bms_units', columns: ['serialNumber', 'id'] },
+                        { entityType: 'BMU', table: 'bmu_units', columns: ['serialNumber', 'id'] },
+                        { entityType: 'RACK', table: 'racks', columns: ['serialNumber', 'qrCode', 'id'] },
+                      ];
+      const directResults = await Promise.all(candidateLookups.map(async lookup => ({
+        ...lookup,
+        entity: await find(lookup.table, lookup.columns),
+      })));
+      for (const result of directResults) {
+        if (result.entity) return { entityType: result.entityType, entity: result.entity };
+      }
+      return null;
+    };
+
     const loadModuleCells = async (moduleId: string) => {
+      const grouped = await loadModuleCellsBatch([moduleId]);
+      return grouped.get(moduleId) || [];
+    };
+
+    const loadModuleCellsBatch = async (moduleIds: string[]) => {
+      const uniqueModuleIds = Array.from(new Set(moduleIds.filter(Boolean)));
+      const grouped = new Map<string, any[]>();
+      if (uniqueModuleIds.length === 0) return grouped;
+
       const { data, error } = await supabase
         .from('module_cells')
         .select('module_id, cell_id, cell_slot_index, cell:cells(*)')
-        .eq('module_id', moduleId)
+        .in('module_id', uniqueModuleIds)
         .order('cell_slot_index', { ascending: true });
       if (error) throw error;
-      return hydrateModuleCells(data || []);
+
+      for (const moduleId of uniqueModuleIds) grouped.set(moduleId, []);
+      for (const assignment of data || []) {
+        const moduleId = String(assignment.moduleId || assignment.module_id || '');
+        if (!moduleId) continue;
+        const assignments = grouped.get(moduleId) || [];
+        assignments.push(assignment);
+        grouped.set(moduleId, assignments);
+      }
+      for (const [moduleId, assignments] of grouped) {
+        grouped.set(moduleId, hydrateModuleCells(assignments));
+      }
+      return grouped;
     };
 
     const loadBatteryModules = async (batteryId: string) => {
@@ -3571,23 +3711,26 @@ async getUsers(): Promise<User[]> {
         .eq('batteryId', batteryId)
         .order('moduleIndex', { ascending: true });
       if (modulesError) throw modulesError;
-      return Promise.all((modules || []).map(async (module: any) => ({
+      const cellsByModule = await loadModuleCellsBatch((modules || []).map((module: any) => module.id));
+      return (modules || []).map((module: any) => ({
         ...module,
-        cells: await loadModuleCells(module.id),
-      })));
+        cells: cellsByModule.get(String(module.id)) || [],
+      }));
     };
 
     const loadBatteryContext = async (battery: any, context: any) => {
       context.battery = battery;
-      context.modules = await loadBatteryModules(battery.id);
-      context.cells = context.modules.flatMap((module: any) => module.cells || []);
-      if (battery.bmsId) context.bms = (await supabase.from('bms_units').select('*').eq('id', battery.bmsId).maybeSingle()).data;
-      if (battery.bmuId) context.bmu = (await supabase.from('bmu_units').select('*').eq('id', battery.bmuId).maybeSingle()).data;
-      const { data: rackPack, error: rackPackError } = await supabase
-        .from('rack_packs')
-        .select('rack_id,pack_slot_index')
-        .eq('battery_id', battery.id)
-        .maybeSingle();
+      const [modules, bmsResult, bmuResult, rackPackResult] = await Promise.all([
+        loadBatteryModules(battery.id),
+        battery.bmsId ? supabase.from('bms_units').select('*').eq('id', battery.bmsId).maybeSingle() : Promise.resolve({ data: null, error: null }),
+        battery.bmuId ? supabase.from('bmu_units').select('*').eq('id', battery.bmuId).maybeSingle() : Promise.resolve({ data: null, error: null }),
+        supabase.from('rack_packs').select('rack_id,pack_slot_index').eq('battery_id', battery.id).maybeSingle(),
+      ]);
+      context.modules = modules;
+      context.cells = modules.flatMap((module: any) => module.cells || []);
+      context.bms = bmsResult.data;
+      context.bmu = bmuResult.data;
+      const { data: rackPack, error: rackPackError } = rackPackResult;
       if (rackPackError) throw rackPackError;
       if (rackPack?.rackId || rackPack?.rack_id) {
         const rackId = rackPack.rackId || rackPack.rack_id;
@@ -3605,21 +3748,64 @@ async getUsers(): Promise<User[]> {
         .order('pack_slot_index', { ascending: true });
       if (rackPacksError) throw rackPacksError;
 
-      context.batteries = await Promise.all((rackPacks || []).map(async (pack: any) => {
-        const batteryId = pack.battery_id || pack.batteryId;
-        const battery = await supabase.from('batteries').select('*').eq('id', batteryId).maybeSingle();
-        if (!battery.data) return null;
-        const batteryContext: any = {};
-        await loadBatteryContext(battery.data, batteryContext);
+      const batteryIds = Array.from(new Set((rackPacks || [])
+        .map((pack: any) => String(pack.batteryId || pack.battery_id || ''))
+        .filter(Boolean)));
+      if (batteryIds.length === 0) {
+        context.batteries = [];
+        context.rackPacks = rackPacks || [];
+        context.batteryIds = [];
+        return;
+      }
+
+      const { data: batteries, error: batteriesError } = await supabase
+        .from('batteries')
+        .select('*')
+        .in('id', batteryIds);
+      if (batteriesError) throw batteriesError;
+
+      const modulesResult = await supabase
+        .from('modules')
+        .select('*')
+        .in('batteryId', batteryIds)
+        .order('moduleIndex', { ascending: true });
+      if (modulesResult.error) throw modulesResult.error;
+      const modules = modulesResult.data || [];
+      const cellsByModule = await loadModuleCellsBatch(modules.map((module: any) => module.id));
+      const modulesByBattery = new Map<string, any[]>();
+      for (const module of modules) {
+        const batteryId = String(module.batteryId || module.battery_id || '');
+        const batteryModules = modulesByBattery.get(batteryId) || [];
+        batteryModules.push({ ...module, cells: cellsByModule.get(String(module.id)) || [] });
+        modulesByBattery.set(batteryId, batteryModules);
+      }
+
+      const bmsIds = Array.from(new Set((batteries || []).map((battery: any) => battery.bmsId || battery.bms_id).filter(Boolean)));
+      const bmuIds = Array.from(new Set((batteries || []).map((battery: any) => battery.bmuId || battery.bmu_id).filter(Boolean)));
+      const [bmsResult, bmuResult] = await Promise.all([
+        bmsIds.length ? supabase.from('bms_units').select('*').in('id', bmsIds) : Promise.resolve({ data: [], error: null }),
+        bmuIds.length ? supabase.from('bmu_units').select('*').in('id', bmuIds) : Promise.resolve({ data: [], error: null }),
+      ]);
+      if (bmsResult.error) throw bmsResult.error;
+      if (bmuResult.error) throw bmuResult.error;
+      const bmsById = new Map((bmsResult.data || []).map((item: any) => [String(item.id), item]));
+      const bmuById = new Map((bmuResult.data || []).map((item: any) => [String(item.id), item]));
+      const batteryById = new Map<string, any>((batteries || []).map((battery: any) => [String(battery.id), battery] as [string, any]));
+
+      context.batteries = (rackPacks || []).map((pack: any) => {
+        const batteryId = String(pack.batteryId || pack.battery_id || '');
+        const battery = batteryById.get(batteryId);
+        if (!battery) return null;
+        const batteryModules = modulesByBattery.get(batteryId) || [];
         return {
-          ...batteryContext.battery,
-          modules: batteryContext.modules,
-          cells: batteryContext.cells,
-          bms: batteryContext.bms,
-          bmu: batteryContext.bmu,
+          ...battery,
+          modules: batteryModules,
+          cells: batteryModules.flatMap((module: any) => module.cells || []),
+          bms: bmsById.get(String(battery.bmsId || battery.bms_id || '')),
+          bmu: bmuById.get(String(battery.bmuId || battery.bmu_id || '')),
           rackSlotIndex: pack.pack_slot_index ?? pack.packSlotIndex,
         };
-      })).then(items => items.filter(Boolean));
+      }).filter(Boolean);
       context.rackPacks = rackPacks || [];
       context.batteryIds = context.batteries.map((battery: any) => battery.id);
     };
@@ -3629,10 +3815,7 @@ async getUsers(): Promise<User[]> {
         ? { ...entity, lifecycleStatus: entity.lifecycleStatus ?? entity.lifecycle_status }
         : entity;
       const lifecycleStatus = normalizedEntity.lifecycleStatus || normalizedEntity.lifecycle_status;
-      const warehouseResolution = await resolveWarehouseCellLocations();
-      const warehouseLocation = entityType === 'CELL'
-        ? warehouseResolution.locationByCell.get(String(normalizedEntity.id))
-        : warehouseResolution.latestByEntity.get(`${entityType}:${String(normalizedEntity.id)}`);
+      const warehouseLocation = await getTraceWarehouseLocation(entityType, String(normalizedEntity.id));
       const context: any = {
         entityType,
         entity: warehouseLocationStatus(warehouseLocation)
@@ -3660,8 +3843,9 @@ async getUsers(): Promise<User[]> {
       };
       const { data: genealogy, error: genealogyError } = await supabase
         .from('genealogy_records')
-        .select('*')
+        .select('id,entity_type,entity_id,event_type,parent_entity_type,parent_entity_id,event_data,recorded_at,recorded_by')
         .or(`entityId.eq.${entity.id},parentEntityId.eq.${entity.id}`)
+        .order('recordedAt', { ascending: false })
         .limit(500);
       if (!genealogyError) {
         context.genealogy = genealogy || [];
@@ -3699,7 +3883,6 @@ async getUsers(): Promise<User[]> {
           if (battery?.data) {
             await loadBatteryContext(battery.data, context);
             if (entityType === 'MODULE') {
-              context.cells = await loadModuleCells(entity.id);
               context.entity = { ...context.entity, cells: context.cells };
             }
           }
@@ -3739,21 +3922,8 @@ async getUsers(): Promise<User[]> {
       return context;
     };
 
-    const qrMatch = await find('qr_registry', ['qrCode']);
-    if (qrMatch) {
-      const tableByType: Record<string, string> = {
-        CELL: 'cells',
-        MODULE: 'modules',
-        BATTERY: 'batteries',
-        BMS: 'bms_units',
-        BMU: 'bmu_units',
-      };
-      const table = tableByType[qrMatch.entityType];
-      if (table) {
-        const registeredEntity = await supabase.from(table).select('*').eq('id', qrMatch.entityId).maybeSingle();
-        if (registeredEntity.data) return buildContext(qrMatch.entityType, registeredEntity.data);
-      }
-    }
+    const directEntity = await findDirectTraceEntity();
+    if (directEntity) return buildContext(directEntity.entityType, directEntity.entity);
 
     const cell = await find('cells', ['supplierBarcode', 'internalSerial', 'id']);
     if (cell) return buildContext('CELL', cell);
@@ -4023,44 +4193,46 @@ async getUsers(): Promise<User[]> {
     if (error) throw error;
 
     const movements = data || [];
-    const entityRefs = new Map<string, Promise<{ serialNumber?: string; qrCode?: string } | null>>();
-    const addLookup = (entityType: string, entityIdValue: string) => {
-      if (!entityType || !entityIdValue) return Promise.resolve(null);
-      const key = `${entityType}:${entityIdValue}`;
-      if (entityRefs.has(key)) return entityRefs.get(key)!;
-
-      const promise = (async () => {
-        if (entityType === 'RACK') {
-          const { data: rack, error: rackError } = await supabase.from('racks').select('serial_number, qr_code').eq('id', entityIdValue).maybeSingle();
-          if (rackError || !rack) return null;
-          return { serialNumber: rack.serial_number || rack.serialNumber || rack.qr_code || entityIdValue, qrCode: rack.qr_code || rack.qrCode || rack.serial_number || entityIdValue };
-        }
-        if (entityType === 'BATTERY') {
-          const { data: battery, error: batteryError } = await supabase.from('batteries').select('serial_number, qr_code').eq('id', entityIdValue).maybeSingle();
-          if (batteryError || !battery) return null;
-          return { serialNumber: battery.serial_number || battery.serialNumber || battery.qr_code || entityIdValue, qrCode: battery.qr_code || battery.qrCode || battery.serial_number || entityIdValue };
-        }
-        if (entityType === 'MODULE') {
-          const { data: moduleRow, error: moduleError } = await supabase.from('modules').select('serial_number, qr_code').eq('id', entityIdValue).maybeSingle();
-          if (moduleError || !moduleRow) return null;
-          return { serialNumber: moduleRow.serial_number || moduleRow.serialNumber || moduleRow.qr_code || entityIdValue, qrCode: moduleRow.qr_code || moduleRow.qrCode || moduleRow.serial_number || entityIdValue };
-        }
-        if (entityType === 'CELL') {
-          const { data: cell, error: cellError } = await supabase.from('cells').select('internal_serial, qr_code').eq('id', entityIdValue).maybeSingle();
-          if (cellError || !cell) return null;
-          return { serialNumber: cell.internal_serial || cell.serialNumber || cell.qr_code || entityIdValue, qrCode: cell.qr_code || cell.qrCode || cell.internal_serial || entityIdValue };
-        }
-        return null;
-      })();
-
-      entityRefs.set(key, promise);
-      return promise;
-    };
-
-    const enriched = await Promise.all(movements.map(async (movement: any) => {
+    const idsByType = new Map<string, string[]>();
+    movements.forEach((movement: any) => {
       const entityType = String(movement.entity_type || movement.entityType || '').toUpperCase();
       const entityIdValue = String(movement.entity_id || movement.entityId || '');
-      const metadata = entityIdValue ? await addLookup(entityType, entityIdValue) : null;
+      if (!entityType || !entityIdValue) return;
+      const ids = idsByType.get(entityType) || [];
+      if (!ids.includes(entityIdValue)) ids.push(entityIdValue);
+      idsByType.set(entityType, ids);
+    });
+
+    const loadRefs = async (entityType: string, table: string, fields: string) => {
+      const ids = idsByType.get(entityType) || [];
+      if (ids.length === 0) return [] as any[];
+      const { data, error } = await supabase.from(table).select(fields).in('id', ids);
+      if (error) throw error;
+      return data || [];
+    };
+    const [rackRows, batteryRows, moduleRows, cellRows] = await Promise.all([
+      loadRefs('RACK', 'racks', 'id,serial_number,qr_code'),
+      loadRefs('BATTERY', 'batteries', 'id,serial_number,qr_code'),
+      loadRefs('MODULE', 'modules', 'id,serial_number,qr_code'),
+      loadRefs('CELL', 'cells', 'id,internal_serial,qr_code'),
+    ]);
+    const refs = new Map<string, { serialNumber?: string; qrCode?: string }>();
+    const addRefs = (entityType: string, rows: any[], serialField: string) => rows.forEach(row => {
+      const id = String(row.id || '');
+      if (!id) return;
+      const serial = row[serialField] || row.serial_number || row.qr_code || id;
+      const qrCode = row.qr_code || row[serialField] || row.serial_number || id;
+      refs.set(`${entityType}:${id}`, { serialNumber: serial, qrCode });
+    });
+    addRefs('RACK', rackRows, 'serial_number');
+    addRefs('BATTERY', batteryRows, 'serial_number');
+    addRefs('MODULE', moduleRows, 'serial_number');
+    addRefs('CELL', cellRows, 'internal_serial');
+
+    const enriched = movements.map((movement: any) => {
+      const entityType = String(movement.entity_type || movement.entityType || '').toUpperCase();
+      const entityIdValue = String(movement.entity_id || movement.entityId || '');
+      const metadata = entityIdValue ? refs.get(`${entityType}:${entityIdValue}`) : null;
       const serialNumber = metadata?.serialNumber || entityIdValue || movement.serial_number || movement.serialNumber || movement.id;
       return {
         ...movement,
@@ -4068,7 +4240,7 @@ async getUsers(): Promise<User[]> {
         entityId: entityIdValue,
         entitySerial: serialNumber,
       };
-    }));
+    });
 
     return enriched;
   },

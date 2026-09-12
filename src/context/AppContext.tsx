@@ -2,7 +2,6 @@ import React, { createContext, useCallback, useContext, useEffect, useMemo, useR
 
 export type NavView =
   | 'dashboard'
-  | 'ceo-monitoring'
   | 'production-flow'
   | 'container-floor'
   | 'production'

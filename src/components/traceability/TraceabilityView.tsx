@@ -427,7 +427,6 @@ export const TraceabilityView: React.FC = () => {
     const requestId = ++searchRequestRef.current;
     setLoading(true);
     setError(null);
-    setTrace(null);
     setSelectedKey('');
     try {
       const result = await api.universalTrace(q);
@@ -529,6 +528,16 @@ export const TraceabilityView: React.FC = () => {
           </button>
         </form>
       </div>
+
+      {loading && (
+        <div className="flex items-center gap-3 rounded-2xl border border-emerald-200 bg-emerald-50 px-5 py-4 text-xs text-emerald-900" role="status" aria-live="polite">
+          <Clock className="h-4 w-4 animate-pulse text-emerald-600" />
+          <div>
+            <p className="font-bold">Building genealogy</p>
+            <p className="mt-0.5 text-[11px] text-emerald-700">Searching registered records and assembling the production chain...</p>
+          </div>
+        </div>
+      )}
 
       {/* Error Card */}
       {error && (

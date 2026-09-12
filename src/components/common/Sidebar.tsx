@@ -89,17 +89,6 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
             <span>Dashboard</span>
           </button>}
           {openSections['quick-access'] && <button
-            onClick={() => setActiveView('ceo-monitoring')}
-            className={`w-full flex items-center space-x-2.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
-              activeView === 'ceo-monitoring'
-                ? 'bg-emerald-600 text-white shadow-xs'
-                : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
-            }`}
-          >
-            <BarChart3 className="w-3.5 h-3.5" />
-            <span>CEO Monitoring</span>
-          </button>}
-          {openSections['quick-access'] && <button
             onClick={() => setActiveView('production-flow')}
             className={`w-full flex items-center space-x-2.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
               activeView === 'production-flow' ? 'bg-emerald-600 text-white shadow-xs' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'

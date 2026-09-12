@@ -3,34 +3,34 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState } from 'react';
+import React, { lazy, Suspense, useState } from 'react';
 import { Analytics } from '@vercel/analytics/react';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { AppProvider, useApp } from './context/AppContext';
 import { Header } from './components/common/Header';
 import { Sidebar } from './components/common/Sidebar';
-import { DashboardView } from './components/dashboard/DashboardView';
-import { CEOMonitoringView } from './components/dashboard/CEOMonitoringView';
-import { ProductionFlowView } from './components/production/ProductionFlowView';
-import { VisualBatteryBuilder } from './components/production/VisualBatteryBuilder';
-import { CellWorkflowView } from './components/production/CellWorkflowView';
-import { ModuleWorkflowView } from './components/production/ModuleWorkflowView';
-import { BatteryPackWorkflowView } from './components/production/BatteryPackWorkflowView';
-import { RackAssemblyView } from './components/production/RackAssemblyView';
-import { ContainerFloorView } from './components/production/ContainerFloorView';
-import { ProductionPlanningView } from './components/planning/ProductionPlanningView';
-import { SupplierImportView } from './components/supplier/SupplierImportView';
-import { InventoryView } from './components/inventory/InventoryView';
-import { TraceabilityView } from './components/traceability/TraceabilityView';
-import { QuarantineView } from './components/quarantine/QuarantineView';
-import { ProductConfiguratorView } from './components/products/ProductConfiguratorView';
-import { AuditTrailView } from './components/audit/AuditTrailView';
-import { ReportsView } from './components/reports/ReportsView';
-import { SecurityView } from './components/security/SecurityView';
-import { WarehouseView } from './components/warehouse/WarehouseView';
-import { SoldView } from './components/sold/SoldView';
 import LoginPage from './components/auth/LoginPage';
 import { CheckCircle2, AlertTriangle, Info, X } from 'lucide-react';
+
+const DashboardView = lazy(() => import('./components/dashboard/DashboardView').then(module => ({ default: module.DashboardView })));
+const ProductionFlowView = lazy(() => import('./components/production/ProductionFlowView').then(module => ({ default: module.ProductionFlowView })));
+const VisualBatteryBuilder = lazy(() => import('./components/production/VisualBatteryBuilder').then(module => ({ default: module.VisualBatteryBuilder })));
+const CellWorkflowView = lazy(() => import('./components/production/CellWorkflowView').then(module => ({ default: module.CellWorkflowView })));
+const ModuleWorkflowView = lazy(() => import('./components/production/ModuleWorkflowView').then(module => ({ default: module.ModuleWorkflowView })));
+const BatteryPackWorkflowView = lazy(() => import('./components/production/BatteryPackWorkflowView').then(module => ({ default: module.BatteryPackWorkflowView })));
+const RackAssemblyView = lazy(() => import('./components/production/RackAssemblyView').then(module => ({ default: module.RackAssemblyView })));
+const ContainerFloorView = lazy(() => import('./components/production/ContainerFloorView').then(module => ({ default: module.ContainerFloorView })));
+const ProductionPlanningView = lazy(() => import('./components/planning/ProductionPlanningView').then(module => ({ default: module.ProductionPlanningView })));
+const SupplierImportView = lazy(() => import('./components/supplier/SupplierImportView').then(module => ({ default: module.SupplierImportView })));
+const InventoryView = lazy(() => import('./components/inventory/InventoryView').then(module => ({ default: module.InventoryView })));
+const TraceabilityView = lazy(() => import('./components/traceability/TraceabilityView').then(module => ({ default: module.TraceabilityView })));
+const QuarantineView = lazy(() => import('./components/quarantine/QuarantineView').then(module => ({ default: module.QuarantineView })));
+const ProductConfiguratorView = lazy(() => import('./components/products/ProductConfiguratorView').then(module => ({ default: module.ProductConfiguratorView })));
+const AuditTrailView = lazy(() => import('./components/audit/AuditTrailView').then(module => ({ default: module.AuditTrailView })));
+const ReportsView = lazy(() => import('./components/reports/ReportsView').then(module => ({ default: module.ReportsView })));
+const SecurityView = lazy(() => import('./components/security/SecurityView').then(module => ({ default: module.SecurityView })));
+const WarehouseView = lazy(() => import('./components/warehouse/WarehouseView').then(module => ({ default: module.WarehouseView })));
+const SoldView = lazy(() => import('./components/sold/SoldView').then(module => ({ default: module.SoldView })));
 
 const AppContent: React.FC = () => {
   const { activeView, notifications, dismissNotification } = useApp();
@@ -60,8 +60,6 @@ const AppContent: React.FC = () => {
     switch (activeView) {
       case 'dashboard':
         return <DashboardView />;
-      case 'ceo-monitoring':
-        return <CEOMonitoringView />;
       case 'production-flow':
         return <ProductionFlowView />;
       case 'container-floor':
@@ -119,7 +117,9 @@ const AppContent: React.FC = () => {
         )}
         <main className="flex-1 flex flex-col overflow-hidden relative bg-slate-50">
           <Header onOpenNavigation={() => setMobileNavOpen(true)} />
-          {renderActiveView()}
+          <Suspense fallback={<div className="grid flex-1 place-items-center bg-slate-50 text-xs font-bold uppercase tracking-[0.18em] text-slate-500">Loading workspace</div>}>
+            {renderActiveView()}
+          </Suspense>
         </main>
       </div>
 
