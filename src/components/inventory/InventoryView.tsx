@@ -90,7 +90,7 @@ export const InventoryView: React.FC = () => {
     setCellDisplayLimit(50);
     const timer = window.setTimeout(() => {
       void loadInventory();
-    }, 350);
+    }, search ? 350 : 0);
     return () => window.clearTimeout(timer);
   }, [activeTab, search, statusFilter, cellsView, refreshKey]);
 
@@ -101,17 +101,19 @@ export const InventoryView: React.FC = () => {
         const serverLifecycleStatus = !['KARACHI_WAREHOUSE', 'LAHORE_WAREHOUSE'].includes(statusFilter) && cellStatuses.includes(statusFilter as typeof cellStatuses[number])
           ? statusFilter
           : undefined;
+        const warehouseFilterSelected = statusFilter === 'KARACHI_WAREHOUSE' || statusFilter === 'LAHORE_WAREHOUSE';
         const [res, counts, warehouseStatuses] = await Promise.all([
           api.getCells({
             search: search || undefined,
             lifecycleStatus: serverLifecycleStatus,
             usedOnly: cellsView === 'USED' ? true : undefined,
-            limit: statusFilter === 'KARACHI_WAREHOUSE' || statusFilter === 'LAHORE_WAREHOUSE' ? 10000 : 50,
+            limit: warehouseFilterSelected ? 10000 : 50,
+            fields: 'id,internal_serial,supplier_barcode,supplier_name,supplier_capacity_ah,supplier_ocv_v,supplier_ir_mohm,supplier_grade,pallet_number,box_number,status,lifecycle_status,reserved_for_order_id,reserved_for_battery_id,assigned_to_module_id,created_at',
           }),
           !search && !statusFilter
             ? api.getCellCounts()
             : Promise.resolve({ total: allCellsCount, used: usedCellsCount, available: 0, quarantined: 0 }),
-          api.getWarehouseCellStatuses(),
+          warehouseFilterSelected ? api.getWarehouseCellStatuses() : Promise.resolve({}),
         ]);
         setCells(res);
         setWarehouseCellStatuses(warehouseStatuses);

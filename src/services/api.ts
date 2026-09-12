@@ -486,7 +486,7 @@ async function resolveWarehouseCellLocations() {
   warehouseLocationRequest = loadWarehouseLocationSnapshot();
   try {
     const value = await warehouseLocationRequest;
-    warehouseLocationCache = { value, expiresAt: Date.now() + 15000 };
+    warehouseLocationCache = { value, expiresAt: Date.now() + 60000 };
     return value;
   } finally {
     warehouseLocationRequest = null;
