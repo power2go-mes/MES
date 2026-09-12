@@ -711,12 +711,12 @@ export const InventoryView: React.FC = () => {
                     />
                   </th>
                   <th className="px-5 py-3">Internal Serial</th>
-                  <th className="px-5 py-3">Supplier Barcode</th>
-                  <th className="px-5 py-3">Manufacturer</th>
-                  <th className="px-5 py-3">Capacity</th>
-                  <th className="px-5 py-3">OCV / IR</th>
-                  <th className="px-5 py-3">Grade</th>
-                  <th className="px-5 py-3">Pallet / Box</th>
+                  <th className="hidden px-5 py-3 md:table-cell">Supplier Barcode</th>
+                  <th className="hidden px-5 py-3 md:table-cell">Manufacturer</th>
+                  <th className="hidden px-5 py-3 md:table-cell">Capacity</th>
+                  <th className="hidden px-5 py-3 md:table-cell">OCV / IR</th>
+                  <th className="hidden px-5 py-3 md:table-cell">Grade</th>
+                  <th className="hidden px-5 py-3 md:table-cell">Pallet / Box</th>
                   <th className="px-5 py-3">Status</th>
                   <th className="px-5 py-3 text-right font-sans">QR / Trace</th>
                 </tr>
@@ -733,18 +733,18 @@ export const InventoryView: React.FC = () => {
                       />
                     </td>
                     <td className="px-5 py-3.5 font-bold text-slate-900">{cell.internalSerial}</td>
-                    <td className="px-5 py-3.5 text-slate-500 text-[11px]">{cell.supplierBarcode}</td>
-                    <td className="px-5 py-3.5 text-slate-700 font-sans">{cell.supplierName}</td>
-                    <td className="px-5 py-3.5 font-bold text-emerald-700">{cell.supplierCapacityAh} Ah</td>
-                    <td className="px-5 py-3.5 text-slate-700">
+                    <td className="hidden px-5 py-3.5 text-slate-500 text-[11px] md:table-cell">{cell.supplierBarcode}</td>
+                    <td className="hidden px-5 py-3.5 text-slate-700 font-sans md:table-cell">{cell.supplierName}</td>
+                    <td className="hidden px-5 py-3.5 font-bold text-emerald-700 md:table-cell">{cell.supplierCapacityAh} Ah</td>
+                    <td className="hidden px-5 py-3.5 text-slate-700 md:table-cell">
                       <span>{(cell.supplierOcvV ?? 0).toFixed(3)}V</span> • <span>{(cell.supplierIrMilliOhm ?? 0).toFixed(2)}mΩ</span>
                     </td>
-                    <td className="px-5 py-3.5">
+                    <td className="hidden px-5 py-3.5 md:table-cell">
                       <span className="px-2 py-0.5 rounded-md bg-slate-100 text-slate-800 font-bold text-[10px] border border-slate-200">
                         {cell.supplierGrade}
                       </span>
                     </td>
-                    <td className="px-5 py-3.5 text-slate-400 text-[10px]">
+                    <td className="hidden px-5 py-3.5 text-slate-400 text-[10px] md:table-cell">
                       {cell.palletNumber.slice(-8)} / {cell.boxNumber.slice(-8)}
                     </td>
                     <td className="px-5 py-3.5 font-sans">
