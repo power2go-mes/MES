@@ -1859,9 +1859,10 @@ async getUsers(): Promise<User[]> {
     };
   },
 
-  async getCells(params?: { status?: string; lifecycleStatus?: string; search?: string; limit?: number; usedOnly?: boolean; fields?: string }): Promise<CellItem[]> {
+  async getCells(params?: { status?: string; lifecycleStatus?: string; search?: string; limit?: number; offset?: number; usedOnly?: boolean; fields?: string }): Promise<CellItem[]> {
     const pageSize = 1000;
     const requestedLimit = params?.limit && params.limit > 0 ? params.limit : undefined;
+    const requestedOffset = params?.offset && params.offset > 0 ? params.offset : 0;
     const cells: CellItem[] = [];
     const seen = new Set<string>();
     let standaloneModuleCellIds: string[] | null = null;
@@ -1877,7 +1878,7 @@ async getUsers(): Promise<User[]> {
         .filter(Boolean);
     }
 
-    for (let offset = 0; requestedLimit === undefined || cells.length < requestedLimit; offset += pageSize) {
+    for (let offset = requestedOffset; requestedLimit === undefined || cells.length < requestedLimit; offset += pageSize) {
       let query = params?.fields
         ? supabase.from('cells').select(params.fields)
         : supabase.from('cells').select('*, supplier:suppliers(name)');
@@ -1906,7 +1907,7 @@ async getUsers(): Promise<User[]> {
 
       const end = requestedLimit === undefined
         ? offset + pageSize - 1
-        : Math.min(offset + pageSize - 1, requestedLimit - 1);
+        : Math.min(offset + pageSize - 1, requestedOffset + requestedLimit - 1);
       const { data, error } = await query.order('created_at', { ascending: false }).range(offset, end);
       if (error) throw error;
       const page = (data || []).map((cell: any) => ({
@@ -2186,8 +2187,13 @@ async getUsers(): Promise<User[]> {
     if (error) throw error;
   },
 
-  async getModules(): Promise<ModuleItem[]> {
-    const { data, error } = await supabase.from('modules').select('*').order('created_at', { ascending: false });
+  async getModules(params?: { limit?: number; offset?: number }): Promise<ModuleItem[]> {
+    let query = supabase.from('modules').select('*').order('created_at', { ascending: false });
+    if (params?.limit && params.limit > 0) {
+      const offset = Math.max(0, params.offset || 0);
+      query = query.range(offset, offset + params.limit - 1);
+    }
+    const { data, error } = await query;
     if (error) throw error;
     const modules = (data || []) as any[];
     console.log(`getModules: Loaded ${modules.length} modules`);
@@ -2256,18 +2262,21 @@ async getUsers(): Promise<User[]> {
     if (error) throw error;
   },
 
-  async getBatteries(): Promise<BatteryUnit[]> {
+  async getBatteries(params?: { limit?: number; offset?: number }): Promise<BatteryUnit[]> {
     const batteries: any[] = [];
     const pageSize = 1000;
-    for (let offset = 0; ; offset += pageSize) {
-      const { data, error } = await supabase
+    const requestedLimit = params?.limit && params.limit > 0 ? params.limit : undefined;
+    const requestedOffset = Math.max(0, params?.offset || 0);
+    for (let offset = requestedLimit === undefined ? 0 : requestedOffset; ; offset += pageSize) {
+      let query = supabase
         .from('batteries')
         .select('*')
-        .range(offset, offset + pageSize - 1)
         .order('created_at', { ascending: false });
+      query = query.range(offset, offset + (requestedLimit === undefined ? pageSize : Math.min(pageSize, requestedLimit) ) - 1);
+      const { data, error } = await query;
       if (error) throw error;
       batteries.push(...(data || []));
-      if (!data || data.length < pageSize) break;
+      if (!data || data.length < pageSize || requestedLimit !== undefined || batteries.length >= requestedLimit) break;
     }
     const batteryIds = batteries.map(battery => battery.id).filter(Boolean);
     if (batteryIds.length === 0) return [];
@@ -4620,18 +4629,21 @@ async getUsers(): Promise<User[]> {
     return toAppValue(data);
   },
 
-  async getRacks(): Promise<RackUnit[]> {
+  async getRacks(params?: { limit?: number; offset?: number }): Promise<RackUnit[]> {
     const rows: any[] = [];
     const pageSize = 1000;
-    for (let offset = 0; ; offset += pageSize) {
-      const { data, error } = await supabase
+    const requestedLimit = params?.limit && params.limit > 0 ? params.limit : undefined;
+    const requestedOffset = Math.max(0, params?.offset || 0);
+    for (let offset = requestedLimit === undefined ? 0 : requestedOffset; ; offset += pageSize) {
+      let query = supabase
         .from('racks')
         .select('*, rack_packs(battery_id, pack_slot_index)')
-        .range(offset, offset + pageSize - 1)
         .order('created_at', { ascending: false });
+      query = query.range(offset, offset + (requestedLimit === undefined ? pageSize : Math.min(pageSize, requestedLimit)) - 1);
+      const { data, error } = await query;
       if (error) throw error;
       rows.push(...(data || []));
-      if (!data || data.length < pageSize) break;
+      if (!data || data.length < pageSize || requestedLimit !== undefined || rows.length >= requestedLimit) break;
     }
     return rows.map((rack: any) => ({
       ...rack,
