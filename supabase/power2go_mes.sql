@@ -3830,11 +3830,12 @@ or exists (
 
 -- Keep module lifecycle status aligned with the real production stage:
 -- rack-assigned modules become IN_RACK, pack-linked modules become IN_PACK,
--- standalone / not-yet-packed modules stay IN_MODULE.
+-- completed standalone modules become IN_STOCK, and unfinished modules stay IN_MODULE.
 update public.modules m
 set lifecycle_status = case
     when exists (select 1 from public.rack_packs rp where rp.battery_id = m.battery_id) then 'IN_RACK'
     when m.battery_id is not null then 'IN_PACK'
+    when m.status = 'PASSED' then 'IN_STOCK'
     when exists (select 1 from public.module_cells mc where mc.module_id = m.id) then 'IN_MODULE'
     else 'IN_STOCK'
 end,
@@ -3848,6 +3849,10 @@ begin
         new.lifecycle_status := 'IN_RACK';
     elsif new.battery_id is not null then
         new.lifecycle_status := 'IN_PACK';
+    elsif new.status = 'PASSED' then
+        new.lifecycle_status := 'IN_STOCK';
+    elsif exists (select 1 from public.module_cells mc where mc.module_id = new.id) then
+        new.lifecycle_status := 'IN_MODULE';
     elsif coalesce(new.lifecycle_status, '') in ('IN_STOCK', 'IN_MODULE', 'IN_PACK', 'IN_RACK') then
         new.lifecycle_status := 'IN_MODULE';
     else

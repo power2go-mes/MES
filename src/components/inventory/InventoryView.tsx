@@ -339,6 +339,14 @@ export const InventoryView: React.FC = () => {
     return String(cell.status || 'UNKNOWN').toUpperCase();
   };
 
+  const getModuleDisplayStatus = (module: ModuleItem) => {
+    const lifecycleStatus = String(module.lifecycleStatus || (module as any).lifecycle_status || '').toUpperCase();
+    if (['IN_RACK', 'IN_PACK', 'SOLD', 'SCRAP'].includes(lifecycleStatus)) return lifecycleStatus;
+    if (module.batteryId || (module as any).battery_id) return 'IN_PACK';
+    if (String(module.status || '').toUpperCase() === 'PASSED') return 'IN_STOCK';
+    return lifecycleStatus || 'IN_MODULE';
+  };
+
   const formatCellStatus = (status: string) => status === 'KARACHI_WAREHOUSE'
     ? 'Karachi Warehouse'
     : status === 'LAHORE_WAREHOUSE'
@@ -378,7 +386,7 @@ export const InventoryView: React.FC = () => {
 
   const filteredModules = modules.filter(m => {
     const matchesSearch = !search || m.serialNumber.toLowerCase().includes(search.toLowerCase());
-    const displayStatus = warehouseEntityStatuses[`MODULE:${m.id}`] || m.lifecycleStatus || m.status;
+    const displayStatus = warehouseEntityStatuses[`MODULE:${m.id}`] || getModuleDisplayStatus(m);
     const matchesStatus = !statusFilter || displayStatus === statusFilter || m.status === statusFilter;
     return matchesSearch && matchesStatus;
   });
@@ -1050,8 +1058,8 @@ export const InventoryView: React.FC = () => {
                       )}
                     </td>
                     <td className="px-5 py-3.5 font-sans">
-                      <span className={`px-2.5 py-0.5 rounded-md text-[10px] font-bold border uppercase tracking-wider ${getStatusBadge(m.lifecycleStatus || (m as any).lifecycle_status || 'IN_STOCK')}`}>
-                        {m.lifecycleStatus || (m as any).lifecycle_status || 'IN_STOCK'}
+                      <span className={`px-2.5 py-0.5 rounded-md text-[10px] font-bold border uppercase tracking-wider ${getStatusBadge(getModuleDisplayStatus(m))}`}>
+                        {getModuleDisplayStatus(m)}
                       </span>
                     </td>
                     <td className="px-5 py-3.5 text-right font-sans">
