@@ -77,6 +77,7 @@ export const ReportsView: React.FC = () => {
   const bmsTelemetryRate = stats?.bmsTelemetryRate ?? 0;
   const ocvDistribution = stats?.ocvDistribution || [];
   const pareto = stats?.pareto || [];
+  const scrapCellCount = Number(stats?.scrapCellCount || 0);
   const inventoryBars = [
     { label: 'Cells tracked', value: Number(stats?.totalCells || 0), color: 'bg-emerald-600' },
     { label: 'Available cells', value: Number(stats?.availableCells || 0), color: 'bg-emerald-500' },
@@ -221,9 +222,9 @@ export const ReportsView: React.FC = () => {
               <p className="mt-1 text-2xl font-black font-mono text-slate-900">{Number(stats?.reservedCells || 0).toLocaleString()}</p>
             </div>
             <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-              <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Scrap records</p>
-              <p className="mt-1 text-2xl font-black font-mono text-slate-900">{Number((stats?.quarantineOpen || 0) + (stats?.quarantineResolved || 0)).toLocaleString()}</p>
-              <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-slate-100"><div className="h-full rounded-full bg-rose-500" style={{ width: `${Math.min(100, ((Number(stats?.quarantineOpen || 0) + Number(stats?.quarantineResolved || 0)) / Math.max(1, Number(stats?.totalCells || 0))) * 100)}%` }} /></div>
+              <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Scrap cells</p>
+              <p className="mt-1 text-2xl font-black font-mono text-slate-900">{scrapCellCount.toLocaleString()}</p>
+              <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-slate-100"><div className="h-full rounded-full bg-rose-500" style={{ width: `${Math.min(100, (scrapCellCount / Math.max(1, Number(stats?.totalCells || 0))) * 100)}%` }} /></div>
             </div>
           </div>
 

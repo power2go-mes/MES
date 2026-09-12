@@ -1088,6 +1088,18 @@ async getUsers(): Promise<User[]> {
     const cellTests = (cellTestsResult.data || []).map((test: any) => ({ ...test, cellId: test.cellId ?? test.cell_id }));
     const batteryTests = (batteryTestsResult.data || []).map((test: any) => ({ ...test, batteryId: test.batteryId ?? test.battery_id }));
     const quarantine = (quarantineResult.data || []) as any[];
+    const scrapCellIds = new Set<string>(
+      cells
+        .filter(cell => ['REJECTED', 'QUARANTINED'].includes(String(cell.status || '').toUpperCase()) || String(cell.lifecycleStatus || '').toUpperCase() === 'SCRAP')
+        .map(cell => String(cell.id || ''))
+        .filter(Boolean),
+    );
+    quarantine.forEach(record => {
+      if (String(record.entityType || record.entity_type || '').toUpperCase() === 'CELL') {
+        const entityId = String(record.entityId || record.entity_id || '');
+        if (entityId) scrapCellIds.add(entityId);
+      }
+    });
     const testedCellIds = new Set(cellTests.map((test: any) => test.cellId).filter(Boolean));
     const testedCells = testedCellIds.size || cells.filter(cell => cell.testedAt).length;
     const testedBatteries = batteryTests.length || batteries.filter((battery: any) => battery.stepResults?.FINAL_TESTING?.status).length;
@@ -1150,6 +1162,7 @@ async getUsers(): Promise<User[]> {
       totalBms: bmsUnits.length,
       quarantineOpen: quarantine.filter(record => record.status === 'OPEN').length,
       quarantineResolved: quarantine.filter(record => record.status === 'RESOLVED').length,
+      scrapCellCount: scrapCellIds.size,
     };
   },
 
