@@ -612,35 +612,6 @@ export const TraceabilityView: React.FC = () => {
             </div>
           </div>
 
-          {/* Audit Trail */}
-          {trace.auditTrail && trace.auditTrail.length > 0 && (
-            <div className="bg-white rounded-2xl shadow-xs border border-slate-200 p-6 space-y-4">
-              <h3 className="text-sm font-bold text-slate-900 flex items-center space-x-2">
-                <Clock className="w-4 h-4 text-slate-400" />
-                <span>Immutable Production Audit Trail</span>
-              </h3>
-              <div className="divide-y divide-slate-100">
-                {trace.auditTrail.map((log: any) => (
-                  <div key={log.id} className="py-3.5 flex items-start justify-between text-xs">
-                    <div className="space-y-1">
-                      <p className="font-semibold text-slate-900">{log.action}</p>
-                      {log.reason && (
-                        <p className="text-[11px] text-slate-700 font-medium bg-slate-50 px-2 py-0.5 rounded inline-block">
-                          Reason: {log.reason}
-                        </p>
-                      )}
-                      <div className="text-[10px] text-slate-400 font-mono">
-                        User: <strong className="text-slate-700">{log.userName || 'System'}</strong>{log.userRole ? ` (${log.userRole})` : ''}
-                      </div>
-                    </div>
-                    <span className="text-[11px] font-mono text-slate-400 shrink-0">
-                      {new Date(log.timestamp).toLocaleString()}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
         </>
       )}
 
