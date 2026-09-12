@@ -146,13 +146,15 @@ export const InventoryView: React.FC = () => {
           }
         }
       } else if (activeTab === 'BMS') {
-        const res = await api.getBmsUnits();
-        setBmsUnits(res);
-        setHasMoreInventory(false);
+        const res = await api.getBmsUnits({ limit: pageSize, offset: page * pageSize });
+        setBmsUnits(previous => append ? [...previous, ...res] : res);
+        setHasMoreInventory(res.length === pageSize);
+        setInventoryPage(page);
       } else if (activeTab === 'BMU') {
-        const res = await api.getBmuUnits();
-        setBmuUnits(res);
-        setHasMoreInventory(false);
+        const res = await api.getBmuUnits({ limit: pageSize, offset: page * pageSize });
+        setBmuUnits(previous => append ? [...previous, ...res] : res);
+        setHasMoreInventory(res.length === pageSize);
+        setInventoryPage(page);
       } else if (activeTab === 'MODULES') {
         const res = await api.getModules({ limit: pageSize, offset: page * pageSize });
         setModules(previous => append ? [...previous, ...res] : res);
@@ -912,6 +914,13 @@ export const InventoryView: React.FC = () => {
               </tbody>
             </table>
           </div>
+          {hasMoreInventory && activeTab === 'BMS' && (
+            <div className="flex justify-center border-t border-slate-100 px-5 py-3">
+              <button type="button" onClick={loadMoreInventory} disabled={loading} className="px-4 py-2 text-xs font-bold text-emerald-700 border border-emerald-200 rounded-lg hover:bg-emerald-50 disabled:cursor-wait disabled:opacity-60">
+                {loading ? 'Loading...' : 'See more BMS'}
+              </button>
+            </div>
+          )}
         </div>
       )}
 
@@ -964,6 +973,13 @@ export const InventoryView: React.FC = () => {
               </tbody>
             </table>
           </div>
+          {hasMoreInventory && activeTab === 'BMU' && (
+            <div className="flex justify-center border-t border-slate-100 px-5 py-3">
+              <button type="button" onClick={loadMoreInventory} disabled={loading} className="px-4 py-2 text-xs font-bold text-emerald-700 border border-emerald-200 rounded-lg hover:bg-emerald-50 disabled:cursor-wait disabled:opacity-60">
+                {loading ? 'Loading...' : 'See more BMU'}
+              </button>
+            </div>
+          )}
         </div>
       )}
 

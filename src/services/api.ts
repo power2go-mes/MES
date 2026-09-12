@@ -2042,8 +2042,13 @@ async getUsers(): Promise<User[]> {
     });
   },
 
-  async getBmsUnits(): Promise<BMSItem[]> {
-    const { data, error } = await supabase.from('bms_units').select('*').order('created_at', { ascending: false });
+  async getBmsUnits(params?: { limit?: number; offset?: number }): Promise<BMSItem[]> {
+    let query = supabase.from('bms_units').select('*').order('created_at', { ascending: false });
+    if (params?.limit && params.limit > 0) {
+      const offset = Math.max(0, params.offset || 0);
+      query = query.range(offset, offset + params.limit - 1);
+    }
+    const { data, error } = await query;
     if (error) throw error;
     const unassignedControllers = (data || []).filter((bms: any) => !bms.assignedToBatteryId && !bms.reservedForBatteryId && !bms.reserved_for_battery_id);
     const { data: batteries, error: batteriesError } = unassignedControllers.length > 0
@@ -2103,8 +2108,13 @@ async getUsers(): Promise<User[]> {
     return { count: effectiveCount, items: created };
   },
 
-  async getBmuUnits(): Promise<BMUItem[]> {
-    const { data, error } = await supabase.from('bmu_units').select('*').order('created_at', { ascending: false });
+  async getBmuUnits(params?: { limit?: number; offset?: number }): Promise<BMUItem[]> {
+    let query = supabase.from('bmu_units').select('*').order('created_at', { ascending: false });
+    if (params?.limit && params.limit > 0) {
+      const offset = Math.max(0, params.offset || 0);
+      query = query.range(offset, offset + params.limit - 1);
+    }
+    const { data, error } = await query;
     if (error) throw error;
     const unassignedControllers = (data || []).filter((bmu: any) => !bmu.assignedToBatteryId && !bmu.reservedForBatteryId && !bmu.reserved_for_battery_id);
     const { data: batteries, error: batteriesError } = unassignedControllers.length > 0
