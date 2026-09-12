@@ -2290,6 +2290,33 @@ async getUsers(): Promise<User[]> {
     }
     const batteryIds = batteries.map(battery => battery.id).filter(Boolean);
     if (batteryIds.length === 0) return [];
+    if (requestedLimit !== undefined) {
+      const bmsIds = batteries.map(battery => battery.bms_id || battery.bmsId).filter(Boolean);
+      const bmuIds = batteries.map(battery => battery.bmu_id || battery.bmuId).filter(Boolean);
+      const [{ data: bmsRows, error: bmsError }, { data: bmuRows, error: bmuError }, { data: moduleRows, error: moduleError }] = await Promise.all([
+        bmsIds.length ? supabase.from('bms_units').select('*').in('id', bmsIds) : Promise.resolve({ data: [], error: null }),
+        bmuIds.length ? supabase.from('bmu_units').select('*').in('id', bmuIds) : Promise.resolve({ data: [], error: null }),
+        supabase.from('modules').select('id,battery_id,module_index').in('battery_id', batteryIds).order('module_index', { ascending: true }),
+      ]);
+      if (bmsError) throw bmsError;
+      if (bmuError) throw bmuError;
+      if (moduleError) throw moduleError;
+      const bmsById = new Map((bmsRows || []).map((controller: any) => [controller.id, controller]));
+      const bmuById = new Map((bmuRows || []).map((controller: any) => [controller.id, controller]));
+      const modulesByBattery = new Map<string, any[]>();
+      (moduleRows || []).forEach((module: any) => {
+        const batteryId = module.battery_id || module.batteryId;
+        const current = modulesByBattery.get(batteryId) || [];
+        current.push(module);
+        modulesByBattery.set(batteryId, current);
+      });
+      return batteries.map(battery => normalizeBatteryRecord({
+        ...battery,
+        bms: bmsById.get(battery.bms_id || battery.bmsId),
+        bmu: bmuById.get(battery.bmu_id || battery.bmuId),
+        modules: modulesByBattery.get(battery.id) || [],
+      })) as BatteryUnit[];
+    }
     const [bmsResult, bmuResult] = await Promise.all([
       supabase.from('bms_units').select('*'),
       supabase.from('bmu_units').select('*'),

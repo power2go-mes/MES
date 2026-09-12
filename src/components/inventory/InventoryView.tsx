@@ -161,11 +161,11 @@ export const InventoryView: React.FC = () => {
         setHasMoreInventory(res.length === pageSize);
         setInventoryPage(page);
       } else if (activeTab === 'BATTERIES') {
-        const [res, warehouseStatuses] = await Promise.all([api.getBatteries({ limit: pageSize, offset: page * pageSize }), api.getWarehouseEntityStatuses()]);
+        const res = await api.getBatteries({ limit: pageSize, offset: page * pageSize });
         setBatteries(previous => append ? [...previous, ...res] : res);
-        setWarehouseEntityStatuses(warehouseStatuses);
         setHasMoreInventory(res.length === pageSize);
         setInventoryPage(page);
+        void api.getWarehouseEntityStatuses().then(setWarehouseEntityStatuses).catch(error => console.error('Failed to load battery warehouse statuses', error));
       } else if (activeTab === 'RACKS') {
         const [res, warehouseStatuses] = await Promise.all([api.getRacks({ limit: pageSize, offset: page * pageSize }), api.getWarehouseEntityStatuses()]);
         setRacks(previous => append ? [...previous, ...res] : res);
