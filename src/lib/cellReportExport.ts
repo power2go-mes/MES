@@ -44,6 +44,18 @@ const autoFitColumns = (sheet: XLSX.WorkSheet, rows: Record<string, unknown>[]) 
   });
 };
 
+const createExportSheet = (rows: object[]) => {
+  const numberedRows = rows.map((row, index) => ({ 'S.No.': index + 1, ...row }));
+  const sheet = XLSX.utils.json_to_sheet(numberedRows);
+  autoFitColumns(sheet, numberedRows);
+  return sheet;
+};
+const formatClassificationLabel = (value: unknown) => String(value || '')
+  .trim()
+  .replace(/[_-]+/g, ' ')
+  .toLowerCase()
+  .replace(/\b\w/g, character => character.toUpperCase());
+
 const appendOverviewSheet = (workbook: XLSX.WorkBook, classifications: string[]) => {
   const counts = classifications.reduce<Record<string, number>>((result, classification) => {
     result[classification] = (result[classification] || 0) + 1;
@@ -51,10 +63,9 @@ const appendOverviewSheet = (workbook: XLSX.WorkBook, classifications: string[])
   }, {});
   const overviewRows = Object.entries(counts)
     .sort(([left], [right]) => left.localeCompare(right))
-    .map(([classification, quantity]) => ({ Classification: classification, Quantity: quantity }));
-  overviewRows.push({ Classification: 'TOTAL', Quantity: classifications.length });
-  const overviewSheet = XLSX.utils.json_to_sheet(overviewRows);
-  autoFitColumns(overviewSheet, overviewRows);
+    .map(([classification, quantity]) => ({ Classification: formatClassificationLabel(classification), Quantity: quantity }));
+  overviewRows.push({ Classification: 'Total', Quantity: classifications.length });
+  const overviewSheet = createExportSheet(overviewRows);
   XLSX.utils.book_append_sheet(workbook, overviewSheet, 'Overview');
 };
 
@@ -110,7 +121,7 @@ export const downloadCellReport = (
       || (cell as CellItem & { manufacturerName?: string; manufacturer_name?: string }).manufacturer_name
       || (cell as CellItem & { supplier?: { name?: string } }).supplier?.name
       || '',
-    Classification: getCellClassification(cell, warehouseStatuses),
+    Classification: formatClassificationLabel(getCellClassification(cell, warehouseStatuses)),
   })));
   const workbook = XLSX.utils.book_new();
   if (dashboardSummary) {
@@ -122,13 +133,12 @@ export const downloadCellReport = (
       }, {})).map(([Status, Quantity]) => ({ Status, Quantity }));
     const summaryTotal = Number(dashboardSummary.total) || dashboardSummary.rows.reduce((sum, row) => sum + (Number(row.value) || 0), 0);
     const summaryQuantity = dashboardSummary.rows.length > 0 ? summaryTotal : cellRows.length;
-    summaryRows.push({ Status: 'TOTAL', Quantity: summaryQuantity });
-    const summarySheet = XLSX.utils.json_to_sheet(summaryRows);
-    autoFitColumns(summarySheet, summaryRows);
+    summaryRows.forEach(row => { row.Status = formatClassificationLabel(row.Status); });
+    summaryRows.push({ Status: 'Total', Quantity: summaryQuantity });
+    const summarySheet = createExportSheet(summaryRows);
     XLSX.utils.book_append_sheet(workbook, summarySheet, 'CEO Dashboard Summary');
   }
-  const sheet = XLSX.utils.json_to_sheet(cellRows);
-  autoFitColumns(sheet, cellRows);
+  const sheet = createExportSheet(cellRows);
   XLSX.utils.book_append_sheet(workbook, sheet, 'Cells');
   XLSX.writeFile(workbook, `MES_Cell_Inventory_${new Date().toISOString().slice(0, 10)}.xlsx`);
 };
@@ -139,14 +149,13 @@ export const downloadBatteryReport = (batteries: BatteryUnit[], options: CellExp
     'Serial Number': battery.serialNumber || (battery as any).serial_number || '',
     BMU: battery.bmu?.serialNumber || (battery.bmu as any)?.serial_number || '',
     BMS: battery.bms?.serialNumber || (battery.bms as any)?.serial_number || '',
-    Classification: getBatteryClassification(battery, options.warehouseStatuses),
+    Classification: formatClassificationLabel(getBatteryClassification(battery, options.warehouseStatuses)),
     'Created At': exportDateOnly(battery.createdAt || (battery as any).created_at),
   }));
   sortByClassification(rows);
   const workbook = XLSX.utils.book_new();
   appendOverviewSheet(workbook, rows.map(row => row.Classification));
-  const sheet = XLSX.utils.json_to_sheet(rows);
-  autoFitColumns(sheet, rows);
+  const sheet = createExportSheet(rows);
   XLSX.utils.book_append_sheet(workbook, sheet, 'Batteries');
   XLSX.writeFile(workbook, `MES_Battery_Report_${new Date().toISOString().slice(0, 10)}.xlsx`);
 };
@@ -156,14 +165,13 @@ export const downloadRackReport = (racks: RackUnit[], options: CellExportOptions
   const rows = racks.map(rack => ({
     'Serial Number': rack.serialNumber || (rack as any).serial_number || '',
     'Rack Type': exportRackType(rack.rackTemplateCode || (rack as any).rack_template_code),
-    Classification: getRackClassification(rack, options.warehouseStatuses),
+    Classification: formatClassificationLabel(getRackClassification(rack, options.warehouseStatuses)),
     'Created At': exportDateOnly(rack.createdAt || (rack as any).created_at),
   }));
   sortByClassification(rows);
   const workbook = XLSX.utils.book_new();
   appendOverviewSheet(workbook, rows.map(row => row.Classification));
-  const sheet = XLSX.utils.json_to_sheet(rows);
-  autoFitColumns(sheet, rows);
+  const sheet = createExportSheet(rows);
   XLSX.utils.book_append_sheet(workbook, sheet, 'Rack-Cabinet');
   XLSX.writeFile(workbook, 'MES_Rack_Cabinet_Report.xlsx');
 };
@@ -212,12 +220,11 @@ export const downloadSoldReport = (batteries: BatteryUnit[], racks: RackUnit[], 
     { Entity: 'Racks', Quantity: soldRacks.length },
     { Entity: 'TOTAL', Quantity: batteryRows.length + soldRacks.length },
   ];
-  const overviewSheet = XLSX.utils.json_to_sheet(overviewRows);
-  autoFitColumns(overviewSheet, overviewRows);
+  const overviewSheet = createExportSheet(overviewRows);
   XLSX.utils.book_append_sheet(workbook, overviewSheet, 'Sold Overview');
   const appendSoldSheet = (name: string, rows: Record<string, unknown>[]) => {
-    const sheet = XLSX.utils.json_to_sheet(rows.length > 0 ? rows : [{ 'Serial Number': `No sold ${name.toLowerCase()} found` }]);
-    autoFitColumns(sheet, rows.length > 0 ? rows : [{ 'Serial Number': `No sold ${name.toLowerCase()} found` }]);
+    const outputRows = rows.length > 0 ? rows : [{ 'Serial Number': `No sold ${name.toLowerCase()} found` }];
+    const sheet = createExportSheet(outputRows);
     XLSX.utils.book_append_sheet(workbook, sheet, name);
   };
   appendSoldSheet('Battery Packs', batteryRows);
@@ -293,8 +300,7 @@ export const downloadWarehouseReport = (
     { Location: 'Lahore', Racks: rows.filter(row => row.Location === 'Lahore' && row.Entity === 'Rack').length, Cabinets: rows.filter(row => row.Location === 'Lahore' && row.Entity === 'Cabinet').length, 'Standalone Battery Packs': rows.filter(row => row.Location === 'Lahore' && row.Entity === 'Standalone Battery Pack').length },
     { Location: 'TOTAL', Racks: rows.filter(row => row.Entity === 'Rack').length, Cabinets: rows.filter(row => row.Entity === 'Cabinet').length, 'Standalone Battery Packs': rows.filter(row => row.Entity === 'Standalone Battery Pack').length },
   ];
-  const overviewSheet = XLSX.utils.json_to_sheet(overviewRows);
-  autoFitColumns(overviewSheet, overviewRows);
+  const overviewSheet = createExportSheet(overviewRows);
   XLSX.utils.book_append_sheet(workbook, overviewSheet, 'Warehouse Overview');
   const batteryRows = rows.filter(row => row.Entity === 'Standalone Battery Pack');
   const rackRows = rows.filter(row => row.Entity === 'Rack' || row.Entity === 'Rack Battery Pack');
@@ -306,8 +312,7 @@ export const downloadWarehouseReport = (
     const emptyRow = sheetName === 'Battery Packs'
       ? { Location: '', 'Serial / QR': `No ${sheetName.toLowerCase()} found` }
       : { Location: '', 'Serial / QR': `No ${sheetName.toLowerCase()} found`, 'Type / Model': '' };
-    const sheet = XLSX.utils.json_to_sheet(outputRows.length > 0 ? outputRows : [emptyRow]);
-    autoFitColumns(sheet, outputRows.length > 0 ? outputRows : [emptyRow]);
+    const sheet = createExportSheet(outputRows.length > 0 ? outputRows : [emptyRow]);
     XLSX.utils.book_append_sheet(workbook, sheet, sheetName);
   };
   appendWarehouseSheet('Battery Packs', batteryRows);

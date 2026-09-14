@@ -2209,7 +2209,7 @@ async getUsers(): Promise<User[]> {
     return { count: effectiveCount, items: created };
   },
 
-  async updateBms(id: string, update: { status?: string; model?: string; firmwareVersion?: string; hardwareVersion?: string; protocol?: string }): Promise<BMSItem> {
+  async updateBms(id: string, update: { serialNumber?: string; status?: string; model?: string; firmwareVersion?: string; hardwareVersion?: string; protocol?: string }): Promise<BMSItem> {
     const { data, error } = await supabase.from('bms_units').update(update).eq('id', id).select().single();
     if (error) throw error;
     return data;
@@ -2226,7 +2226,7 @@ async getUsers(): Promise<User[]> {
     if (error) throw error;
   },
 
-  async updateBmu(id: string, update: { status?: string; model?: string; manufacturer?: string; protocol?: string }): Promise<BMUItem> {
+  async updateBmu(id: string, update: { serialNumber?: string; status?: string; model?: string; manufacturer?: string; protocol?: string }): Promise<BMUItem> {
     const { data, error } = await supabase.from('bmu_units').update(update).eq('id', id).select().single();
     if (error) throw error;
     return data;
