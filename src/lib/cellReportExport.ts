@@ -1,4 +1,4 @@
-import * as XLSX from 'xlsx';
+import * as XLSX from 'xlsx-js-style';
 import { BatteryUnit, CellItem, RackUnit } from '../types';
 
 const exportDate = (value?: string) => value ? new Date(value).toLocaleString() : '';
@@ -8,7 +8,10 @@ const exportDateOnly = (value?: string) => {
   if (Number.isNaN(date.getTime())) return '';
   return `${String(date.getUTCDate()).padStart(2, '0')}-${String(date.getUTCMonth() + 1).padStart(2, '0')}-${date.getUTCFullYear()}`;
 };
-const exportRackType = (value?: string) => String(value || '').replace(/^RACK_/i, '').replace(/KWH$/i, 'kWh');
+const exportRackType = (value?: string) => String(value || '')
+  .replace(/^RACK_/i, '')
+  .replace(/70KWH$/i, '67.9kWh')
+  .replace(/KWH$/i, 'kWh');
 const normalizeClientName = (value: unknown) => {
   const name = String(value || '').trim();
   const midpoint = Math.floor(name.length / 2);
@@ -44,11 +47,38 @@ const autoFitColumns = (sheet: XLSX.WorkSheet, rows: Record<string, unknown>[]) 
   });
 };
 
+const centerAlignSheet = (sheet: XLSX.WorkSheet) => {
+  const range = sheet['!ref'];
+  if (!range) return;
+  const decodedRange = XLSX.utils.decode_range(range);
+  for (let row = decodedRange.s.r; row <= decodedRange.e.r; row += 1) {
+    for (let column = decodedRange.s.c; column <= decodedRange.e.c; column += 1) {
+      const address = XLSX.utils.encode_cell({ r: row, c: column });
+      const cell = sheet[address];
+      if (cell) {
+        cell.s = {
+          ...(cell.s || {}),
+          alignment: {
+            ...(cell.s?.alignment || {}),
+            horizontal: 'center',
+            vertical: 'center',
+          },
+        };
+      }
+    }
+  }
+};
+
 const createExportSheet = (rows: object[]) => {
   const numberedRows = rows.map((row, index) => ({ 'S.No.': index + 1, ...row }));
   const sheet = XLSX.utils.json_to_sheet(numberedRows);
   autoFitColumns(sheet, numberedRows);
+  centerAlignSheet(sheet);
   return sheet;
+};
+
+const writeExportFile = (workbook: XLSX.WorkBook, filename: string) => {
+  XLSX.writeFile(workbook, filename, { cellStyles: true });
 };
 const formatClassificationLabel = (value: unknown) => String(value || '')
   .trim()
@@ -62,7 +92,7 @@ const appendOverviewSheet = (workbook: XLSX.WorkBook, classifications: string[])
     return result;
   }, {});
   const overviewRows = Object.entries(counts)
-    .sort(([left], [right]) => left.localeCompare(right))
+    .sort(([left], [right]) => getClassificationRank(left) - getClassificationRank(right) || left.localeCompare(right))
     .map(([classification, quantity]) => ({ Classification: formatClassificationLabel(classification), Quantity: quantity }));
   overviewRows.push({ Classification: 'Total', Quantity: classifications.length });
   const overviewSheet = createExportSheet(overviewRows);
@@ -90,8 +120,11 @@ const cellClassificationStatuses = [
   'KARACHI_WAREHOUSE', 'LAHORE_WAREHOUSE', 'SOLD', 'SCRAP',
 ];
 const classificationRank = new Map(cellClassificationStatuses.map((status, index) => [status, index]));
+const getClassificationRank = (value: unknown) => classificationRank.get(
+  String(value || '').trim().toUpperCase().replace(/[ -]+/g, '_'),
+) ?? 999;
 const sortByClassification = <T extends { Classification: string; 'Serial Number'?: string; 'Supplier Barcode'?: string }>(rows: T[]) => rows.sort((left, right) => {
-  const rankDifference = (classificationRank.get(left.Classification) ?? 999) - (classificationRank.get(right.Classification) ?? 999);
+  const rankDifference = getClassificationRank(left.Classification) - getClassificationRank(right.Classification);
   if (rankDifference !== 0) return rankDifference;
   return String(left['Serial Number'] || left['Supplier Barcode'] || '').localeCompare(String(right['Serial Number'] || right['Supplier Barcode'] || ''));
 });
@@ -140,7 +173,7 @@ export const downloadCellReport = (
   }
   const sheet = createExportSheet(cellRows);
   XLSX.utils.book_append_sheet(workbook, sheet, 'Cells');
-  XLSX.writeFile(workbook, `MES_Cell_Inventory_${new Date().toISOString().slice(0, 10)}.xlsx`);
+  writeExportFile(workbook, `MES_Cell_Inventory_${new Date().toISOString().slice(0, 10)}.xlsx`);
 };
 
 export const downloadBatteryReport = (batteries: BatteryUnit[], options: CellExportOptions = {}) => {
@@ -157,7 +190,7 @@ export const downloadBatteryReport = (batteries: BatteryUnit[], options: CellExp
   appendOverviewSheet(workbook, rows.map(row => row.Classification));
   const sheet = createExportSheet(rows);
   XLSX.utils.book_append_sheet(workbook, sheet, 'Batteries');
-  XLSX.writeFile(workbook, `MES_Battery_Report_${new Date().toISOString().slice(0, 10)}.xlsx`);
+  writeExportFile(workbook, `MES_Battery_Report_${new Date().toISOString().slice(0, 10)}.xlsx`);
 };
 
 export const downloadRackReport = (racks: RackUnit[], options: CellExportOptions = {}) => {
@@ -173,7 +206,7 @@ export const downloadRackReport = (racks: RackUnit[], options: CellExportOptions
   appendOverviewSheet(workbook, rows.map(row => row.Classification));
   const sheet = createExportSheet(rows);
   XLSX.utils.book_append_sheet(workbook, sheet, 'Rack-Cabinet');
-  XLSX.writeFile(workbook, 'MES_Rack_Cabinet_Report.xlsx');
+  writeExportFile(workbook, 'MES_Rack_Cabinet_Report.xlsx');
 };
 
 export const downloadSoldReport = (batteries: BatteryUnit[], racks: RackUnit[], saleHistory: Array<{ entityType?: string; entity_type?: string; entityId?: string; entity_id?: string; clientName?: string; client_name?: string }> = []) => {
@@ -229,7 +262,7 @@ export const downloadSoldReport = (batteries: BatteryUnit[], racks: RackUnit[], 
   };
   appendSoldSheet('Battery Packs', batteryRows);
   appendSoldSheet('Racks', rackRows);
-  XLSX.writeFile(workbook, `MES_Sold_Report_${new Date().toISOString().slice(0, 10)}.xlsx`);
+  writeExportFile(workbook, `MES_Sold_Report_${new Date().toISOString().slice(0, 10)}.xlsx`);
 };
 
 export const downloadWarehouseReport = (
@@ -318,7 +351,7 @@ export const downloadWarehouseReport = (
   appendWarehouseSheet('Battery Packs', batteryRows);
   appendWarehouseSheet('Cabinets', cabinetRows);
   appendWarehouseSheet('Racks', rackRows);
-  XLSX.writeFile(workbook, `MES_Warehouse_Report_${new Date().toISOString().slice(0, 10)}.xlsx`);
+  writeExportFile(workbook, `MES_Warehouse_Report_${new Date().toISOString().slice(0, 10)}.xlsx`);
 };
 
 const getBatteryClassification = (battery: BatteryUnit, warehouseStatuses: Record<string, string> = {}) => {

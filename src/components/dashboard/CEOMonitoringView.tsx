@@ -14,31 +14,31 @@ const numberOr = (value: any, fallback = 0) => {
 const clamp = (value: number, min: number, max: number) => Math.min(Math.max(value, min), max);
 
 const statusColors: Record<string, string> = {
-  'In Stock': '#16a34a',
-  'Floor Stock': '#2563eb',
-  'In Module': '#7c3aed',
-  'In Pack': '#f59e0b',
-  'In Rack': '#0ea5e9',
-  'Karachi Warehouse': '#14532d',
-  'Lahore Warehouse': '#2563eb',
-  Sold: '#059669',
-  Scrap: '#ef4444',
+  'In Stock': '#ed1c24',
+  'Floor Stock': '#f36f21',
+  'In Module': '#ffc20e',
+  'In Pack': '#7fba27',
+  'In Rack': '#159947',
+  'Karachi Warehouse': '#39b7bf',
+  'Lahore Warehouse': '#286bb1',
+  Sold: '#542681',
+  Scrap: '#be2c80',
 };
-const packColors = ['#2563eb', '#f59e0b', '#16a34a'];
+const packColors = ['#286bb1', '#f36f21', '#159947'];
 const packColorByModel: Record<string, string> = {
-  'WallMount 5kWh': '#2563eb',
-  '5 kWh Battery Pack': '#f59e0b',
-  '7.5 kWh Battery Pack': '#16a34a',
+  'WallMount 5kWh': '#286bb1',
+  '5 kWh Battery Pack': '#f36f21',
+  '7.5 kWh Battery Pack': '#159947',
 };
-const reportDarkGrey = '#374151';
-const reportGreen = '#16a34a';
-const reportCabinetBlue = '#2563eb';
+const reportDarkGrey = '#542681';
+const reportGreen = '#159947';
+const reportCabinetBlue = '#286bb1';
 const rackPowerColors: Record<string, string> = {
-  '25': '#16a34a',
-  '45': '#2563eb',
-  '60': '#6b7280',
-  '70': '#86efac',
-  '75': '#f59e0b',
+  '25': '#159947',
+  '45': '#286bb1',
+  '60': '#542681',
+  '70': '#be2c80',
+  '75': '#f36f21',
 };
 type ChartRow = DashboardChartRow;
 
@@ -276,7 +276,7 @@ export const CEOMonitoringView: React.FC = () => {
       });
     });
     return Array.from(totals.entries()).filter(([, value]) => value > 0).map(([power, value]) => ({
-      label: `${power} kWh ${power === '25' ? 'Rack' : 'Cabinet'}`,
+      label: `${power === '70' ? '67.9' : power} kWh ${power === '25' ? 'Rack' : 'Cabinet'}`,
       value,
       color: rackPowerColors[power] || '#64748b',
     }));
@@ -405,15 +405,16 @@ export const CEOMonitoringView: React.FC = () => {
         }));
       };
       const cellReportRows = statusRows(
-        ['In Stock', 'Floor Stock', 'In Module', 'In Pack', 'In Rack', 'Karachi Warehouse', 'Lahore Warehouse', 'Sold', 'Scrap'],
+        ['In Stock', 'Floor Stock', 'In Module', 'In Pack', 'In Rack', 'Karachi Warehouse', 'Lahore Warehouse', 'Sold'],
         source.cellBuckets,
         statusColors,
         () => CELL_CAPACITY_KWH,
-      ).map((row) => row.label === 'In Module'
+      ).concat([
+        { label: 'Scrap', value: damageScrapCount, capacityKwh: damageScrapCount * CELL_CAPACITY_KWH, color: statusColors.Scrap },
+        { label: 'Recycle', value: reusableScrapCount, capacityKwh: reusableScrapCount * CELL_CAPACITY_KWH, color: reportGreen },
+      ]).map((row) => row.label === 'In Module'
         ? { ...row, label: 'In Module (standalone)' }
-        : row.label === 'Scrap'
-          ? { ...row, label: 'Scrap / Recycle' }
-          : row);
+        : row);
       const moduleReportRows = statusRows(
         ['8S', '12S'],
         source.moduleTypeBuckets,
@@ -436,8 +437,8 @@ export const CEOMonitoringView: React.FC = () => {
         color: reportGreen,
       }];
       const scrapReportRows = [
-        { label: 'Damage (non-reusable)', value: damageScrapCount, capacityKwh: damageScrapCount * CELL_CAPACITY_KWH, color: reportDarkGrey },
-        { label: 'Reusable cells', value: reusableScrapCount, capacityKwh: reusableScrapCount * CELL_CAPACITY_KWH, color: reportGreen },
+        { label: 'Scrap', value: damageScrapCount, capacityKwh: damageScrapCount * CELL_CAPACITY_KWH, color: reportDarkGrey },
+        { label: 'Recycle', value: reusableScrapCount, capacityKwh: reusableScrapCount * CELL_CAPACITY_KWH, color: reportGreen },
       ];
       const soldBatteryCount = numberOr(source.soldBatteryPackCount ?? source.batteryStatusBuckets?.find((row: any) => String(row.label || '').toUpperCase() === 'SOLD')?.value);
       const soldRackCount = numberOr(source.rackStatusBuckets?.find((row: any) => String(row.label || row.status || '').toUpperCase().replace(/_/g, ' ') === 'SOLD')?.value);
@@ -455,7 +456,8 @@ export const CEOMonitoringView: React.FC = () => {
       };
       const formatRackLabel = (rackType: string) => {
         const powerMatch = rackType.match(/RACK_(\d+(?:\.\d+)?)KWH/i);
-        const power = powerMatch ? `${powerMatch[1]}kWh` : rackType.replace(/^RACK_/i, '').replace(/_/g, ' ');
+        const powerValue = powerMatch?.[1] === '70' ? '67.9' : powerMatch?.[1];
+        const power = powerValue ? `${powerValue}kWh` : rackType.replace(/^RACK_/i, '').replace(/_/g, ' ');
         const category = /RACK_25KWH/i.test(rackType) ? 'Rack' : 'Cabinet';
         return `${power.replace('kWh', ' kWh')} ${category}`;
       };
@@ -578,7 +580,8 @@ export const CEOMonitoringView: React.FC = () => {
             reportFontSize(includeValueInLegend ? 4.8 : 5.8);
             doc.setTextColor(...muted);
             if (includeValueInLegend) {
-              doc.text(`${row.label} (${formatCellRowMwh(row.capacityKwh)}) ${formatNumber(row.value)}`, legendX + 5, legendY - 2.6);
+              const unitLabel = title === 'CELL INVENTORY' ? ' cells' : '';
+              doc.text(`${row.label} (${formatCellRowMwh(row.capacityKwh)}) ${formatNumber(row.value)}${unitLabel}`, legendX + 5, legendY - 2.6);
               return;
             }
             doc.text(row.label, legendX + 5, legendY);
