@@ -7,6 +7,7 @@ import { downloadBatteryReport, downloadCellReport, downloadRackReport } from '.
 import { QRCodeModal } from '../common/QRCodeModal';
 import { ScannerModal } from '../common/ScannerModal';
 import { BatteryReportModal } from '../common/BatteryReportModal';
+import { CopyToClipboardButton } from '../common/CopyToClipboardButton';
 import {
   Boxes,
   Layers,
@@ -746,7 +747,7 @@ export const InventoryView: React.FC = () => {
                         className="h-4 w-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500"
                       />
                     </td>
-                    <td className="px-5 py-3.5 font-bold text-slate-900">{cell.internalSerial}</td>
+                    <td className="px-5 py-3.5"><span className="inline-flex items-center gap-1 font-bold text-slate-900">{cell.internalSerial}<CopyToClipboardButton value={cell.internalSerial} label="Copy cell serial number" /></span></td>
                     <td className="hidden px-5 py-3.5 text-slate-500 text-[11px] md:table-cell">{cell.supplierBarcode}</td>
                     <td className="hidden px-5 py-3.5 text-slate-700 font-sans md:table-cell">{cell.supplierName}</td>
                     <td className="hidden px-5 py-3.5 font-bold text-emerald-700 md:table-cell">{cell.supplierCapacityAh} Ah</td>
@@ -859,7 +860,7 @@ export const InventoryView: React.FC = () => {
                         className="h-4 w-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500"
                       />
                     </td>
-                    <td className="px-5 py-3.5 font-bold text-slate-900">{b.serialNumber}</td>
+                    <td className="px-5 py-3.5"><span className="inline-flex items-center gap-1 font-bold text-slate-900">{b.serialNumber}<CopyToClipboardButton value={b.serialNumber} label="Copy BMS serial number" /></span></td>
                     <td className="px-5 py-3.5 text-slate-700 font-sans">{b.model}</td>
                     <td className="px-5 py-3.5 font-bold text-emerald-700">{b.protocol}</td>
                     <td className="px-5 py-3.5 text-slate-500">{b.firmwareVersion}</td>
@@ -992,7 +993,7 @@ export const InventoryView: React.FC = () => {
                         className="h-4 w-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500"
                       />
                     </td>
-                    <td className="px-5 py-3.5 font-bold text-slate-900">{b.serialNumber}</td>
+                    <td className="px-5 py-3.5"><span className="inline-flex items-center gap-1 font-bold text-slate-900">{b.serialNumber}<CopyToClipboardButton value={b.serialNumber} label="Copy BMU serial number" /></span></td>
                     <td className="px-5 py-3.5 text-slate-700 font-sans">{b.model}</td>
                     <td className="px-5 py-3.5 text-slate-600 font-sans">{b.manufacturer || 'N/A'}</td>
                     <td className="px-5 py-3.5 font-bold text-emerald-700">{b.protocol || 'N/A'}</td>
@@ -1068,7 +1069,7 @@ export const InventoryView: React.FC = () => {
                         className="h-4 w-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500"
                       />
                     </td>
-                    <td className="px-5 py-3.5 font-bold text-slate-900">{m.serialNumber}</td>
+                    <td className="px-5 py-3.5"><span className="inline-flex items-center gap-1 font-bold text-slate-900">{m.serialNumber}<CopyToClipboardButton value={m.serialNumber} label="Copy module serial number" /></span></td>
                     <td className="px-5 py-3.5 text-slate-600">{m.batteryId || 'UNALLOCATED'}</td>
                     <td className="px-5 py-3.5 font-bold text-slate-800">{m.cells?.length ?? 0} cells</td>
                     <td className="px-5 py-3.5 text-emerald-600 font-bold">
@@ -1205,7 +1206,7 @@ export const InventoryView: React.FC = () => {
                         className="h-4 w-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500"
                       />
                     </td>
-                    <td className="px-5 py-3.5 font-bold text-slate-900">{b.serialNumber}</td>
+                    <td className="px-5 py-3.5"><span className="inline-flex items-center gap-1 font-bold text-slate-900">{b.serialNumber}<CopyToClipboardButton value={b.serialNumber} label="Copy battery serial number" /></span></td>
                     <td className="px-5 py-3.5 text-slate-700 font-sans font-semibold">{b.productName}</td>
                     <td className="px-5 py-3.5">{b.modules?.length ?? 0} Modules</td>
                     <td className="px-5 py-3.5 text-emerald-700">{b.bms?.serialNumber || 'NONE'}</td>
@@ -1312,7 +1313,7 @@ export const InventoryView: React.FC = () => {
                   const displayTemplate = displayRackTemplate(template);
                   const batteryIds = rack.batteryIds || rack.battery_ids || rack.rackPacks?.map((pack: any) => pack.batteryId || pack.battery_id) || [];
                   const status = warehouseEntityStatuses[`RACK:${rack.id}`] || rack.status || 'UNKNOWN';
-                  return <tr key={rack.id} className="hover:bg-slate-50/70"><td className="px-3 py-3.5"><input type="checkbox" checked={selectedIds.RACKS.includes(rack.id)} onChange={() => toggleSelectItem('RACKS', rack.id)} className="h-4 w-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500" /></td><td className="px-5 py-3.5 font-mono font-bold text-slate-900">{displaySerial}</td><td className="px-5 py-3.5 font-semibold text-slate-700">{displayTemplate}</td><td className="px-5 py-3.5">{batteryIds.length} batteries</td><td className="px-5 py-3.5 text-slate-600">{rack.location || '-'}</td><td className="px-5 py-3.5"><span className={`rounded-md border px-2.5 py-0.5 text-[10px] font-bold uppercase ${getStatusBadge(status)}`}>{status}</span></td><td className="px-5 py-3.5 text-right font-sans space-x-1"><button onClick={() => { setQuickSearchQuery(serial); setActiveView('traceability'); }} className="p-1.5 text-slate-500 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors" title="View rack traceability"><Eye className="w-4 h-4" /></button><button onClick={() => { setQrData({ title: `Rack QR: ${displaySerial}`, qrPayload: rack.qrCode || rack.qr_code || `${serial}|RACK:${rack.id}`, serial: displaySerial, itemType: 'RACK', metadata: { TEMPLATE: displayTemplate, BATTERIES: batteryIds.length, LOCATION: rack.location || '-', STATUS: status } }); setQrModalOpen(true); }} className="p-1.5 text-slate-500 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors" title="Print QR"><QrCode className="w-4 h-4" /></button><button onClick={() => { setActiveView('rack-assembly'); addNotification('info', 'Rack Assembly Opened', `Open the rack builder to edit ${displaySerial}.`); }} className="p-1.5 text-slate-500 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors" title="Edit rack"><Pencil className="w-4 h-4" /></button><button onClick={async () => { if (!window.confirm(`Delete rack ${displaySerial}? Its connected packs will be returned to inventory.`)) return; try { await api.deleteRack(rack.id); triggerRefresh(); } catch (err: any) { addNotification('error', 'Delete Failed', err.message); } }} className="p-1.5 text-slate-500 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors" title="Delete rack"><Trash2 className="w-4 h-4" /></button></td></tr>;
+                  return <tr key={rack.id} className="hover:bg-slate-50/70"><td className="px-3 py-3.5"><input type="checkbox" checked={selectedIds.RACKS.includes(rack.id)} onChange={() => toggleSelectItem('RACKS', rack.id)} className="h-4 w-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500" /></td><td className="px-5 py-3.5"><span className="inline-flex items-center gap-1 font-mono font-bold text-slate-900">{displaySerial}<CopyToClipboardButton value={String(serial)} label="Copy rack serial number" /></span></td><td className="px-5 py-3.5 font-semibold text-slate-700">{displayTemplate}</td><td className="px-5 py-3.5">{batteryIds.length} batteries</td><td className="px-5 py-3.5 text-slate-600">{rack.location || '-'}</td><td className="px-5 py-3.5"><span className={`rounded-md border px-2.5 py-0.5 text-[10px] font-bold uppercase ${getStatusBadge(status)}`}>{status}</span></td><td className="px-5 py-3.5 text-right font-sans space-x-1"><button onClick={() => { setQuickSearchQuery(serial); setActiveView('traceability'); }} className="p-1.5 text-slate-500 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors" title="View rack traceability"><Eye className="w-4 h-4" /></button><button onClick={() => { setQrData({ title: `Rack QR: ${displaySerial}`, qrPayload: rack.qrCode || rack.qr_code || `${serial}|RACK:${rack.id}`, serial: displaySerial, itemType: 'RACK', metadata: { TEMPLATE: displayTemplate, BATTERIES: batteryIds.length, LOCATION: rack.location || '-', STATUS: status } }); setQrModalOpen(true); }} className="p-1.5 text-slate-500 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors" title="Print QR"><QrCode className="w-4 h-4" /></button><button onClick={() => { setActiveView('rack-assembly'); addNotification('info', 'Rack Assembly Opened', `Open the rack builder to edit ${displaySerial}.`); }} className="p-1.5 text-slate-500 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors" title="Edit rack"><Pencil className="w-4 h-4" /></button><button onClick={async () => { if (!window.confirm(`Delete rack ${displaySerial}? Its connected packs will be returned to inventory.`)) return; try { await api.deleteRack(rack.id); triggerRefresh(); } catch (err: any) { addNotification('error', 'Delete Failed', err.message); } }} className="p-1.5 text-slate-500 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors" title="Delete rack"><Trash2 className="w-4 h-4" /></button></td></tr>;
                 })}
                 {!loading && filteredRacks.length === 0 && <tr><td colSpan={7} className="px-5 py-12 text-center text-xs text-slate-400">No racks recorded.</td></tr>}
               </tbody>

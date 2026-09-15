@@ -16,7 +16,7 @@ interface ModuleTestRow {
 }
 
 export const ModuleWorkflowView: React.FC = () => {
-  const { activeModuleId, addNotification, refreshKey, triggerRefresh } = useApp();
+  const { activeModuleId, setActiveModuleId, setActiveView, addNotification, refreshKey, triggerRefresh } = useApp();
   const [moduleType, setModuleType] = useState<'8S' | '12S'>('8S');
   const [floorCells, setFloorCells] = useState<CellItem[]>([]);
   const [selectedCellIds, setSelectedCellIds] = useState<string[]>([]);
@@ -210,13 +210,15 @@ export const ModuleWorkflowView: React.FC = () => {
         damageRemarks: row.damageRemarks,
       })));
       await api.updateModuleWeldingStatus(draftModule.id, weldingStatus);
-      setQrModule({ ...draftModule, ...result.module, serial_number: result.module.serial_number || draftModule.serial_number, qr_code: draftModule.qr_code || `${draftModule.serial_number}|MODULE:${draftModule.id}` });
+      setQrModule(null);
       setDraftModule(null);
       setSelectedCellIds([]);
       setTestRows([]);
+      setActiveModuleId(null);
       triggerRefresh();
       await loadFloorCells();
       addNotification('success', 'Module Complete', `${moduleType} module completed with laser welding ${weldingStatus === 'PASSED' ? 'passed' : 'failed'}.`);
+      setActiveView('production-flow');
     } catch (error: any) {
       addNotification('error', 'Module Completion Failed', error.message || 'Complete every required module test.');
     } finally {

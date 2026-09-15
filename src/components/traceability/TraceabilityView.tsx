@@ -23,6 +23,7 @@ import {
   ScanLine,
   Download,
 } from 'lucide-react';
+import { CopyToClipboardButton } from '../common/CopyToClipboardButton';
 
 interface TraceNode {
   key: string;
@@ -561,7 +562,7 @@ export const TraceabilityView: React.FC = () => {
               </span>
               <div className="mt-2 space-y-1 text-xs">
                 <p><span className="text-slate-400">Type:</span> <strong className="text-white">{TYPE_LABEL[trace.entityType] || trace.entityType}</strong></p>
-                <p><span className="text-slate-400">Identifier:</span> <strong className="font-mono text-emerald-300">{trace.identifier}</strong></p>
+                <p className="inline-flex items-center gap-1"><span className="text-slate-400">Identifier:</span> <strong className="font-mono text-emerald-300">{trace.identifier}</strong><CopyToClipboardButton value={String(trace.identifier || '')} label="Copy trace identifier" /></p>
                 <p><span className="text-slate-400">Status:</span> <strong className="text-white">{formatTraceStatus(trace.status)}</strong></p>
               </div>
             </div>
@@ -605,7 +606,7 @@ export const TraceabilityView: React.FC = () => {
                 {detailFields(activeNode).map((f, i) => (
                   <div key={i} className="py-2 flex items-center justify-between text-xs">
                     <dt className="text-slate-500 font-medium">{f.label}</dt>
-                    <dd className="font-mono font-semibold text-slate-900 text-right truncate max-w-[60%]">{f.value}</dd>
+                    <dd className="inline-flex max-w-[60%] items-center justify-end gap-1 text-right"><span className="truncate font-mono font-semibold text-slate-900">{f.value}</span>{/serial|barcode|identifier/i.test(f.label) && <CopyToClipboardButton value={f.value} label={`Copy ${f.label}`} />}</dd>
                   </div>
                 ))}
               </dl>

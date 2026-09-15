@@ -24,7 +24,7 @@ const rackCapacityLabel = (templateCode: string) => {
 const displayRackSerial = (value: unknown) => String(value || '').replace(/70KWH/gi, '67.9KWH');
 
 export const RackAssemblyView: React.FC = () => {
-  const { addNotification, refreshKey, triggerRefresh } = useApp();
+  const { addNotification, setActiveView, refreshKey, triggerRefresh } = useApp();
   const [template, setTemplate] = useState<RackTemplate>('RACK_25KWH');
   const [builderOpen, setBuilderOpen] = useState(false);
   const [batteries, setBatteries] = useState<BatteryUnit[]>([]);
@@ -116,6 +116,7 @@ export const RackAssemblyView: React.FC = () => {
       setSelected([]);
       setBuilderOpen(false);
       triggerRefresh();
+      setActiveView('production-flow');
     } catch (error: any) {
       addNotification('error', 'Rack Assembly Failed', error.message || 'Could not assemble rack.');
     } finally {

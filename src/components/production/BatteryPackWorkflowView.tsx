@@ -23,7 +23,7 @@ import {
 } from 'lucide-react';
 
 export const BatteryPackWorkflowView: React.FC = () => {
-  const { activeBatteryId, setActiveBatteryId, batteryBuilderEditRequested, setBatteryBuilderEditRequested, addNotification, refreshKey, triggerRefresh } = useApp();
+  const { activeBatteryId, setActiveBatteryId, setActiveView, batteryBuilderEditRequested, setBatteryBuilderEditRequested, addNotification, refreshKey, triggerRefresh } = useApp();
   const { currentUser } = useAuth();
 
   const [battery, setBattery] = useState<BatteryUnit | null>(null);
@@ -131,8 +131,11 @@ export const BatteryPackWorkflowView: React.FC = () => {
             ? { ...currentBattery, ...result.battery, modules: currentBattery.modules }
             : result.battery);
         }
-        setQrPassportOpen(true);
         addNotification('success', 'BATTERY RELEASED', `Battery ${battery.serialNumber} passed final QC and is released for dispatch!`);
+        setQrPassportOpen(false);
+        setActiveBatteryId(null);
+        setBatteryBuilderEditRequested(false);
+        setActiveView('production-flow');
       } else {
         addNotification('error', 'Battery Scrapped', `Battery ${battery.serialNumber} failed final testing.`);
       }
