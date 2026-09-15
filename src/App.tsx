@@ -118,7 +118,7 @@ const AppContent: React.FC = () => {
             onClick={() => setMobileNavOpen(false)}
           />
         )}
-        <main className="flex-1 flex flex-col overflow-hidden relative bg-slate-50">
+        <main className="flex-1 flex flex-col overflow-y-auto overflow-x-hidden relative bg-slate-50">
           <Header onOpenNavigation={() => setMobileNavOpen(true)} />
           <Suspense fallback={<div className="grid flex-1 place-items-center bg-slate-50 text-xs font-bold uppercase tracking-[0.18em] text-slate-500">Loading workspace</div>}>
             {renderActiveView()}

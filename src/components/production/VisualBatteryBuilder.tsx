@@ -449,8 +449,8 @@ export const VisualBatteryBuilder: React.FC = () => {
                           {cell ? (
                             <>
                               <Zap className="w-4 h-4 text-emerald-500 mb-1" />
-                              <span className="text-[9px] font-mono font-bold text-slate-700 truncate w-full text-center">
-                                {cell.internalSerial.slice(-6)}
+                              <span className="w-full break-all text-center font-mono text-[8px] font-bold leading-tight text-slate-700">
+                                {cell.internalSerial || cell.supplierBarcode || cell.id}
                               </span>
                             </>
                           ) : (
