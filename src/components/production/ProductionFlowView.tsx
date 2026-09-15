@@ -78,7 +78,7 @@ const lifecycle = [
 ];
 
 export const ProductionFlowView: React.FC = () => {
-  const { setActiveView } = useApp();
+  const { setActiveView, setActiveBatteryId, setBatteryBuilderEditRequested } = useApp();
 
   return (
     <div className="flex-1 overflow-y-auto bg-slate-50 p-4 md:p-8">
@@ -113,7 +113,7 @@ export const ProductionFlowView: React.FC = () => {
                 <div className="mt-4 space-y-2 border-t border-slate-100 pt-4">
                   {stage.steps.map((step, stepIndex) => <div key={step} className="flex items-center gap-2 text-xs font-semibold text-slate-600"><span className="flex h-5 w-5 items-center justify-center rounded-full bg-slate-100 text-[10px] text-slate-500">{stepIndex + 1}</span>{step}</div>)}
                 </div>
-                <button type="button" onClick={() => setActiveView(stage.view)} className="mt-5 flex items-center justify-between rounded-lg bg-slate-900 px-3 py-2.5 text-xs font-bold text-white hover:bg-emerald-700">{stage.action}<ArrowRight className="h-4 w-4" /></button>
+                <button type="button" onClick={() => { if (stage.view === 'workflow-pack') { setActiveBatteryId(null); setBatteryBuilderEditRequested(false); } setActiveView(stage.view); }} className="mt-5 flex items-center justify-between rounded-lg bg-slate-900 px-3 py-2.5 text-xs font-bold text-white hover:bg-emerald-700">{stage.action}<ArrowRight className="h-4 w-4" /></button>
               </article>
             );
           })}

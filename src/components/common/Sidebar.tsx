@@ -29,7 +29,7 @@ type SidebarProps = {
 };
 
 export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
-  const { activeView, setActiveView, inventoryTab, setInventoryTab } = useApp();
+  const { activeView, setActiveView, setActiveBatteryId, setBatteryBuilderEditRequested, inventoryTab, setInventoryTab } = useApp();
   const { currentUser } = useAuth();
   const canManageUsers = currentUser?.roleId === 'role-admin' || currentUser?.role === 'admin';
   const [openSections, setOpenSections] = useState<Record<string, boolean>>({});
@@ -119,7 +119,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
               ['workflow-module', 'Module Assembly', Layers],
               ['workflow-pack', 'Pack Assembly', Boxes],
               ['rack-assembly', 'Rack Assembly', PackageCheck],
-            ].map(([view, label, Icon]) => <button key={String(view)} onClick={() => setActiveView(view as any)} className={`w-full flex items-center space-x-2.5 px-3 py-2 rounded-lg text-xs font-semibold transition-all ${activeView === view ? 'bg-emerald-600 text-white shadow-xs' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'}`}><Icon className="w-3.5 h-3.5" /><span>{String(label)}</span></button>)}
+            ].map(([view, label, Icon]) => <button key={String(view)} onClick={() => { if (view === 'workflow-pack') { setActiveBatteryId(null); setBatteryBuilderEditRequested(false); } setActiveView(view as any); }} className={`w-full flex items-center space-x-2.5 px-3 py-2 rounded-lg text-xs font-semibold transition-all ${activeView === view ? 'bg-emerald-600 text-white shadow-xs' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'}`}><Icon className="w-3.5 h-3.5" /><span>{String(label)}</span></button>)}
           </div>
         </div>
 

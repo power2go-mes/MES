@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useApp } from '../../context/AppContext';
 import { useAuth } from '../../context/AuthContext';
 import { api } from '../../services/api';
@@ -46,14 +46,22 @@ export const BatteryPackWorkflowView: React.FC = () => {
   const [scanTarget, setScanTarget] = useState<'BMS' | 'BMU' | 'MODULE'>('BMS');
   const [scannedControllerType, setScannedControllerType] = useState<'BMS' | 'BMU' | null>(null);
   const [scannedModuleIds, setScannedModuleIds] = useState<string[]>([]);
+  const freshEntryRef = useRef(true);
 
   useEffect(() => {
     void api.getProducts().then(productRows => {
       setProducts(productRows);
     }).catch((err: any) => addNotification('error', 'Pack Templates Unavailable', err.message || 'Could not load product templates.'));
     void api.getBatteries().then(batteryRows => {
-      setAvailableBatteries(batteryRows as Array<Pick<BatteryUnit, 'id' | 'serialNumber' | 'productName' | 'status'>>);
+      const completedStatuses = new Set(['RELEASED', 'FINISHED', 'WAREHOUSE', 'DISPATCHED', 'SOLD']);
+      setAvailableBatteries(batteryRows.filter(row => !completedStatuses.has(String(row.status || '').toUpperCase())) as Array<Pick<BatteryUnit, 'id' | 'serialNumber' | 'productName' | 'status'>>);
     }).catch((err: any) => addNotification('error', 'Pack Inventory Unavailable', err.message || 'Could not load battery packs.'));
+    if (freshEntryRef.current && activeBatteryId && !batteryBuilderEditRequested) {
+      freshEntryRef.current = false;
+      setActiveBatteryId(null);
+      return;
+    }
+    freshEntryRef.current = false;
     if (activeBatteryId) {
       if (batteryBuilderEditRequested) {
         setBuilderEditMode(true);
