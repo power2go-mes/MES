@@ -27,11 +27,11 @@ const reportColors = {
 } as const;
 
 const statusColors: Record<string, string> = {
-  'In Stock': reportColors.blue,
+  'In Stock': reportColors.green,
   'Floor Stock': reportColors.amber,
-  'In Module': reportColors.blue,
-  'In Pack': reportColors.blue,
-  'In Rack': reportColors.blue,
+  'In Module': reportColors.green,
+  'In Pack': reportColors.green,
+  'In Rack': reportColors.green,
   'Karachi Warehouse': reportColors.blue,
   'Lahore Warehouse': reportColors.blue,
   Sold: reportColors.slate,
