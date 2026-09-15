@@ -201,7 +201,7 @@ export function normalizeBatteryRecord(battery: any): any {
 }
 
 function normalizeBatterySerial(value: unknown): string {
-  return String(value || '').trim().replace(/^P2G-BP-8KWH(?=-)/i, 'P2G-BP-7.5KWH');
+  return String(value || '').trim().replace(/(7\.5|8)KWH/gi, (_, capacity) => `${capacity}KWH`);
 }
 
 function reconcileDashboardCellBuckets(buckets: any[], totalCells: any): any[] {
@@ -2463,7 +2463,7 @@ async getUsers(): Promise<User[]> {
     }));
   },
 
-  async updateBattery(id: string, update: { status?: string; currentStep?: string; progressPercent?: number }): Promise<BatteryUnit> {
+  async updateBattery(id: string, update: { serialNumber?: string; status?: string; currentStep?: string; progressPercent?: number }): Promise<BatteryUnit> {
     const { data, error } = await supabase.from('batteries').update(update).eq('id', id).select().single();
     if (error) throw error;
     return data;

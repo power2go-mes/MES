@@ -18,7 +18,8 @@ import {
   ShieldAlert,
   Info,
   ChevronRight,
-  Printer
+  Printer,
+  Pencil,
 } from 'lucide-react';
 
 export const BatteryPackWorkflowView: React.FC = () => {
@@ -194,6 +195,35 @@ export const BatteryPackWorkflowView: React.FC = () => {
     }
   };
 
+  const handleEditBatterySerial = async () => {
+    if (!battery) return;
+    const nextSerial = window.prompt('Battery serial number (must contain 7.5KWH or 8KWH)', battery.serialNumber);
+    if (nextSerial === null) return;
+    const normalizedSerial = nextSerial.trim().toUpperCase();
+    if (!normalizedSerial) {
+      addNotification('error', 'Serial update failed', 'Battery serial number cannot be empty.');
+      return;
+    }
+    if (!/(?:7\.5|8)KWH/.test(normalizedSerial)) {
+      addNotification('error', 'Serial update failed', 'Battery serial must include 7.5KWH or 8KWH.');
+      return;
+    }
+    if (normalizedSerial === battery.serialNumber) return;
+
+    setSubmitting(true);
+    try {
+      const updatedBattery = await api.updateBattery(battery.id, { serialNumber: normalizedSerial });
+      setBattery(current => current ? { ...current, ...updatedBattery, serialNumber: normalizedSerial } : current);
+      setAvailableBatteries(current => current.map(item => item.id === battery.id ? { ...item, serialNumber: normalizedSerial } : item));
+      triggerRefresh();
+      addNotification('success', 'Battery serial updated', 'The new battery serial number has been saved.');
+    } catch (error: any) {
+      addNotification('error', 'Serial update failed', error?.message || 'Could not update the battery serial number.');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
   const requiredModuleCount = product?.numModules || 2;
   const controllerReady = scannedControllerType !== null;
   const setupReady = Boolean(battery && product && scannedModuleIds.length === requiredModuleCount && controllerReady);
@@ -240,7 +270,7 @@ export const BatteryPackWorkflowView: React.FC = () => {
               </div>
             </div>
           </div>
-          {battery && <div className="mt-5 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"><div className="flex items-center justify-between border-b border-slate-100 pb-4"><div><p className="text-[10px] font-black uppercase tracking-widest text-emerald-600">2D Battery Builder</p><h3 className="text-lg font-black text-slate-900">Physical Component Layout</h3><p className="text-xs text-slate-500">Scan or verify the controller and both module positions.</p></div><span className="rounded-lg bg-slate-100 px-3 py-2 text-xs font-mono font-bold text-slate-700">{battery.serialNumber}</span></div><div className="mt-4 rounded-xl border border-blue-200 bg-blue-50 p-4"><div className="flex items-center justify-between"><div><p className="text-[10px] font-black uppercase tracking-widest text-blue-700">Controller</p><p className="mt-1 text-sm font-bold text-slate-900">{scannedControllerType ? `${scannedControllerType} verified` : 'Scan BMS or BMU'}</p></div><button type="button" onClick={() => { setScanTarget(scannedControllerType || 'BMS'); setScannerOpen(true); }} className="rounded-lg bg-blue-600 px-3 py-2 text-xs font-bold text-white">{scannedControllerType ? 'Rescan' : 'Scan controller'}</button></div></div><div className="mt-4 grid gap-4 md:grid-cols-2">{[0, 1].map(moduleIndex => { const module = battery.modules?.[moduleIndex]; const scanned = Boolean(module && scannedModuleIds.includes(module.id)); return <div key={moduleIndex} className="rounded-xl border border-emerald-200 bg-emerald-50/60 p-4"><div className="flex items-center justify-between"><div><p className="text-[10px] font-black uppercase tracking-widest text-emerald-700">Module {String(moduleIndex + 1).padStart(2, '0')}</p><p className="mt-1 font-mono text-xs font-bold text-slate-900">{module?.serialNumber || 'Module slot not assigned'}</p></div><button type="button" onClick={() => { setScanTarget('MODULE'); setScannerOpen(true); }} disabled={scanned} className="rounded-lg border border-emerald-300 bg-white px-3 py-2 text-xs font-bold text-emerald-800 disabled:opacity-60">{scanned ? 'Verified' : 'Scan module'}</button></div><div className="mt-3 grid grid-cols-4 gap-2">{(module?.cells || []).map((cell, cellIndex) => <div key={cell.id} className="rounded-lg border border-emerald-200 bg-white p-2 text-center"><span className="block text-[9px] font-black text-emerald-700">S{cellIndex + 1}</span><span className="mt-1 block truncate font-mono text-[9px] text-slate-600">{cell.internalSerial || cell.supplierBarcode || cell.id}</span></div>)}{!module?.cells?.length && <div className="col-span-4 rounded-lg border border-dashed border-emerald-300 bg-white/70 p-4 text-center text-[10px] text-slate-500">Cells appear after the module is assigned.</div>}</div></div>; })}</div></div>}
+          {battery && <div className="mt-5 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"><div className="flex items-center justify-between border-b border-slate-100 pb-4"><div><p className="text-[10px] font-black uppercase tracking-widest text-emerald-600">2D Battery Builder</p><h3 className="text-lg font-black text-slate-900">Physical Component Layout</h3><p className="text-xs text-slate-500">Scan or verify the controller and both module positions.</p></div><div className="flex items-center gap-2"><span className="rounded-lg bg-slate-100 px-3 py-2 text-xs font-mono font-bold text-slate-700">{battery.serialNumber}</span><button type="button" onClick={() => void handleEditBatterySerial()} disabled={submitting} className="rounded-lg border border-slate-200 bg-white p-2 text-slate-500 hover:bg-emerald-50 hover:text-emerald-700 disabled:opacity-50" title="Edit battery serial number"><Pencil className="h-4 w-4" /></button></div></div><div className="mt-4 rounded-xl border border-blue-200 bg-blue-50 p-4"><div className="flex items-center justify-between"><div><p className="text-[10px] font-black uppercase tracking-widest text-blue-700">Controller</p><p className="mt-1 text-sm font-bold text-slate-900">{scannedControllerType ? `${scannedControllerType} verified` : 'Scan BMS or BMU'}</p></div><button type="button" onClick={() => { setScanTarget(scannedControllerType || 'BMS'); setScannerOpen(true); }} className="rounded-lg bg-blue-600 px-3 py-2 text-xs font-bold text-white">{scannedControllerType ? 'Rescan' : 'Scan controller'}</button></div></div><div className="mt-4 grid gap-4 md:grid-cols-2">{[0, 1].map(moduleIndex => { const module = battery.modules?.[moduleIndex]; const scanned = Boolean(module && scannedModuleIds.includes(module.id)); return <div key={moduleIndex} className="rounded-xl border border-emerald-200 bg-emerald-50/60 p-4"><div className="flex items-center justify-between"><div><p className="text-[10px] font-black uppercase tracking-widest text-emerald-700">Module {String(moduleIndex + 1).padStart(2, '0')}</p><p className="mt-1 font-mono text-xs font-bold text-slate-900">{module?.serialNumber || 'Module slot not assigned'}</p></div><button type="button" onClick={() => { setScanTarget('MODULE'); setScannerOpen(true); }} disabled={scanned} className="rounded-lg border border-emerald-300 bg-white px-3 py-2 text-xs font-bold text-emerald-800 disabled:opacity-60">{scanned ? 'Verified' : 'Scan module'}</button></div><div className="mt-3 grid grid-cols-4 gap-2">{(module?.cells || []).map((cell, cellIndex) => <div key={cell.id} className="rounded-lg border border-emerald-200 bg-white p-2 text-center"><span className="block text-[9px] font-black text-emerald-700">S{cellIndex + 1}</span><span className="mt-1 block truncate font-mono text-[9px] text-slate-600">{cell.internalSerial || cell.supplierBarcode || cell.id}</span></div>)}{!module?.cells?.length && <div className="col-span-4 rounded-lg border border-dashed border-emerald-300 bg-white/70 p-4 text-center text-[10px] text-slate-500">Cells appear after the module is assigned.</div>}</div></div>; })}</div></div>}
           {battery && <div className="mt-4 grid gap-3 md:grid-cols-3 text-xs"><div className="rounded-xl border border-slate-200 bg-slate-50 p-3"><strong>Modules required</strong><span className="block mt-1 font-mono">{scannedModuleIds.length} / {requiredModuleCount} scanned</span></div><div className="rounded-xl border border-slate-200 bg-slate-50 p-3"><strong>Controller required</strong><span className="block mt-1 font-mono">{controllerReady ? (scannedControllerType || 'Controller') + ' scanned' : 'Scan BMS or BMU'}</span></div><div className="rounded-xl border border-slate-200 bg-slate-50 p-3"><strong>2D builder</strong><span className="block mt-1 font-mono">{setupReady ? 'Ready for testing' : 'Scan controller + 2 modules'}</span></div></div>}
           <p className={`mt-4 text-center text-xs font-bold ${setupReady ? 'text-emerald-700' : 'text-amber-700'}`}>{setupReady ? '2D battery builder complete. Continue to pack testing.' : 'Select a template and battery, then scan one BMS or BMU and 2 modules.'}</p>
           {setupReady && <button type="button" onClick={() => setBuilderEditMode(false)} className="mt-3 w-full rounded-lg bg-slate-900 px-4 py-3 text-xs font-bold text-white hover:bg-slate-800">Continue to pack testing</button>}
