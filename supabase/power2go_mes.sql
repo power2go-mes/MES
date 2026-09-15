@@ -2943,12 +2943,21 @@ begin
         values ('MANAGE_PRODUCTION', 'Manage Production', 'Create and process modules and production work', 'PRODUCTION', 'MANAGE');
     end if;
 
+    if not exists (select 1 from public.permissions where id = 'MANAGE_INVENTORY') then
+        insert into public.permissions (id, name, description, resource, action)
+        values ('MANAGE_INVENTORY', 'Manage Inventory', 'Receive and maintain manufacturing inventory', 'INVENTORY', 'MANAGE');
+    end if;
+
     insert into public.role_permissions (role_id, permission_id)
     values ('role-operator', 'READ_MES')
     on conflict (role_id, permission_id) do nothing;
 
     insert into public.role_permissions (role_id, permission_id)
     values ('role-operator', 'MANAGE_PRODUCTION')
+    on conflict (role_id, permission_id) do nothing;
+
+    insert into public.role_permissions (role_id, permission_id)
+    values ('role-operator', 'MANAGE_INVENTORY')
     on conflict (role_id, permission_id) do nothing;
 
     -- 3. Link permission to role

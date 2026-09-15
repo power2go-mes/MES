@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useApp } from '../../context/AppContext';
+import { useAuth } from '../../context/AuthContext';
 import { api } from '../../services/api';
 import { CellItem, BMSItem, BMUItem, ModuleItem, BatteryUnit } from '../../types';
 import { downloadBatteryReport, downloadCellReport, downloadRackReport } from '../../lib/cellReportExport';
@@ -35,6 +36,8 @@ const displayRackTemplate = (value: unknown) => String(value || '').toUpperCase(
 
 export const InventoryView: React.FC = () => {
   const { setActiveView, setActiveModuleId, setActiveBatteryId, setBatteryBuilderEditRequested, setQuickSearchQuery, refreshKey, addNotification, triggerRefresh, inventoryTab, setInventoryTab } = useApp();
+  const { hasPermission } = useAuth();
+  const canManageInventory = hasPermission('MANAGE_INVENTORY');
   const activeTab = inventoryTab;
   const setActiveTab = setInventoryTab;
   const [search, setSearch] = useState('');
@@ -595,7 +598,7 @@ export const InventoryView: React.FC = () => {
               <span className="text-[11px] font-medium text-slate-500">{activeTabSelectedCount} selected</span>
             </>
           )}
-          {activeTab === 'BMS' && (
+          {canManageInventory && activeTab === 'BMS' && (
             <button
               onClick={() => setShowBmsModal(true)}
               className="px-3.5 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-xl flex items-center space-x-1.5 shadow-xs transition-colors shrink-0"
@@ -604,7 +607,7 @@ export const InventoryView: React.FC = () => {
               <span>Receive BMS Batch</span>
             </button>
           )}
-          {activeTab === 'BMU' && (
+          {canManageInventory && activeTab === 'BMU' && (
             <button
               onClick={() => setShowBmuModal(true)}
               className="px-3.5 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-xl flex items-center space-x-1.5 shadow-xs transition-colors shrink-0"
