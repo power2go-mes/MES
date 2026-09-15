@@ -503,14 +503,14 @@ export const CEOMonitoringView: React.FC = () => {
       const bmsAvailable = numberOr(controllerInventory.availableBms);
       const bmuAvailable = numberOr(controllerInventory.availableBmu);
       const bmsReportRows = [
-        { label: 'Total', value: bmsTotal, capacityKwh: 0, color: reportDarkGrey },
+        { label: 'Total', value: bmsTotal, capacityKwh: 0, color: reportGreen },
         { label: 'Available', value: bmsAvailable, capacityKwh: 0, color: reportGreen },
-        { label: 'Used', value: Math.max(0, bmsTotal - bmsAvailable), capacityKwh: 0, color: reportDarkGrey },
+        { label: 'Used', value: Math.max(0, bmsTotal - bmsAvailable), capacityKwh: 0, color: reportGreen },
       ];
       const bmuReportRows = [
-        { label: 'Total', value: bmuTotal, capacityKwh: 0, color: reportDarkGrey },
+        { label: 'Total', value: bmuTotal, capacityKwh: 0, color: reportGreen },
         { label: 'Available', value: bmuAvailable, capacityKwh: 0, color: reportGreen },
-        { label: 'Used', value: Math.max(0, bmuTotal - bmuAvailable), capacityKwh: 0, color: reportDarkGrey },
+        { label: 'Used', value: Math.max(0, bmuTotal - bmuAvailable), capacityKwh: 0, color: reportGreen },
       ];
       const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
       const pageWidth = doc.internal.pageSize.getWidth();
