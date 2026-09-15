@@ -241,7 +241,7 @@ export const CEOMonitoringView: React.FC = () => {
   const filteredModuleRows = selectedModuleConfig === 'All' ? moduleData : moduleData.filter((row) => row.label === selectedModuleConfig);
   const moduleDistribution = useMemo(() => buildDashboardDistribution(
     filteredModuleRows,
-    [{ label: '8S', color: reportColors.blue }, { label: '12S', color: reportColors.blue }],
+    [{ label: '8S', color: reportColors.green }, { label: '12S', color: reportColors.green }],
     selectedModuleConfig === 'All' ? source.moduleTotal : undefined,
   ), [filteredModuleRows, selectedModuleConfig, source.moduleTotal]);
   const soldData = useMemo<ChartRow[]>(() => {
@@ -432,7 +432,7 @@ export const CEOMonitoringView: React.FC = () => {
       const moduleReportRows = statusRows(
         ['8S', '12S'],
         source.moduleTypeBuckets,
-        { '8S': reportCabinetBlue, '12S': reportCabinetBlue },
+        { '8S': reportGreen, '12S': reportGreen },
         (status) => status === '12S' ? 3.75 : 2.5,
       );
       const batteryReportRows = (source.batteryPackBuckets || []).map((row: any, index: number) => {
