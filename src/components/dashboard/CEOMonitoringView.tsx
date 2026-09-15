@@ -13,33 +13,46 @@ const numberOr = (value: any, fallback = 0) => {
 
 const clamp = (value: number, min: number, max: number) => Math.min(Math.max(value, min), max);
 
+const reportColors = {
+  green: '#10A36D',
+  blue: '#2979C7',
+  amber: '#F4A62A',
+  red: '#DC3545',
+  slate: '#64748B',
+  navy: '#101828',
+  card: '#EAF7F2',
+  canvas: '#F7F9FB',
+  border: '#E2E8F0',
+  white: '#FFFFFF',
+} as const;
+
 const statusColors: Record<string, string> = {
-  'In Stock': '#16A34A',
-  'Floor Stock': '#2563EB',
-  'In Module': '#7C3AED',
-  'In Pack': '#F59E0B',
-  'In Rack': '#0891B2',
-  'Karachi Warehouse': '#4F46E5',
-  'Lahore Warehouse': '#9333EA',
-  Sold: '#475569',
-  Scrap: '#DC2626',
-  Recycle: '#059669',
+  'In Stock': reportColors.green,
+  'Floor Stock': reportColors.amber,
+  'In Module': reportColors.blue,
+  'In Pack': reportColors.blue,
+  'In Rack': reportColors.blue,
+  'Karachi Warehouse': reportColors.blue,
+  'Lahore Warehouse': reportColors.blue,
+  Sold: reportColors.slate,
+  Scrap: reportColors.red,
+  Recycle: reportColors.green,
 };
-const packColors = ['#286bb1', '#f36f21', '#159947'];
+const packColors = [reportColors.blue, reportColors.green];
 const packColorByModel: Record<string, string> = {
-  'WallMount 5kWh': '#286bb1',
-  '5 kWh Battery Pack': '#f36f21',
-  '7.5 kWh Battery Pack': '#159947',
+  'WallMount 5kWh': reportColors.blue,
+  '5 kWh Battery Pack': reportColors.blue,
+  '7.5 kWh Battery Pack': reportColors.green,
 };
-const reportDarkGrey = '#542681';
-const reportGreen = '#159947';
-const reportCabinetBlue = '#286bb1';
+const reportDarkGrey = reportColors.slate;
+const reportGreen = reportColors.green;
+const reportCabinetBlue = reportColors.blue;
 const rackPowerColors: Record<string, string> = {
-  '25': '#159947',
-  '45': '#286bb1',
-  '60': '#542681',
-  '70': '#be2c80',
-  '75': '#f36f21',
+  '25': reportColors.blue,
+  '45': reportColors.blue,
+  '60': reportColors.blue,
+  '70': reportColors.blue,
+  '75': reportColors.blue,
 };
 type ChartRow = DashboardChartRow;
 
@@ -50,7 +63,7 @@ const DistributionDonut: React.FC<{ distribution: DashboardDistribution; ariaLab
     <div className="flex min-w-0 flex-col items-center gap-4 sm:flex-row sm:gap-6">
       <div className="h-[150px] w-[150px] shrink-0 sm:h-[190px] sm:w-[190px]">
         {distribution.total === 0 ? <div className="grid h-full place-items-center rounded-full border-[14px] border-slate-100 text-center"><span className="text-[11px] font-semibold text-slate-400">No recorded data</span></div> : <svg viewBox="0 0 100 100" className="h-full w-full" aria-label={ariaLabel}>
-          <circle cx="50" cy="50" r="35" fill="none" stroke="#e5e7eb" strokeWidth="14" />
+          <circle cx="50" cy="50" r="35" fill="none" stroke={reportColors.border} strokeWidth="14" />
           {visible.map((row) => {
             const start = offset;
             offset += row.share;
@@ -60,9 +73,9 @@ const DistributionDonut: React.FC<{ distribution: DashboardDistribution; ariaLab
             const dashOffset = -((start / 100) * circumference + gap / 2);
             return <circle className="chart-donut-segment" key={row.label} cx="50" cy="50" r="35" fill="none" stroke={row.color} strokeWidth="14" strokeDasharray={`${segmentLength} ${circumference - segmentLength}`} strokeDashoffset={dashOffset} transform="rotate(-90 50 50)" strokeLinecap="butt"><title>{`${row.label}: ${formatNumber(row.value)}${showShare ? ` (${row.share.toFixed(2)}%)` : ''}`}</title></circle>;
           })}
-          <circle cx="50" cy="50" r="22" fill="white" />
-          <text x="50" y="49" textAnchor="middle" fontSize="9" fontWeight="700" fill="#111111">{formatNumber(distribution.total)}</text>
-          <text x="50" y="57" textAnchor="middle" fontSize="4.5" fill="#94a3b8">TOTAL</text>
+          <circle cx="50" cy="50" r="22" fill={reportColors.white} />
+          <text x="50" y="49" textAnchor="middle" fontSize="9" fontWeight="700" fill={reportColors.navy}>{formatNumber(distribution.total)}</text>
+          <text x="50" y="57" textAnchor="middle" fontSize="4.5" fill={reportColors.slate}>TOTAL</text>
         </svg>}
       </div>
       <div className="min-w-0 w-full flex-1 space-y-2.5 py-2 sm:w-auto">
@@ -77,13 +90,13 @@ const DistributionBars: React.FC<{ distribution: DashboardDistribution; colors?:
   const max = Math.max(1, ...distribution.rows.map((row) => row.value));
   if (distribution.total === 0) return <div className="grid h-[150px] place-items-center rounded-lg border border-dashed border-slate-200 text-center"><div><div className="text-xs font-semibold text-slate-500">No recorded data</div><div className="mt-1 text-[10px] text-slate-400">No data is available for this chart yet.</div></div></div>;
   return <svg viewBox="0 0 220 130" className="h-[190px] w-full" role="img" aria-label={ariaLabel}>
-    {[0, 1, 2, 3].map((line) => <line key={line} x1="20" x2="200" y1={line * 28 + 12} y2={line * 28 + 12} stroke="#e5e7eb" strokeDasharray="2 3" />)}
+    {[0, 1, 2, 3].map((line) => <line key={line} x1="20" x2="200" y1={line * 28 + 12} y2={line * 28 + 12} stroke={reportColors.border} strokeDasharray="2 3" />)}
     {distribution.rows.map((row, index) => {
       const slotWidth = 180 / Math.max(distribution.rows.length, 1);
       const height = row.value > 0 ? Math.max((row.value / max) * 82, 1.5) : 0;
       const x = 20 + index * slotWidth + slotWidth / 2 - 10;
       const labelParts = row.label.split(' ');
-      return <g key={row.label} transform={`translate(${x}, 0)`}><rect className="chart-bar" x="0" y={94 - height} width="20" height={height} fill={colors?.[index] || row.color} rx="3"><title>{`${row.label}: ${formatNumber(row.value)} (${row.share.toFixed(2)}%)`}</title></rect><text x="10" y={Math.max(8, 89 - height)} textAnchor="middle" fontSize="6.5" fontWeight="600" fill="#111111">{formatNumber(row.value)}</text><text x="10" y="108" textAnchor="middle" fontSize="6.5" fill="#64748b">{labelParts[0]}</text>{labelParts.length > 1 && <text x="10" y="116" textAnchor="middle" fontSize="5.5" fill="#64748b">{labelParts.slice(1).join(' ')}</text>}<text x="10" y="125" textAnchor="middle" fontSize="5.5" fill="#94a3b8">{row.share.toFixed(2)}%</text></g>;
+      return <g key={row.label} transform={`translate(${x}, 0)`}><rect className="chart-bar" x="0" y={94 - height} width="20" height={height} fill={colors?.[index] || row.color} rx="3"><title>{`${row.label}: ${formatNumber(row.value)} (${row.share.toFixed(2)}%)`}</title></rect><text x="10" y={Math.max(8, 89 - height)} textAnchor="middle" fontSize="6.5" fontWeight="600" fill={reportColors.navy}>{formatNumber(row.value)}</text><text x="10" y="108" textAnchor="middle" fontSize="6.5" fill={reportColors.slate}>{labelParts[0]}</text>{labelParts.length > 1 && <text x="10" y="116" textAnchor="middle" fontSize="5.5" fill={reportColors.slate}>{labelParts.slice(1).join(' ')}</text>}<text x="10" y="125" textAnchor="middle" fontSize="5.5" fill={reportColors.slate}>{row.share.toFixed(2)}%</text></g>;
     })}
   </svg>;
 };
@@ -178,7 +191,7 @@ export const CEOMonitoringView: React.FC = () => {
   const remainingOrders = Math.max(0, totalOrders - completedOrders);
   const orderCompletion = totalOrders > 0 ? clamp((completedOrders / totalOrders) * 100, 0, 100) : 0;
 
-  const cellRows = useMemo<ChartRow[]>(() => (source.cellBuckets || []).map((row: any) => ({ label: String(row.label || ''), value: numberOr(row.value), color: statusColors[row.label] || '#64748b' })), [source.cellBuckets]);
+  const cellRows = useMemo<ChartRow[]>(() => (source.cellBuckets || []).map((row: any) => ({ label: String(row.label || ''), value: numberOr(row.value), color: statusColors[row.label] || reportColors.slate })), [source.cellBuckets]);
   const filteredCellRows = selectedCellStatus === 'All' ? cellRows : cellRows.filter((row) => row.label === selectedCellStatus);
   const cellDistribution = useMemo(() => buildDashboardDistribution(
     filteredCellRows,
@@ -198,8 +211,8 @@ export const CEOMonitoringView: React.FC = () => {
     const lahoreValue = selectedWarehouseInventoryType === 'Racks' ? rackLahore : selectedWarehouseInventoryType === 'Battery Packs' ? batteryLahore : rackLahore + batteryLahore;
 
     const rows: ChartRow[] = [
-      { label: 'Karachi Warehouse', value: karachiValue, color: statusColors['Karachi Warehouse'] || '#14532d' },
-      { label: 'Lahore Warehouse', value: lahoreValue, color: statusColors['Lahore Warehouse'] || '#2563eb' },
+      { label: 'Karachi Warehouse', value: karachiValue, color: statusColors['Karachi Warehouse'] || reportColors.blue },
+      { label: 'Lahore Warehouse', value: lahoreValue, color: statusColors['Lahore Warehouse'] || reportColors.blue },
     ];
 
     return rows.filter((row) => row.value > 0 || (source.inventory && (source.inventory.karachiWarehouseRacks !== undefined || source.inventory.lahoreWarehouseRacks !== undefined)));
@@ -224,11 +237,11 @@ export const CEOMonitoringView: React.FC = () => {
     warehouseRows.map(row => ({ label: row.label, color: row.color })),
     warehouseRows.reduce((sum, row) => sum + row.value, 0),
   ), [warehouseRows]);
-  const moduleData = useMemo<ChartRow[]>(() => (source.moduleTypeBuckets || source.moduleStatusBuckets || []).map((row: any) => ({ label: String(row.label || ''), value: numberOr(row.value), color: '#16a34a' })), [source.moduleTypeBuckets, source.moduleStatusBuckets]);
+  const moduleData = useMemo<ChartRow[]>(() => (source.moduleTypeBuckets || source.moduleStatusBuckets || []).map((row: any) => ({ label: String(row.label || ''), value: numberOr(row.value), color: reportColors.blue })), [source.moduleTypeBuckets, source.moduleStatusBuckets]);
   const filteredModuleRows = selectedModuleConfig === 'All' ? moduleData : moduleData.filter((row) => row.label === selectedModuleConfig);
   const moduleDistribution = useMemo(() => buildDashboardDistribution(
     filteredModuleRows,
-    [{ label: '8S', color: '#16a34a' }, { label: '12S', color: '#2563eb' }],
+    [{ label: '8S', color: reportColors.blue }, { label: '12S', color: reportColors.blue }],
     selectedModuleConfig === 'All' ? source.moduleTotal : undefined,
   ), [filteredModuleRows, selectedModuleConfig, source.moduleTotal]);
   const soldData = useMemo<ChartRow[]>(() => {
@@ -238,9 +251,9 @@ export const CEOMonitoringView: React.FC = () => {
       .filter((row: any) => String(row.label || row.status || '').toUpperCase().replace(/_/g, ' ') === 'SOLD')
       .reduce((total: number, row: any) => total + numberOr(row.value), 0);
     return [
-      { label: 'Cells', value: soldCells, color: '#059669' },
-      { label: 'Battery Packs', value: soldBatteries, color: '#f59e0b' },
-      { label: 'Racks', value: soldRacks, color: '#0ea5e9' },
+      { label: 'Cells', value: soldCells, color: reportColors.slate },
+      { label: 'Battery Packs', value: soldBatteries, color: reportColors.slate },
+      { label: 'Racks', value: soldRacks, color: reportColors.slate },
     ];
   }, [inventory.soldCells, source.batteryStatusBuckets, source.cellBuckets, source.rackStatusBuckets]);
   const filteredSoldRows = selectedSoldEntity === 'All' ? soldData : soldData.filter(row => row.label === selectedSoldEntity);
@@ -279,7 +292,7 @@ export const CEOMonitoringView: React.FC = () => {
     return Array.from(totals.entries()).filter(([, value]) => value > 0).map(([power, value]) => ({
       label: `${power === '70' ? '67.9' : power} kWh ${power === '25' ? 'Rack' : 'Cabinet'}`,
       value,
-      color: rackPowerColors[power] || '#64748b',
+      color: rackPowerColors[power] || reportColors.blue,
     }));
   }, [source.rackStatusBuckets]);
   const filteredRackRows = selectedRackType === 'All' ? rackData : rackData.filter((row) => row.label === selectedRackType);
@@ -294,12 +307,12 @@ export const CEOMonitoringView: React.FC = () => {
   const rackProduced = numberOr(producedCategoryBuckets.find((row: any) => row.label === 'Rack')?.value);
 
   const kpiCards = [
-    { label: 'Nominal Capacity Produced', value: `${formatNumber(capacityProduced)} kWh`, delta: 'Nominal capacity produced · Live', positive: true, icon: <Zap className="h-5 w-5 text-emerald-600" />, bg: '#f0fdf4' },
-    { label: 'Battery Packs Produced', value: formatNumber(scaleValue(completedBatteries)), delta: releaseTrendChange === null ? (targetBatteries > 0 ? `${batteryProgress?.toFixed(1)}% of target` : 'Produced/warehouse · Live') : `${releaseTrendChange >= 0 ? '+' : ''}${releaseTrendChange.toFixed(1)}% vs prior 7 days`, positive: releaseTrendChange === null || releaseTrendChange >= 0, icon: <Factory className="h-5 w-5 text-blue-600" />, bg: '#eff6ff' },
-    { label: 'Cabinet Produced', value: formatNumber(scaleValue(cabinetProduced)), delta: '7.5 kWh battery packs · Live', positive: true, icon: <PackageCheck className="h-5 w-5 text-violet-600" />, bg: '#f5f3ff' },
-    { label: 'Rack Produced', value: formatNumber(scaleValue(rackProduced)), delta: '5 kWh battery packs · Live', positive: true, icon: <PackageCheck className="h-5 w-5 text-cyan-600" />, bg: '#ecfeff' },
-    { label: 'In Stock Cells', value: formatNumber(inStockCells), delta: 'Inventory · In stock · Live', positive: true, icon: <Boxes className="h-5 w-5 text-amber-600" />, bg: '#fff7ed' },
-    { label: 'Floor Stock Cells', value: formatNumber(floorStockCells), delta: 'Inventory · Floor stock · Live', positive: true, icon: <Boxes className="h-5 w-5 text-orange-600" />, bg: '#fff7ed' },
+    { label: 'Nominal Capacity Produced', value: `${formatNumber(capacityProduced)} kWh`, delta: 'Nominal capacity produced · Live', positive: true, icon: <Zap className="h-5 w-5 text-emerald-600" />, bg: reportColors.card },
+    { label: 'Battery Packs Produced', value: formatNumber(scaleValue(completedBatteries)), delta: releaseTrendChange === null ? (targetBatteries > 0 ? `${batteryProgress?.toFixed(1)}% of target` : 'Produced/warehouse · Live') : `${releaseTrendChange >= 0 ? '+' : ''}${releaseTrendChange.toFixed(1)}% vs prior 7 days`, positive: releaseTrendChange === null || releaseTrendChange >= 0, icon: <Factory className="h-5 w-5 text-blue-600" />, bg: reportColors.card },
+    { label: 'Cabinet Produced', value: formatNumber(scaleValue(cabinetProduced)), delta: '7.5 kWh battery packs · Live', positive: true, icon: <PackageCheck className="h-5 w-5 text-blue-600" />, bg: reportColors.card },
+    { label: 'Rack Produced', value: formatNumber(scaleValue(rackProduced)), delta: '5 kWh battery packs · Live', positive: true, icon: <PackageCheck className="h-5 w-5 text-blue-600" />, bg: reportColors.card },
+    { label: 'In Stock Cells', value: formatNumber(inStockCells), delta: 'Inventory · In stock · Live', positive: true, icon: <Boxes className="h-5 w-5 text-emerald-600" />, bg: reportColors.card },
+    { label: 'Floor Stock Cells', value: formatNumber(floorStockCells), delta: 'Inventory · Floor stock · Live', positive: true, icon: <Boxes className="h-5 w-5 text-amber-600" />, bg: '#FFF7E8' },
   ];
 
   const exportCellReport = async () => {
@@ -402,7 +415,7 @@ export const CEOMonitoringView: React.FC = () => {
           label: status.replace(/_/g, ' '),
           value: values.get(status.replace(/_/g, ' ').toUpperCase())?.value || 0,
           capacityKwh: values.get(status.replace(/_/g, ' ').toUpperCase())?.capacityKwh || (values.get(status.replace(/_/g, ' ').toUpperCase())?.value || 0) * defaultCapacityKwh(status),
-          color: Object.entries(colorMap).find(([label]) => label.toUpperCase() === status.replace(/_/g, ' ').toUpperCase())?.[1] || '#94a3b8',
+          color: Object.entries(colorMap).find(([label]) => label.toUpperCase() === status.replace(/_/g, ' ').toUpperCase())?.[1] || reportColors.slate,
         }));
       };
       const cellReportRows = statusRows(
@@ -507,15 +520,15 @@ export const CEOMonitoringView: React.FC = () => {
       const chartWidth = (pageWidth - margin * 2 - chartGap) / 2;
       const leftChartX = margin;
       const rightChartX = margin + chartWidth + chartGap;
-      const green = [16, 157, 105] as const;
-      const ink = [15, 23, 42] as const;
-      const muted = [71, 85, 105] as const;
-      const light = [240, 250, 246] as const;
-      const border = [203, 213, 225] as const;
       const hexRgb = (hex: string): [number, number, number] => {
         const value = hex.replace('#', '');
         return [parseInt(value.slice(0, 2), 16), parseInt(value.slice(2, 4), 16), parseInt(value.slice(4, 6), 16)];
       };
+      const green = hexRgb(reportColors.green);
+      const ink = hexRgb(reportColors.navy);
+      const muted = hexRgb(reportColors.slate);
+      const light = hexRgb(reportColors.card);
+      const border = hexRgb(reportColors.border);
       const reportFontSize = (size: number) => doc.setFontSize(size * 1.08);
       const drawTitle = (title: string, subtitle: string) => {
         doc.setFillColor(...ink);
@@ -637,7 +650,7 @@ export const CEOMonitoringView: React.FC = () => {
           const cellY = y + gridRow * cellHeight;
           const barX = singleRecord ? x + (width - barWidth) / 2 : cellX + (cellWidth - barWidth) / 2;
           const baseline = singleRecord ? y + height : cellY + cellHeight - 12;
-          doc.setFillColor(...hexRgb(hasValue ? row.color : '#e2e8f0'));
+          doc.setFillColor(...hexRgb(hasValue ? row.color : reportColors.border));
           doc.roundedRect(barX, baseline - barHeight, barWidth, barHeight, 1.5, 1.5, 'F');
           const barTop = baseline - barHeight;
           doc.setFont('helvetica', 'bold');
@@ -781,7 +794,7 @@ export const CEOMonitoringView: React.FC = () => {
   if (loadError) {
     return (
       <div className="flex h-full items-center justify-center p-8">
-        <div className="rounded-2xl border border-slate-200 bg-white p-6 text-center shadow-sm">
+          <div className="rounded-2xl border border-slate-200 bg-white p-6 text-center shadow-sm">
           <AlertTriangle className="mx-auto mb-3 h-8 w-8 text-amber-500" />
           <h2 className="text-lg font-black text-slate-900">CEO dashboard unavailable</h2>
           <p className="mt-2 text-sm text-slate-500">{loadError}</p>
@@ -802,7 +815,7 @@ export const CEOMonitoringView: React.FC = () => {
   }
 
   return (
-    <div className="min-w-0 flex-1 overflow-y-auto bg-[#f4f5f7] p-3 sm:p-5">
+    <div className="min-w-0 flex-1 overflow-y-auto bg-[#F7F9FB] p-3 sm:p-5">
       <div className="mx-auto max-w-[1440px] space-y-5">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
           <div>
