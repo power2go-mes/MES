@@ -59,6 +59,7 @@ type ChartRow = DashboardChartRow;
 
 const DistributionDonut: React.FC<{ distribution: DashboardDistribution; ariaLabel: string; showShare?: boolean; extraRows?: ChartRow[] }> = ({ distribution, ariaLabel, showShare = true, extraRows = [] }) => {
   const visible = distribution.rows.filter((row) => row.value > 0 && row.share > 0);
+  const centerLabel = /cell inventory/i.test(ariaLabel) ? 'CELLS' : 'TOTAL';
   let offset = 0;
   return (
     <div className="flex min-w-0 flex-col items-center gap-4 sm:flex-row sm:gap-6">
@@ -76,7 +77,7 @@ const DistributionDonut: React.FC<{ distribution: DashboardDistribution; ariaLab
           })}
           <circle cx="50" cy="50" r="22" fill={reportColors.white} />
           <text x="50" y="49" textAnchor="middle" fontSize="9" fontWeight="700" fill={reportColors.navy}>{formatNumber(distribution.total)}</text>
-          <text x="50" y="57" textAnchor="middle" fontSize="4.5" fill={reportColors.slate}>TOTAL</text>
+          <text x="50" y="57" textAnchor="middle" fontSize="4.5" fill={reportColors.slate}>{centerLabel}</text>
         </svg>}
       </div>
       <div className="min-w-0 w-full flex-1 space-y-2.5 py-2 sm:w-auto">
@@ -582,7 +583,7 @@ export const CEOMonitoringView: React.FC = () => {
         doc.text(formatNumber(total), x, y + 2, { align: 'center' });
         doc.setFont('helvetica', 'normal');
         reportFontSize(6);
-        doc.text('TOTAL', x, y + 7, { align: 'center' });
+        doc.text(title === 'CELL INVENTORY' ? 'CELLS' : 'TOTAL', x, y + 7, { align: 'center' });
         reportFontSize(5);
         doc.text(capacityFormatter(totalCapacityKwh), x, y + 25, { align: 'center' });
         rows.forEach((row, index) => {
