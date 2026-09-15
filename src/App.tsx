@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { lazy, Suspense, useState } from 'react';
+import React, { lazy, Suspense, useEffect, useState } from 'react';
 import { Analytics } from '@vercel/analytics/react';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { AppProvider, useApp } from './context/AppContext';
@@ -34,10 +34,17 @@ const WarehouseView = lazy(() => import('./components/warehouse/WarehouseView').
 const SoldView = lazy(() => import('./components/sold/SoldView').then(module => ({ default: module.SoldView })));
 
 const AppContent: React.FC = () => {
-  const { activeView, notifications, dismissNotification } = useApp();
+  const { activeView, setActiveView, notifications, dismissNotification } = useApp();
   const { isAuthenticated, authLoading, currentUser } = useAuth();
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const canManageUsers = currentUser?.roleId === 'role-admin' || currentUser?.role === 'admin';
+  const isCeo = currentUser?.roleId === 'role-ceo' || currentUser?.role === 'ceo';
+  const ceoViews = new Set(['ceo-monitoring', 'inventory', 'traceability']);
+  const effectiveView = isCeo && !ceoViews.has(activeView) ? 'ceo-monitoring' : activeView;
+
+  useEffect(() => {
+    if (isCeo && !ceoViews.has(activeView)) setActiveView('ceo-monitoring');
+  }, [activeView, isCeo, setActiveView]);
 
   // If auth is still loading (initial check in progress), show nothing
   if (authLoading) {
@@ -58,7 +65,7 @@ const AppContent: React.FC = () => {
 
   // Authenticated — render the MES application
   const renderActiveView = () => {
-    switch (activeView) {
+    switch (effectiveView) {
       case 'dashboard':
         return <DashboardView />;
       case 'ceo-monitoring':

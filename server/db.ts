@@ -161,12 +161,13 @@ class Database {
       },
       ...[
         ['role-operator', 'Operator'],
+        ['role-ceo', 'CEO'],
       ].map(([id, name]) => ({
         id,
         name,
         description: `${name} access`,
         status: 'ACTIVE' as const,
-        permissions: ['ALL'],
+        permissions: id === 'role-ceo' ? ['READ_MES'] : ['ALL'],
         createdAt: now,
         updatedAt: now,
       })),

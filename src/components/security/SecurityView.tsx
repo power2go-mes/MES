@@ -104,6 +104,15 @@ export const SecurityView: React.FC = () => {
   const [roleName, setRoleName] = useState('');
   const [roleStatus, setRoleStatus] = useState<'ACTIVE' | 'INACTIVE'>('ACTIVE');
   const [rolePerms, setRolePerms] = useState<string[]>([]);
+  const roleOptions = roles.some(role => role.id === 'role-ceo')
+    ? roles
+    : [...roles, {
+      id: 'role-ceo',
+      name: 'CEO',
+      description: 'Read-only CEO Monitoring, Inventory, and Traceability access',
+      status: 'ACTIVE' as const,
+      permissions: ['READ_MES'],
+    } as Role];
 
   const loadData = async () => {
     setLoading(true);
@@ -570,7 +579,7 @@ export const SecurityView: React.FC = () => {
                     onChange={e => setUserRoleId(e.target.value)}
                     className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-800 focus:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
                   >
-                    {roles.map(r => (
+                    {roleOptions.map(r => (
                       <option key={r.id} value={r.id}>
                         {r.name}
                       </option>

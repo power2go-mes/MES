@@ -2912,16 +2912,20 @@ begin
         ('role-operator', 'Operator', 'Operator access', 'ACTIVE')
     on conflict (id) do nothing;
 
+    insert into public.roles (id, name, description, status)
+    values ('role-ceo', 'CEO', 'Read-only access to CEO Monitoring, Inventory, and Traceability', 'ACTIVE')
+    on conflict (id) do update set name = excluded.name, description = excluded.description, status = excluded.status;
+
     update public.profiles
     set role_id = 'role-operator', updated_at = now()
-    where role_id is not null and role_id <> 'role-admin';
+    where role_id is not null and role_id not in ('role-admin', 'role-ceo');
     update public.profiles
     set role_id = 'role-admin', updated_at = now()
     where email in ('admin@gmail.com', 'admin@power2go.com');
     delete from public.role_permissions
     where role_id = 'role-operator' and permission_id like 'security.%';
-    delete from public.role_permissions where role_id not in ('role-admin', 'role-operator');
-    delete from public.roles where id not in ('role-admin', 'role-operator');
+    delete from public.role_permissions where role_id not in ('role-admin', 'role-operator', 'role-ceo');
+    delete from public.roles where id not in ('role-admin', 'role-operator', 'role-ceo');
 
     -- 2. Create ALL permission if it doesn't exist
     if not exists (select 1 from public.permissions where id = 'ALL') then
@@ -2965,6 +2969,10 @@ begin
         insert into public.role_permissions (role_id, permission_id) 
         values ('role-admin', 'ALL');
     end if;
+
+        insert into public.role_permissions (role_id, permission_id)
+        values ('role-ceo', 'READ_MES')
+        on conflict (role_id, permission_id) do nothing;
 end $$;
 
 -- Backfill production serials for cells reserved before this numbering rule was added.

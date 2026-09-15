@@ -1185,7 +1185,6 @@ export const InventoryView: React.FC = () => {
                     />
                   </th>
                   <th className="px-5 py-3">Pack Serial</th>
-                  <th className="px-5 py-3">Product Name</th>
                   <th className="px-5 py-3">Modules Count</th>
                   <th className="px-5 py-3">BMS Serial</th>
                   <th className="px-5 py-3">BMU Serial</th>
@@ -1207,7 +1206,6 @@ export const InventoryView: React.FC = () => {
                       />
                     </td>
                     <td className="px-5 py-3.5"><span className="inline-flex items-center gap-1 font-bold text-slate-900">{b.serialNumber}<CopyToClipboardButton value={b.serialNumber} label="Copy battery serial number" /></span></td>
-                    <td className="px-5 py-3.5 text-slate-700 font-sans font-semibold">{b.productName}</td>
                     <td className="px-5 py-3.5">{b.modules?.length ?? 0} Modules</td>
                     <td className="px-5 py-3.5 text-emerald-700">{b.bms?.serialNumber || 'NONE'}</td>
                     <td className="px-5 py-3.5 text-emerald-700">{b.bmu?.serialNumber || 'NONE'}</td>

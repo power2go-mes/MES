@@ -32,6 +32,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
   const { activeView, setActiveView, setActiveBatteryId, setBatteryBuilderEditRequested, inventoryTab, setInventoryTab } = useApp();
   const { currentUser } = useAuth();
   const canManageUsers = currentUser?.roleId === 'role-admin' || currentUser?.role === 'admin';
+  const isCeo = currentUser?.roleId === 'role-ceo' || currentUser?.role === 'ceo';
   const [openSections, setOpenSections] = useState<Record<string, boolean>>({});
 
   const toggleSection = (section: string) => {
@@ -77,7 +78,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
             <span className="text-[9px] font-black uppercase tracking-widest text-slate-400">Quick Access</span>
             {openSections['quick-access'] ? <ChevronDown className="w-3.5 h-3.5 text-slate-400" /> : <ChevronRight className="w-3.5 h-3.5 text-slate-400" />}
           </button>
-          {openSections['quick-access'] && <button
+          {openSections['quick-access'] && !isCeo && <button
             onClick={() => setActiveView('dashboard')}
             className={`w-full flex items-center space-x-2.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
               activeView === 'dashboard'
@@ -99,7 +100,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
             <BarChart3 className="w-3.5 h-3.5" />
             <span>CEO Monitoring</span>
           </button>}
-          {openSections['quick-access'] && <button
+          {openSections['quick-access'] && !isCeo && <button
             onClick={() => setActiveView('production-flow')}
             className={`w-full flex items-center space-x-2.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
               activeView === 'production-flow' ? 'bg-emerald-600 text-white shadow-xs' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
@@ -111,7 +112,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
         </div>
 
         {/* FOUR-STAGE PRODUCTION */}
-        <div>
+        <div className={isCeo ? 'hidden' : undefined}>
           <div className="mb-1.5 px-3 text-[9px] font-black uppercase tracking-widest text-slate-400">Production workflow</div>
           <div className="space-y-0.5">
             {[
@@ -233,7 +234,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
             {openSections.reports ? <ChevronDown className="w-3.5 h-3.5 text-slate-400" /> : <ChevronRight className="w-3.5 h-3.5 text-slate-400" />}
           </button>
           {openSections.reports && <div className="space-y-0.5">
-            <button
+            {!isCeo && <button
               onClick={() => setActiveView('supplier')}
               className={`w-full flex items-center space-x-2.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
                 activeView === 'supplier'
@@ -243,9 +244,9 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
             >
               <Truck className="w-3.5 h-3.5 text-slate-400" />
               <span>Supplier Import</span>
-            </button>
+            </button>}
 
-            <button
+            {!isCeo && <button
               onClick={() => setActiveView('reports')}
               className={`w-full flex items-center space-x-2.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
                 activeView === 'reports'
@@ -255,7 +256,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
             >
               <BarChart3 className="w-3.5 h-3.5 text-slate-400" />
               <span>Reports</span>
-            </button>
+            </button>}
 
             <button
               onClick={() => setActiveView('traceability')}
@@ -269,7 +270,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
               <span>Genealogy</span>
             </button>
 
-            <button
+            {!isCeo && <button
               onClick={() => setActiveView('scrap')}
               className={`w-full flex items-center space-x-2.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
                 activeView === 'scrap' ? 'bg-red-700 text-white shadow-xs' : 'text-slate-600 hover:bg-red-50 hover:text-red-800'
@@ -277,12 +278,12 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
             >
               <Flame className="w-3.5 h-3.5 text-red-500" />
               <span>Scrap</span>
-            </button>
+            </button>}
           </div>}
         </div>
 
         {/* SETUPS */}
-        <div>
+        <div className={isCeo ? 'hidden' : undefined}>
           <button type="button" onClick={() => toggleSection('setups')} aria-expanded={Boolean(openSections.setups)} className="w-full flex items-center justify-between px-3 mb-1.5 text-left">
             <span className="text-[9px] font-black uppercase tracking-widest text-slate-400">Setups</span>
             {openSections.setups ? <ChevronDown className="w-3.5 h-3.5 text-slate-400" /> : <ChevronRight className="w-3.5 h-3.5 text-slate-400" />}
