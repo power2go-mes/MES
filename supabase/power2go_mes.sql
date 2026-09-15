@@ -3450,6 +3450,36 @@ $$;
 
 grant execute on function public.delete_scrap_cell_transaction(text) to authenticated;
 
+create or replace function public.remove_quarantine_cell_transaction(p_quarantine_id text)
+returns jsonb language plpgsql security definer set search_path = public as $$
+declare
+    v_record record;
+    v_disposition text;
+begin
+    perform public.require_permission('MANAGE_INVENTORY');
+    select * into v_record
+    from public.quarantine_records
+    where id = p_quarantine_id
+      and entity_type = 'CELL'
+    for update;
+    if not found then
+        raise exception 'Cell quarantine record % not found', p_quarantine_id;
+    end if;
+
+    v_disposition := upper(coalesce(v_record.disposed_of_as, ''));
+    if v_disposition in ('RELEASE_APPROVED', 'REWORK') then
+        delete from public.quarantine_records where id = p_quarantine_id;
+        insert into public.audit_logs (entity_type, entity_id, action, actor, result, details)
+        values ('CELL', v_record.entity_id, 'REMOVE_REUSABLE_FROM_QUARANTINE', coalesce(auth.uid()::text, 'SYSTEM'), 'SUCCESS', 'Reusable cell removed from scrap review');
+        return jsonb_build_object('success', true, 'cellId', v_record.entity_id, 'deleted', false, 'removedFromReview', true);
+    end if;
+
+    return public.delete_scrap_cell_transaction(v_record.entity_id);
+end;
+$$;
+
+grant execute on function public.remove_quarantine_cell_transaction(text) to authenticated;
+
 create or replace function public.register_imported_pallet()
 returns trigger language plpgsql security definer set search_path = public as $$
 begin

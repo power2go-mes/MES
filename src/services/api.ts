@@ -4258,6 +4258,13 @@ async getUsers(): Promise<User[]> {
     return toAppValue(data);
   },
 
+  async removeQuarantineCell(recordId: string): Promise<any> {
+    if (!rawSupabase) throw new Error('Supabase is not configured.');
+    const { data, error } = await rawSupabase.rpc('remove_quarantine_cell_transaction', { p_quarantine_id: recordId });
+    if (error) throw error;
+    return toAppValue(data);
+  },
+
   async resolveQuarantine(id: string, payload: { action?: string; disposition?: string; notes?: string; dispositionNotes?: string; userId?: string }): Promise<any> {
     if (!rawSupabase) throw new Error('Supabase is not configured.');
     const { data, error } = await rawSupabase.rpc('resolve_quarantine_transaction', {

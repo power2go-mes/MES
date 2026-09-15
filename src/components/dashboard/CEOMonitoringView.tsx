@@ -142,9 +142,30 @@ export const CEOMonitoringView: React.FC = () => {
 
     const refresh = async () => {
       try {
-        const res = await api.getDashboardStats();
+        const [res, quarantineRecords] = await Promise.all([
+          api.getDashboardStats(),
+          api.getQuarantineRecords().catch(() => []),
+        ]);
+        const reusableCellIds = new Set(quarantineRecords.filter((record: any) => {
+          const entityType = String(record.entityType || record.entity_type || '').toUpperCase();
+          const entityId = String(record.entityId || record.entity_id || '');
+          const disposition = String(record.disposition || '').toUpperCase();
+          return entityType === 'CELL' && entityId && ['RELEASE_APPROVED', 'REWORK'].includes(disposition);
+        }).map((record: any) => String(record.entityId || record.entity_id)));
+        const reusableScrapCount = reusableCellIds.size;
+        const scrapCellCount = numberOr(res.cellBuckets?.find((row: any) => String(row.label || '').toUpperCase() === 'SCRAP')?.value);
+        const cellBuckets = (res.cellBuckets || [])
+          .filter((row: any) => !['SCRAP', 'RECYCLE'].includes(String(row.label || '').toUpperCase()))
+          .map((row: any) => String(row.label || '').toUpperCase() === 'FLOOR STOCK'
+            ? { ...row, value: Math.max(0, numberOr(row.value) - reusableScrapCount) }
+            : row)
+          .concat([
+            { label: 'Scrap', value: scrapCellCount },
+            { label: 'Recycle', value: reusableScrapCount },
+          ]);
+        const statsWithScrapBreakdown = { ...res, cellBuckets };
         if (!cancelled) {
-          setStats(res);
+          setStats(statsWithScrapBreakdown);
           setLoadError(null);
         }
       } catch (error: any) {
@@ -193,7 +214,14 @@ export const CEOMonitoringView: React.FC = () => {
   const remainingOrders = Math.max(0, totalOrders - completedOrders);
   const orderCompletion = totalOrders > 0 ? clamp((completedOrders / totalOrders) * 100, 0, 100) : 0;
 
-  const cellRows = useMemo<ChartRow[]>(() => (source.cellBuckets || []).map((row: any) => ({ label: String(row.label || ''), value: numberOr(row.value), color: statusColors[row.label] || reportColors.slate })), [source.cellBuckets]);
+  const cellRows = useMemo<ChartRow[]>(() => {
+    const totals = new Map<string, number>();
+    (source.cellBuckets || []).forEach((row: any) => {
+      const label = String(row.label || '');
+      totals.set(label, (totals.get(label) || 0) + numberOr(row.value));
+    });
+    return Array.from(totals, ([label, value]) => ({ label, value, color: statusColors[label] || reportColors.slate }));
+  }, [source.cellBuckets]);
   const filteredCellRows = selectedCellStatus === 'All' ? cellRows : cellRows.filter((row) => row.label === selectedCellStatus);
   const cellDistribution = useMemo(() => buildDashboardDistribution(
     filteredCellRows,
@@ -398,19 +426,18 @@ export const CEOMonitoringView: React.FC = () => {
     try {
       const reportDate = new Date().toISOString().slice(0, 10);
       const rangeLabel = 'All available data';
-      const [quarantineRecords, currentScrapCells] = await Promise.all([
+      const [quarantineRecords] = await Promise.all([
         api.getQuarantineRecords().catch(() => []),
-        api.getCells({ lifecycleStatus: 'SCRAP', limit: 10000 }).catch(() => []),
       ]);
-      const currentScrapCellIds = new Set(currentScrapCells.map((cell: any) => String(cell.id || '')));
-      const reusableScrapCount = quarantineRecords.filter((record: any) => {
+      const reusableCellIds = new Set(quarantineRecords.filter((record: any) => {
         const entityType = String(record.entityType || record.entity_type || '').toUpperCase();
         const entityId = String(record.entityId || record.entity_id || '');
         const disposition = String(record.disposition || '').toUpperCase();
-        return entityType === 'CELL' && currentScrapCellIds.has(entityId) && ['RELEASE_APPROVED', 'REWORK'].includes(disposition);
-      }).length;
+        return entityType === 'CELL' && entityId && ['RELEASE_APPROVED', 'REWORK'].includes(disposition);
+      }).map((record: any) => String(record.entityId || record.entity_id)));
+      const reusableScrapCount = reusableCellIds.size;
       const scrapCellCount = numberOr(source.cellBuckets?.find((row: any) => String(row.label || '').toUpperCase() === 'SCRAP')?.value);
-      const damageScrapCount = Math.max(0, scrapCellCount - reusableScrapCount);
+      const damageScrapCount = scrapCellCount;
       const statusRows = (statuses: string[], sourceRows: any[], colorMap: Record<string, string>, defaultCapacityKwh: (status: string) => number = () => 0) => {
         const values = new Map((sourceRows || []).map((row: any) => [String(row.label).replace(/_/g, ' ').toUpperCase(), { value: numberOr(row.value), capacityKwh: numberOr(row.capacityKwh) }]));
         return statuses.map((status) => ({
@@ -949,7 +976,7 @@ export const CEOMonitoringView: React.FC = () => {
             </div>
 
             <div className="mb-3 flex flex-wrap gap-2 text-[10px] font-medium text-slate-500">
-              {['All', 'In Stock', 'Floor Stock', 'In Module', 'In Pack', 'In Rack', 'Karachi Warehouse', 'Lahore Warehouse', 'Sold', 'Scrap'].map((label) => (
+                {['All', 'In Stock', 'Floor Stock', 'In Module', 'In Pack', 'In Rack', 'Karachi Warehouse', 'Lahore Warehouse', 'Sold', 'Scrap', 'Recycle'].map((label) => (
                 <button
                   key={label}
                   type="button"

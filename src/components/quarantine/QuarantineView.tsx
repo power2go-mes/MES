@@ -158,16 +158,44 @@ export const QuarantineView: React.FC = () => {
     }
   };
 
-  const deleteScrapCell = async (record: QuarantineRecord) => {
+  const removeCellFromReview = async (record: QuarantineRecord) => {
     if (record.entityType !== 'CELL') return;
-    if (!window.confirm(`Permanently delete scrap cell ${record.entitySerial}? This cannot be undone.`)) return;
+    const isReusable = isReusableRecord(record);
+    const message = isReusable
+      ? `Remove reusable cell ${record.entitySerial} from scrap review? The cell will remain in inventory.`
+      : `Permanently delete scrap cell ${record.entitySerial}? This cannot be undone.`;
+    if (!window.confirm(message)) return;
     setActionLoading(true);
     try {
-      await api.deleteScrapCell(record.entityId);
-      addNotification('success', 'Scrap Cell Deleted', `${record.entitySerial} was permanently removed.`);
+      await api.removeQuarantineCell(record.id);
+      addNotification('success', isReusable ? 'Reusable Cell Removed' : 'Scrap Cell Deleted', `${record.entitySerial} was removed from scrap review.`);
       triggerRefresh();
     } catch (err: any) {
-      addNotification('error', 'Delete Failed', err.message || 'Could not delete the scrap cell.');
+      addNotification('error', 'Remove Failed', err.message || 'Could not remove the cell from scrap review.');
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const removeSelectedCellsFromReview = async () => {
+    const selectedRecords = records.filter(record => selectedIds.includes(record.id) && record.entityType === 'CELL');
+    if (selectedRecords.length === 0) return;
+    const reusableSelected = selectedRecords.filter(isReusableRecord).length;
+    const scrapSelected = selectedRecords.length - reusableSelected;
+    const summary = [
+      reusableSelected > 0 ? `${reusableSelected} reusable cell(s) from review` : '',
+      scrapSelected > 0 ? `${scrapSelected} scrap cell(s) permanently` : '',
+    ].filter(Boolean).join(' and ');
+    if (!window.confirm(`Remove ${summary}?`)) return;
+
+    setActionLoading(true);
+    try {
+      await Promise.all(selectedRecords.map(record => api.removeQuarantineCell(record.id)));
+      setSelectedIds([]);
+      addNotification('success', 'Selected Cells Removed', `${selectedRecords.length} cell(s) were removed.`);
+      triggerRefresh();
+    } catch (err: any) {
+      addNotification('error', 'Bulk Remove Failed', err.message || 'Could not remove the selected cells.');
     } finally {
       setActionLoading(false);
     }
@@ -241,6 +269,14 @@ export const QuarantineView: React.FC = () => {
                 className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold rounded-lg border border-slate-300"
               >
                 Damaged
+              </button>
+              <button
+                onClick={() => void removeSelectedCellsFromReview()}
+                disabled={actionLoading}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-red-200 bg-red-50 px-3 py-1.5 text-xs font-semibold text-red-700 hover:bg-red-100 disabled:cursor-wait disabled:opacity-60"
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+                Remove Selected
               </button>
             </>
           )}
@@ -331,13 +367,13 @@ export const QuarantineView: React.FC = () => {
                           </button>
                           {rec.entityType === 'CELL' && (
                             <button
-                              onClick={() => void deleteScrapCell(rec)}
+                              onClick={() => void removeCellFromReview(rec)}
                               disabled={actionLoading}
                               className="inline-flex items-center gap-1 px-2.5 py-1 bg-red-50 hover:bg-red-100 text-red-700 text-xs font-semibold rounded-lg border border-red-200 transition-colors"
-                              title="Permanently delete this scrap cell"
+                              title="Remove this cell from scrap review"
                             >
                               <Trash2 className="h-3 w-3" />
-                              Delete
+                              Remove
                             </button>
                           )}
                         </>
@@ -355,6 +391,17 @@ export const QuarantineView: React.FC = () => {
                             <Pencil className="h-3 w-3" />
                             Edit
                           </button>
+                          {rec.entityType === 'CELL' && (
+                            <button
+                              onClick={() => void removeCellFromReview(rec)}
+                              disabled={actionLoading}
+                              className="inline-flex items-center gap-1 px-2.5 py-1 bg-red-50 hover:bg-red-100 text-red-700 text-xs font-semibold rounded-lg border border-red-200 transition-colors"
+                              title="Remove this cell from scrap review"
+                            >
+                              <Trash2 className="h-3 w-3" />
+                              Remove
+                            </button>
+                          )}
                         </div>
                       )}
                     </td>
