@@ -34,6 +34,8 @@ export interface AppNotification {
 interface AppContextType {
   activeView: NavView;
   setActiveView: (view: NavView) => void;
+  canGoBack: boolean;
+  goBack: () => void;
   activeBatteryId: string | null;
   setActiveBatteryId: (id: string | null) => void;
   batteryBuilderEditRequested: boolean;
@@ -55,7 +57,7 @@ interface AppContextType {
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
 
-const useLocalStorage = <T,>(key: string, initialValue: T): [T, (value: T) => void] => {
+const useLocalStorage = <T,>(key: string, initialValue: T): [T, React.Dispatch<React.SetStateAction<T>>] => {
   const [storedValue, setStoredValue] = useState<T>(() => {
     try {
       if (typeof window === 'undefined') return initialValue;
@@ -67,7 +69,7 @@ const useLocalStorage = <T,>(key: string, initialValue: T): [T, (value: T) => vo
     }
   });
 
-  const setValue = (value: T) => {
+  const setValue: React.Dispatch<React.SetStateAction<T>> = (value) => {
     try {
       const valueToStore = value instanceof Function ? value(storedValue) : value;
       setStoredValue(valueToStore);
@@ -82,6 +84,7 @@ const useLocalStorage = <T,>(key: string, initialValue: T): [T, (value: T) => vo
 
 export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [activeView, setActiveView] = useLocalStorage<NavView>('p2g_activeView', 'production-flow');
+  const [viewHistory, setViewHistory] = useState<NavView[]>([]);
   const [activeBatteryId, setActiveBatteryId] = useLocalStorage<string | null>('p2g_activeBatteryId', null);
   const [batteryBuilderEditRequested, setBatteryBuilderEditRequested] = useState(false);
   const [activeOrderId, setActiveOrderId] = useLocalStorage<string | null>('p2g_activeOrderId', null);
@@ -92,6 +95,22 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const notificationTimers = useRef<Set<number>>(new Set());
   const [refreshKey, setRefreshKey] = useState<number>(0);
   const [quickSearchQuery, setQuickSearchQuery] = useState<string>('');
+
+  const navigateToView = useCallback((view: NavView) => {
+    setActiveView(currentView => {
+      if (currentView !== view) setViewHistory(history => [...history, currentView]);
+      return view;
+    });
+  }, [setActiveView]);
+
+  const goBack = useCallback(() => {
+    setViewHistory(history => {
+      const previousView = history[history.length - 1];
+      if (!previousView) return history;
+      setActiveView(previousView);
+      return history.slice(0, -1);
+    });
+  }, [setActiveView]);
 
   const triggerRefresh = useCallback(() => setRefreshKey(prev => prev + 1), []);
 
@@ -122,7 +141,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const contextValue = useMemo(() => ({
     activeView,
-    setActiveView,
+    setActiveView: navigateToView,
+    canGoBack: viewHistory.length > 0,
+    goBack,
     activeBatteryId,
     setActiveBatteryId,
     batteryBuilderEditRequested,
@@ -142,6 +163,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setQuickSearchQuery,
   }), [
     activeView,
+    viewHistory,
+    navigateToView,
+    goBack,
     activeBatteryId,
     batteryBuilderEditRequested,
     activeOrderId,

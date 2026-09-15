@@ -100,7 +100,7 @@ export const RackAssemblyView: React.FC = () => {
     const expectedCapacity = packCapacity;
     const capacity = Number((battery as any).capacityKwh ?? (battery as any).capacity_kwh ?? 0);
     if (capacity > 0 && Math.abs(capacity - expectedCapacity) > 0.01) {
-      throw new Error(`${battery.serialNumber} is not compatible with this ${rackCapacity} kWh rack.`);
+      throw new Error(`${battery.serialNumber} is not compatible with this ${rackCapacityLabel(template)} rack.`);
     }
     setSelected(current => [...current, battery.id]);
     setScannerOpen(false);
@@ -171,7 +171,7 @@ export const RackAssemblyView: React.FC = () => {
     <div className="flex-1 overflow-y-auto bg-slate-50 p-4 md:p-8">
       <div className="mx-auto max-w-7xl space-y-6">
         <header className="flex flex-col justify-between gap-4 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm md:flex-row md:items-center">
-          <div className="flex items-center gap-3"><PackageCheck className="h-6 w-6 text-cyan-600" /><div><p className="text-[10px] font-black uppercase tracking-widest text-cyan-600">2D Rack Builder</p><h1 className="text-xl font-black text-slate-900">{rackCapacity} kWh Rack Component Layout</h1><p className="text-xs text-slate-500">Select {requiredCount} released {packLabel} battery packs for this rack.</p></div></div>
+          <div className="flex items-center gap-3"><PackageCheck className="h-6 w-6 text-cyan-600" /><div><p className="text-[10px] font-black uppercase tracking-widest text-cyan-600">2D Rack Builder</p><h1 className="text-xl font-black text-slate-900">{rackCapacityLabel(template)} Rack Component Layout</h1><p className="text-xs text-slate-500">Select {requiredCount} released {packLabel} battery packs for this rack.</p></div></div>
           <div className="flex gap-2"><input value={location} onChange={event => setLocation(event.target.value)} className="rounded-lg border border-slate-200 px-3 py-2 text-xs" placeholder="Rack location" /><button type="button" onClick={() => void load()} className="flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-xs font-bold text-slate-600"><RefreshCw className="h-4 w-4" />Refresh</button></div>
         </header>
 

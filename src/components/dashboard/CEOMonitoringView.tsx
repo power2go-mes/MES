@@ -63,7 +63,7 @@ const DistributionDonut: React.FC<{ distribution: DashboardDistribution; ariaLab
   let offset = 0;
   return (
     <div className="flex min-w-0 flex-col items-center gap-4 sm:flex-row sm:gap-6">
-      <div className="h-[150px] w-[150px] shrink-0 sm:h-[190px] sm:w-[190px]">
+      <div className="h-[185px] w-[185px] shrink-0 sm:h-[220px] sm:w-[220px]">
         {distribution.total === 0 ? <div className="grid h-full place-items-center rounded-full border-[14px] border-slate-100 text-center"><span className="text-[11px] font-semibold text-slate-400">No recorded data</span></div> : <svg viewBox="0 0 100 100" className="h-full w-full" aria-label={ariaLabel}>
           <circle cx="50" cy="50" r="35" fill="none" stroke={reportColors.border} strokeWidth="14" />
           {visible.map((row) => {
@@ -250,12 +250,21 @@ export const CEOMonitoringView: React.FC = () => {
 
   const warehouseRackTypeOptions = useMemo(() => {
     const types = Array.isArray(source.inventory?.warehouseRackTypeCounts) ? source.inventory.warehouseRackTypeCounts.map((row: any) => String(row.type || '')) : [];
-    return ['All', ...types.filter(Boolean).filter(type => type !== 'UNKNOWN_RACK')];
+    return ['All', ...types
+      .filter(Boolean)
+      .filter(type => type !== 'UNKNOWN_RACK')
+      .sort((left, right) => {
+        const leftPower = Number(left.match(/RACK_(\d+(?:\.\d+)?)KWH/i)?.[1] || 0);
+        const rightPower = Number(right.match(/RACK_(\d+(?:\.\d+)?)KWH/i)?.[1] || 0);
+        return rightPower - leftPower;
+      })];
   }, [source.inventory]);
 
   const warehouseRackTypeLabel = (type: string) => {
     const match = type.match(/RACK_(\d+(?:\.\d+)?)KWH/i);
-    return match ? `${match[1]} kWh` : type.replace(/^RACK_/i, '').replace(/_/g, ' ');
+    if (!match) return type.replace(/^RACK_/i, '').replace(/_/g, ' ');
+    const power = match[1] === '70' ? '67.9' : match[1];
+    return `${power} kWh`;
   };
   const warehouseBatteryTypeOptions = useMemo(() => {
     const types = Array.isArray(source.inventory?.warehouseBatteryTypeCounts) ? source.inventory.warehouseBatteryTypeCounts.map((row: any) => String(row.type || '')) : [];

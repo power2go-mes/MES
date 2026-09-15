@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { useApp } from '../../context/AppContext';
-import { Search, RefreshCw, Bell, ChevronDown, LogOut, Menu } from 'lucide-react';
+import { Search, RefreshCw, Bell, ChevronDown, LogOut, Menu, ArrowLeft } from 'lucide-react';
 
 type HeaderProps = {
   onOpenNavigation: () => void;
@@ -9,7 +9,7 @@ type HeaderProps = {
 
 export const Header: React.FC<HeaderProps> = ({ onOpenNavigation }) => {
   const { currentUser, profile, logout } = useAuth();
-  const { setActiveView, quickSearchQuery, setQuickSearchQuery, triggerRefresh, notifications } = useApp();
+  const { setActiveView, goBack, canGoBack, quickSearchQuery, setQuickSearchQuery, triggerRefresh, notifications } = useApp();
 
   const getRoleBadgeColor = (role: string) => {
     switch (role) {
@@ -59,6 +59,16 @@ export const Header: React.FC<HeaderProps> = ({ onOpenNavigation }) => {
           className="mobile-nav-button flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 md:hidden"
         >
           <Menu className="h-4 w-4" />
+        </button>
+        <button
+          type="button"
+          onClick={goBack}
+          disabled={!canGoBack}
+          aria-label="Go back to the previous page"
+          title="Go back to the previous page"
+          className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-slate-200 text-slate-600 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-35"
+        >
+          <ArrowLeft className="h-4 w-4" />
         </button>
         <div className="hidden md:flex min-w-0 flex-1 max-w-xl">
           <form onSubmit={handleSearch} className="relative w-full">
