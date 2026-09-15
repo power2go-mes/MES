@@ -1,10 +1,10 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { useApp } from '../../context/AppContext';
-import { useAuth } from '../../context/AuthContext';
-import { api } from '../../services/api';
-import { BatteryUnit, ProductTemplate } from '../../types';
-import { ReleasedBatteryQrModal } from '../common/ReleasedBatteryQrModal';
-import { ScannerModal } from '../common/ScannerModal';
+import React, { useState, useEffect, useRef } from "react";
+import { useApp } from "../../context/AppContext";
+import { useAuth } from "../../context/AuthContext";
+import { api } from "../../services/api";
+import { BatteryUnit, ProductTemplate } from "../../types";
+import { ReleasedBatteryQrModal } from "../common/ReleasedBatteryQrModal";
+import { ScannerModal } from "../common/ScannerModal";
 import {
   CheckCircle2,
   AlertTriangle,
@@ -20,18 +20,30 @@ import {
   ChevronRight,
   Printer,
   Pencil,
-} from 'lucide-react';
+} from "lucide-react";
 
 export const BatteryPackWorkflowView: React.FC = () => {
-  const { activeBatteryId, setActiveBatteryId, setActiveView, batteryBuilderEditRequested, setBatteryBuilderEditRequested, addNotification, refreshKey, triggerRefresh } = useApp();
+  const {
+    activeBatteryId,
+    setActiveBatteryId,
+    setActiveView,
+    batteryBuilderEditRequested,
+    setBatteryBuilderEditRequested,
+    addNotification,
+    refreshKey,
+    triggerRefresh,
+  } = useApp();
   const { currentUser } = useAuth();
 
   const [battery, setBattery] = useState<BatteryUnit | null>(null);
   const [product, setProduct] = useState<ProductTemplate | null>(null);
   const [products, setProducts] = useState<ProductTemplate[]>([]);
-  const [availableBatteries, setAvailableBatteries] = useState<Array<Pick<BatteryUnit, 'id' | 'serialNumber' | 'productName' | 'status'>>>([]);
-  const [selectedExistingBatteryId, setSelectedExistingBatteryId] = useState('');
-  const [selectedProductId, setSelectedProductId] = useState('');
+  const [availableBatteries, setAvailableBatteries] = useState<
+    Array<Pick<BatteryUnit, "id" | "serialNumber" | "productName" | "status">>
+  >([]);
+  const [selectedExistingBatteryId, setSelectedExistingBatteryId] =
+    useState("");
+  const [selectedProductId, setSelectedProductId] = useState("");
   const [builderOpen, setBuilderOpen] = useState(false);
   const [builderEditMode, setBuilderEditMode] = useState(false);
   const [creatingBattery, setCreatingBattery] = useState(false);
@@ -40,23 +52,60 @@ export const BatteryPackWorkflowView: React.FC = () => {
   const [qrPassportOpen, setQrPassportOpen] = useState(false);
 
   // Form values for Pack IR and Final Testing
-  const [packIrMohm, setPackIrMohm] = useState('0');
-  const [qcTesting, setQcTesting] = useState<'PASSED' | 'FAILED'>('PASSED');
+  const [packIrMohm, setPackIrMohm] = useState("0");
+  const [qcTesting, setQcTesting] = useState<"PASSED" | "FAILED">("PASSED");
   const [scannerOpen, setScannerOpen] = useState(false);
-  const [scanTarget, setScanTarget] = useState<'BMS' | 'BMU' | 'MODULE'>('BMS');
-  const [scannedControllerType, setScannedControllerType] = useState<'BMS' | 'BMU' | null>(null);
+  const [scanTarget, setScanTarget] = useState<"BMS" | "BMU" | "MODULE">("BMS");
+  const [scannedControllerType, setScannedControllerType] = useState<
+    "BMS" | "BMU" | null
+  >(null);
   const [scannedModuleIds, setScannedModuleIds] = useState<string[]>([]);
   const freshEntryRef = useRef(true);
 
   useEffect(() => {
-    void api.getProducts().then(productRows => {
-      setProducts(productRows);
-    }).catch((err: any) => addNotification('error', 'Pack Templates Unavailable', err.message || 'Could not load product templates.'));
-    void api.getBatteries().then(batteryRows => {
-      const completedStatuses = new Set(['RELEASED', 'FINISHED', 'WAREHOUSE', 'DISPATCHED', 'SOLD']);
-      setAvailableBatteries(batteryRows.filter(row => !completedStatuses.has(String(row.status || '').toUpperCase())) as Array<Pick<BatteryUnit, 'id' | 'serialNumber' | 'productName' | 'status'>>);
-    }).catch((err: any) => addNotification('error', 'Pack Inventory Unavailable', err.message || 'Could not load battery packs.'));
-    if (freshEntryRef.current && activeBatteryId && !batteryBuilderEditRequested) {
+    void api
+      .getProducts()
+      .then((productRows) => {
+        setProducts(productRows);
+      })
+      .catch((err: any) =>
+        addNotification(
+          "error",
+          "Pack Templates Unavailable",
+          err.message || "Could not load product templates.",
+        ),
+      );
+    void api
+      .getBatteries()
+      .then((batteryRows) => {
+        const completedStatuses = new Set([
+          "RELEASED",
+          "FINISHED",
+          "WAREHOUSE",
+          "DISPATCHED",
+          "SOLD",
+        ]);
+        setAvailableBatteries(
+          batteryRows.filter(
+            (row) =>
+              !completedStatuses.has(String(row.status || "").toUpperCase()),
+          ) as Array<
+            Pick<BatteryUnit, "id" | "serialNumber" | "productName" | "status">
+          >,
+        );
+      })
+      .catch((err: any) =>
+        addNotification(
+          "error",
+          "Pack Inventory Unavailable",
+          err.message || "Could not load battery packs.",
+        ),
+      );
+    if (
+      freshEntryRef.current &&
+      activeBatteryId &&
+      !batteryBuilderEditRequested
+    ) {
       freshEntryRef.current = false;
       setActiveBatteryId(null);
       return;
@@ -75,26 +124,50 @@ export const BatteryPackWorkflowView: React.FC = () => {
     setLoading(true);
     try {
       const res = await api.getBattery(id);
-      setBattery(res.battery);
+      const rawBattery = res.battery as BatteryUnit & { step_results_json?: any; final_qc_result_json?: any };
+      const stepResults = rawBattery.stepResults ?? rawBattery.step_results_json ?? {};
+      const finalQcResult = rawBattery.finalQcResult
+        ?? rawBattery.final_qc_result_json
+        ?? stepResults.FINAL_QC?.manualValues
+        ?? stepResults.FINAL_TESTING?.manualValues;
+      setBattery({ ...res.battery, stepResults, finalQcResult } as BatteryUnit);
       setProduct(res.product);
-      setSelectedProductId(res.product?.id || '');
+      setSelectedProductId(res.product?.id || "");
       setBuilderOpen(true);
-      setScannedControllerType(res.battery.bms ? 'BMS' : res.battery.bmu ? 'BMU' : null);
-      setScannedModuleIds((res.battery.modules || []).filter(module => module.cells?.length > 0).map(module => module.id));
+      setScannedControllerType(
+        res.battery.bms ? "BMS" : res.battery.bmu ? "BMU" : null,
+      );
+      setScannedModuleIds(
+        (res.battery.modules || [])
+          .filter((module) => module.cells?.length > 0)
+          .map((module) => module.id),
+      );
 
-      if (res.battery.finalQcResult) {
-        setPackIrMohm(res.battery.finalQcResult.internalResistanceMilliOhm?.toString() || '0');
-        setQcTesting(res.battery.finalQcResult.status === 'FAILED' ? 'FAILED' : 'PASSED');
+      if (finalQcResult) {
+        setPackIrMohm(
+          String(finalQcResult.internalResistanceMilliOhm ?? finalQcResult.batteryIrMohm ?? "0"),
+        );
+        setQcTesting(
+          finalQcResult.status === "FAILED" ? "FAILED" : "PASSED",
+        );
       } else {
-        const totalCellIr = res.battery.modules.reduce((total, module) => (
-          total + module.cells.reduce((moduleTotal, cell) => (
-            moduleTotal + Number(cell.productionIrMilliOhm ?? cell.supplierIrMilliOhm ?? 0)
-          ), 0)
-        ), 0);
+        const totalCellIr = res.battery.modules.reduce(
+          (total, module) =>
+            total +
+            module.cells.reduce(
+              (moduleTotal, cell) =>
+                moduleTotal +
+                Number(
+                  cell.productionIrMilliOhm ?? cell.supplierIrMilliOhm ?? 0,
+                ),
+              0,
+            ),
+          0,
+        );
         setPackIrMohm(totalCellIr.toFixed(2));
       }
     } catch (err: any) {
-      addNotification('error', 'Failed to load battery', err.message);
+      addNotification("error", "Failed to load battery", err.message);
     } finally {
       setLoading(false);
     }
@@ -106,24 +179,28 @@ export const BatteryPackWorkflowView: React.FC = () => {
 
     try {
       await api.finalTest(battery.id, {
-        mode: 'MANUAL',
+        mode: "MANUAL",
         userId: currentUser.id,
         manualValues: {
           batteryIrMohm: parseFloat(packIrMohm) || 0,
           qcTesting,
-        }
+        },
       });
 
-      addNotification('success', 'Pack Testing Recorded', `Total IR and QC result saved as ${qcTesting}.`);
+      addNotification(
+        "success",
+        "Pack Testing Recorded",
+        `Total IR and QC result saved as ${qcTesting}.`,
+      );
       triggerRefresh();
     } catch (err: any) {
-      addNotification('error', 'Testing Save Failed', err.message);
+      addNotification("error", "Testing Save Failed", err.message);
     } finally {
       setSubmitting(false);
     }
   };
 
-  const handleFinalQcSignoff = async (status: 'PASSED' | 'FAILED') => {
+  const handleFinalQcSignoff = async (status: "PASSED" | "FAILED") => {
     if (!battery) return;
     setSubmitting(true);
 
@@ -133,23 +210,37 @@ export const BatteryPackWorkflowView: React.FC = () => {
         userId: currentUser.id,
       });
 
-      if (status === 'PASSED') {
+      if (status === "PASSED") {
         if (result?.battery) {
-          setBattery(currentBattery => currentBattery
-            ? { ...currentBattery, ...result.battery, modules: currentBattery.modules }
-            : result.battery);
+          setBattery((currentBattery) =>
+            currentBattery
+              ? {
+                  ...currentBattery,
+                  ...result.battery,
+                  modules: currentBattery.modules,
+                }
+              : result.battery,
+          );
         }
-        addNotification('success', 'BATTERY RELEASED', `Battery ${battery.serialNumber} passed final QC and is released for dispatch!`);
+        addNotification(
+          "success",
+          "BATTERY RELEASED",
+          `Battery ${battery.serialNumber} passed final QC and is released for dispatch!`,
+        );
         setQrPassportOpen(false);
         setActiveBatteryId(null);
         setBatteryBuilderEditRequested(false);
-        setActiveView('production-flow');
+        setActiveView("production-flow");
       } else {
-        addNotification('error', 'Battery Scrapped', `Battery ${battery.serialNumber} failed final testing.`);
+        addNotification(
+          "error",
+          "Battery Scrapped",
+          `Battery ${battery.serialNumber} failed final testing.`,
+        );
       }
       triggerRefresh();
     } catch (err: any) {
-      addNotification('error', 'QC Signoff Failed', err.message);
+      addNotification("error", "QC Signoff Failed", err.message);
     } finally {
       setSubmitting(false);
     }
@@ -158,25 +249,53 @@ export const BatteryPackWorkflowView: React.FC = () => {
   const handlePackScan = async (barcode: string) => {
     if (!battery || !barcode.trim()) return;
     try {
-      if (scanTarget === 'MODULE') {
-        const normalizeScanValue = (value: string) => value.trim().toLowerCase().replace(/\s+/g, '');
+      if (scanTarget === "MODULE") {
+        const normalizeScanValue = (value: string) =>
+          value.trim().toLowerCase().replace(/\s+/g, "");
         const scannedValue = normalizeScanValue(barcode);
-        const scannedPayload = scannedValue.split('|')[0];
-        const targetModuleIndex = (battery.modules || []).find(module => !module.cells?.length)?.moduleIndex ?? (battery.modules || []).length;
-        const result = await api.assignModuleToBattery(battery.id, barcode, targetModuleIndex);
+        const scannedPayload = scannedValue.split("|")[0];
+        const targetModuleIndex =
+          (battery.modules || []).find((module) => !module.cells?.length)
+            ?.moduleIndex ?? (battery.modules || []).length;
+        const result = await api.assignModuleToBattery(
+          battery.id,
+          barcode,
+          targetModuleIndex,
+        );
         const assignedModule = result?.module;
         await loadBattery(battery.id);
-        if (assignedModule?.id) setScannedModuleIds(current => current.includes(assignedModule.id) ? current : [...current, assignedModule.id]);
-        addNotification('success', 'Module Assigned', `${assignedModule?.serial_number || assignedModule?.serialNumber || barcode} was assigned to this battery pack.`);
+        if (assignedModule?.id)
+          setScannedModuleIds((current) =>
+            current.includes(assignedModule.id)
+              ? current
+              : [...current, assignedModule.id],
+          );
+        addNotification(
+          "success",
+          "Module Assigned",
+          `${assignedModule?.serial_number || assignedModule?.serialNumber || barcode} was assigned to this battery pack.`,
+        );
       } else {
-        await api.scanComponent(battery.id, { barcode: barcode.trim(), slotType: scanTarget, userId: currentUser.id });
+        await api.scanComponent(battery.id, {
+          barcode: barcode.trim(),
+          slotType: scanTarget,
+          userId: currentUser.id,
+        });
         setScannedControllerType(scanTarget);
         await loadBattery(battery.id);
-        addNotification('success', `${scanTarget} Scanned`, `${scanTarget} was assigned to the battery pack.`);
+        addNotification(
+          "success",
+          `${scanTarget} Scanned`,
+          `${scanTarget} was assigned to the battery pack.`,
+        );
       }
       setScannerOpen(false);
     } catch (err: any) {
-      addNotification('error', 'Pack Scan Failed', err.message || 'Unable to verify this component.');
+      addNotification(
+        "error",
+        "Pack Scan Failed",
+        err.message || "Unable to verify this component.",
+      );
     }
   };
 
@@ -193,14 +312,28 @@ export const BatteryPackWorkflowView: React.FC = () => {
   const createBatteryFromTemplateFor = async (productId: string) => {
     setCreatingBattery(true);
     try {
-      const result = await api.createPackBatteryShell(productId, `PO-PACK-${Date.now()}`);
+      const result = await api.createPackBatteryShell(
+        productId,
+        `PO-PACK-${Date.now()}`,
+      );
       const newBatteryId = result.batteryIds[0];
-      if (!newBatteryId) throw new Error('The new battery was not returned by production setup.');
+      if (!newBatteryId)
+        throw new Error(
+          "The new battery was not returned by production setup.",
+        );
       setActiveBatteryId(newBatteryId);
       setBuilderOpen(true);
-      addNotification('success', 'Battery Created', 'The new battery is ready in the 2D Battery Builder.');
+      addNotification(
+        "success",
+        "Battery Created",
+        "The new battery is ready in the 2D Battery Builder.",
+      );
     } catch (error: any) {
-      addNotification('error', 'Battery Creation Failed', error.message || 'Could not create the battery from this template.');
+      addNotification(
+        "error",
+        "Battery Creation Failed",
+        error.message || "Could not create the battery from this template.",
+      );
     } finally {
       setCreatingBattery(false);
     }
@@ -208,28 +341,59 @@ export const BatteryPackWorkflowView: React.FC = () => {
 
   const handleEditBatterySerial = async () => {
     if (!battery) return;
-    const nextSerial = window.prompt('Battery serial number (must contain 7.5KWH or 8KWH)', battery.serialNumber);
+    const nextSerial = window.prompt(
+      "Battery serial number (must contain 7.5KWH or 8KWH)",
+      battery.serialNumber,
+    );
     if (nextSerial === null) return;
     const normalizedSerial = nextSerial.trim().toUpperCase();
     if (!normalizedSerial) {
-      addNotification('error', 'Serial update failed', 'Battery serial number cannot be empty.');
+      addNotification(
+        "error",
+        "Serial update failed",
+        "Battery serial number cannot be empty.",
+      );
       return;
     }
     if (!/(?:7\.5|8)KWH/.test(normalizedSerial)) {
-      addNotification('error', 'Serial update failed', 'Battery serial must include 7.5KWH or 8KWH.');
+      addNotification(
+        "error",
+        "Serial update failed",
+        "Battery serial must include 7.5KWH or 8KWH.",
+      );
       return;
     }
     if (normalizedSerial === battery.serialNumber) return;
 
     setSubmitting(true);
     try {
-      const updatedBattery = await api.updateBattery(battery.id, { serialNumber: normalizedSerial });
-      setBattery(current => current ? { ...current, ...updatedBattery, serialNumber: normalizedSerial } : current);
-      setAvailableBatteries(current => current.map(item => item.id === battery.id ? { ...item, serialNumber: normalizedSerial } : item));
+      const updatedBattery = await api.updateBattery(battery.id, {
+        serialNumber: normalizedSerial,
+      });
+      setBattery((current) =>
+        current
+          ? { ...current, ...updatedBattery, serialNumber: normalizedSerial }
+          : current,
+      );
+      setAvailableBatteries((current) =>
+        current.map((item) =>
+          item.id === battery.id
+            ? { ...item, serialNumber: normalizedSerial }
+            : item,
+        ),
+      );
       triggerRefresh();
-      addNotification('success', 'Battery serial updated', 'The new battery serial number has been saved.');
+      addNotification(
+        "success",
+        "Battery serial updated",
+        "The new battery serial number has been saved.",
+      );
     } catch (error: any) {
-      addNotification('error', 'Serial update failed', error?.message || 'Could not update the battery serial number.');
+      addNotification(
+        "error",
+        "Serial update failed",
+        error?.message || "Could not update the battery serial number.",
+      );
     } finally {
       setSubmitting(false);
     }
@@ -237,75 +401,336 @@ export const BatteryPackWorkflowView: React.FC = () => {
 
   const requiredModuleCount = product?.numModules || 2;
   const controllerReady = scannedControllerType !== null;
-  const setupReady = Boolean(battery && product && scannedModuleIds.length === requiredModuleCount && controllerReady);
+  const setupReady = Boolean(
+    battery &&
+    product &&
+    scannedModuleIds.length === requiredModuleCount &&
+    controllerReady,
+  );
 
-  if (!activeBatteryId || !battery || !product || builderEditMode || !setupReady) {
+  if (
+    !activeBatteryId ||
+    !battery ||
+    !product ||
+    builderEditMode ||
+    !setupReady
+  ) {
     return (
       <div className="flex-1 p-8 bg-slate-50 flex items-center justify-center">
         <div className="max-w-2xl w-full bg-white p-8 rounded-2xl border border-slate-200 shadow-sm">
-          {!battery || !product ? <>
-          <Layers className="w-12 h-12 text-slate-400 mx-auto mb-3" />
-          <h2 className="text-xl font-black text-slate-800 mb-2 text-center">SELECT PACK TO ASSEMBLE</h2>
-          <p className="text-sm text-slate-500 mb-6 text-center">Select the battery template, choose the battery, then scan one BMS or BMU and both modules in the 2D battery builder.</p>
-          <div className="grid gap-3 md:grid-cols-2">
-            <label className="text-xs font-bold text-slate-600">Battery template<select value={selectedProductId} onChange={event => setSelectedProductId(event.target.value)} disabled={creatingBattery} className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2.5 text-sm"><option value="">Select product template</option>{products.map(item => <option key={item.id} value={item.id}>{item.name} · 2 modules</option>)}</select></label>
-            <div className="rounded-lg border border-emerald-100 bg-emerald-50 px-3 py-2.5 text-xs text-emerald-900"><strong>New battery:</strong><span className="block mt-1 text-[11px] text-emerald-700">A new unit will be created from the selected template.</span></div>
-          </div>
-          <button
-            type="button"
-            onClick={() => { void handleTemplateSelection(selectedProductId); }}
-            disabled={!selectedProductId || creatingBattery}
-            className="mt-5 w-full rounded-lg bg-emerald-600 px-4 py-3 text-sm font-bold text-white transition-colors hover:bg-emerald-500 disabled:cursor-not-allowed disabled:bg-slate-300"
-          >
-            {creatingBattery ? 'Creating battery...' : 'Continue'}
-          </button>
-          <div className="my-6 flex items-center gap-3 text-[10px] font-black uppercase tracking-widest text-slate-400"><span className="h-px flex-1 bg-slate-200" />Or open an existing pack<span className="h-px flex-1 bg-slate-200" /></div>
-          <div className="flex gap-2">
-            <select value={selectedExistingBatteryId} onChange={event => setSelectedExistingBatteryId(event.target.value)} className="min-w-0 flex-1 rounded-lg border border-slate-200 px-3 py-2.5 text-sm">
-              <option value="">Select battery pack ({availableBatteries.length})</option>
-              {availableBatteries.map(item => <option key={item.id} value={item.id}>{item.serialNumber} · {item.productName || 'Unknown product'} · {item.status}</option>)}
-            </select>
-            <button type="button" onClick={() => { if (selectedExistingBatteryId) { setActiveBatteryId(selectedExistingBatteryId); setBuilderEditMode(true); } }} disabled={!selectedExistingBatteryId || loading} className="rounded-lg bg-slate-900 px-4 py-2.5 text-xs font-bold text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-300">Open pack</button>
-          </div>
-          </> : null}
-          {builderOpen && <>
-          <div className="mt-5 rounded-xl border border-blue-200 bg-blue-50 p-4">
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-              <div>
-                <p className="text-[10px] font-black uppercase tracking-widest text-blue-700">Controller Selection</p>
-                <p className="mt-1 text-xs text-blue-900">Select an existing controller from inventory before scanning its barcode.</p>
+          {!battery || !product ? (
+            <>
+              <Layers className="w-12 h-12 text-slate-400 mx-auto mb-3" />
+              <h2 className="text-xl font-black text-slate-800 mb-2 text-center">
+                SELECT PACK TO ASSEMBLE
+              </h2>
+              <p className="text-sm text-slate-500 mb-6 text-center">
+                Select the battery template, choose the battery, then scan one
+                BMS or BMU and both modules in the 2D battery builder.
+              </p>
+              <div className="grid gap-3 md:grid-cols-2">
+                <label className="text-xs font-bold text-slate-600">
+                  Battery template
+                  <select
+                    value={selectedProductId}
+                    onChange={(event) =>
+                      setSelectedProductId(event.target.value)
+                    }
+                    disabled={creatingBattery}
+                    className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2.5 text-sm"
+                  >
+                    <option value="">Select product template</option>
+                    {products.map((item) => (
+                      <option key={item.id} value={item.id}>
+                        {item.name} · 2 modules
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <div className="rounded-lg border border-emerald-100 bg-emerald-50 px-3 py-2.5 text-xs text-emerald-900">
+                  <strong>New battery:</strong>
+                  <span className="block mt-1 text-[11px] text-emerald-700">
+                    A new unit will be created from the selected template.
+                  </span>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  void handleTemplateSelection(selectedProductId);
+                }}
+                disabled={!selectedProductId || creatingBattery}
+                className="mt-5 w-full rounded-lg bg-emerald-600 px-4 py-3 text-sm font-bold text-white transition-colors hover:bg-emerald-500 disabled:cursor-not-allowed disabled:bg-slate-300"
+              >
+                {creatingBattery ? "Creating battery..." : "Continue"}
+              </button>
+              <div className="my-6 flex items-center gap-3 text-[10px] font-black uppercase tracking-widest text-slate-400">
+                <span className="h-px flex-1 bg-slate-200" />
+                Or open an existing pack
+                <span className="h-px flex-1 bg-slate-200" />
               </div>
               <div className="flex gap-2">
-                <button type="button" onClick={() => { setScanTarget('BMS'); setScannerOpen(true); }} className="rounded-lg border border-blue-300 bg-white px-4 py-2 text-xs font-bold text-blue-800 hover:bg-blue-100">Select BMS</button>
-                <button type="button" onClick={() => { setScanTarget('BMU'); setScannerOpen(true); }} className="rounded-lg border border-blue-300 bg-white px-4 py-2 text-xs font-bold text-blue-800 hover:bg-blue-100">Select BMU</button>
+                <select
+                  value={selectedExistingBatteryId}
+                  onChange={(event) =>
+                    setSelectedExistingBatteryId(event.target.value)
+                  }
+                  className="min-w-0 flex-1 rounded-lg border border-slate-200 px-3 py-2.5 text-sm"
+                >
+                  <option value="">
+                    Select battery pack ({availableBatteries.length})
+                  </option>
+                  {availableBatteries.map((item) => (
+                    <option key={item.id} value={item.id}>
+                      {item.serialNumber} ·{" "}
+                      {item.productName || "Unknown product"} · {item.status}
+                    </option>
+                  ))}
+                </select>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (selectedExistingBatteryId) {
+                      setActiveBatteryId(selectedExistingBatteryId);
+                      setBuilderEditMode(true);
+                    }
+                  }}
+                  disabled={!selectedExistingBatteryId || loading}
+                  className="rounded-lg bg-slate-900 px-4 py-2.5 text-xs font-bold text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-300"
+                >
+                  Open pack
+                </button>
               </div>
-            </div>
-          </div>
-          {battery && <div className="mt-5 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"><div className="flex items-center justify-between border-b border-slate-100 pb-4"><div><p className="text-[10px] font-black uppercase tracking-widest text-emerald-600">2D Battery Builder</p><h3 className="text-lg font-black text-slate-900">Physical Component Layout</h3><p className="text-xs text-slate-500">Scan or verify the controller and both module positions.</p></div><div className="flex items-center gap-2"><span className="rounded-lg bg-slate-100 px-3 py-2 text-xs font-mono font-bold text-slate-700">{battery.serialNumber}</span><button type="button" onClick={() => void handleEditBatterySerial()} disabled={submitting} className="rounded-lg border border-slate-200 bg-white p-2 text-slate-500 hover:bg-emerald-50 hover:text-emerald-700 disabled:opacity-50" title="Edit battery serial number"><Pencil className="h-4 w-4" /></button></div></div><div className="mt-4 rounded-xl border border-blue-200 bg-blue-50 p-4"><div className="flex items-center justify-between"><div><p className="text-[10px] font-black uppercase tracking-widest text-blue-700">Controller</p><p className="mt-1 text-sm font-bold text-slate-900">{scannedControllerType ? `${scannedControllerType} verified` : 'Scan BMS or BMU'}</p></div><button type="button" onClick={() => { setScanTarget(scannedControllerType || 'BMS'); setScannerOpen(true); }} className="rounded-lg bg-blue-600 px-3 py-2 text-xs font-bold text-white">{scannedControllerType ? 'Rescan' : 'Scan controller'}</button></div></div><div className="mt-4 grid gap-4 md:grid-cols-2">{[0, 1].map(moduleIndex => { const module = battery.modules?.[moduleIndex]; const scanned = Boolean(module && scannedModuleIds.includes(module.id)); return <div key={moduleIndex} className="rounded-xl border border-emerald-200 bg-emerald-50/60 p-4"><div className="flex items-center justify-between"><div><p className="text-[10px] font-black uppercase tracking-widest text-emerald-700">Module {String(moduleIndex + 1).padStart(2, '0')}</p><p className="mt-1 font-mono text-xs font-bold text-slate-900">{module?.serialNumber || 'Module slot not assigned'}</p></div><button type="button" onClick={() => { setScanTarget('MODULE'); setScannerOpen(true); }} disabled={scanned} className="rounded-lg border border-emerald-300 bg-white px-3 py-2 text-xs font-bold text-emerald-800 disabled:opacity-60">{scanned ? 'Verified' : 'Scan module'}</button></div><div className="mt-3 grid grid-cols-4 gap-2">{(module?.cells || []).map((cell, cellIndex) => <div key={cell.id} className="rounded-lg border border-emerald-200 bg-white p-2 text-center"><span className="block text-[9px] font-black text-emerald-700">S{cellIndex + 1}</span><span className="mt-1 block truncate font-mono text-[9px] text-slate-600">{cell.internalSerial || cell.supplierBarcode || cell.id}</span></div>)}{!module?.cells?.length && <div className="col-span-4 rounded-lg border border-dashed border-emerald-300 bg-white/70 p-4 text-center text-[10px] text-slate-500">Cells appear after the module is assigned.</div>}</div></div>; })}</div></div>}
-          {battery && <div className="mt-4 grid gap-3 md:grid-cols-3 text-xs"><div className="rounded-xl border border-slate-200 bg-slate-50 p-3"><strong>Modules required</strong><span className="block mt-1 font-mono">{scannedModuleIds.length} / {requiredModuleCount} scanned</span></div><div className="rounded-xl border border-slate-200 bg-slate-50 p-3"><strong>Controller required</strong><span className="block mt-1 font-mono">{controllerReady ? (scannedControllerType || 'Controller') + ' scanned' : 'Scan BMS or BMU'}</span></div><div className="rounded-xl border border-slate-200 bg-slate-50 p-3"><strong>2D builder</strong><span className="block mt-1 font-mono">{setupReady ? 'Ready for testing' : 'Scan controller + 2 modules'}</span></div></div>}
-          <p className={`mt-4 text-center text-xs font-bold ${setupReady ? 'text-emerald-700' : 'text-amber-700'}`}>{setupReady ? '2D battery builder complete. Continue to pack testing.' : 'Select a template and battery, then scan one BMS or BMU and 2 modules.'}</p>
-          {setupReady && <button type="button" onClick={() => setBuilderEditMode(false)} className="mt-3 w-full rounded-lg bg-slate-900 px-4 py-3 text-xs font-bold text-white hover:bg-slate-800">Continue to pack testing</button>}
-          <ScannerModal isOpen={scannerOpen} onClose={() => setScannerOpen(false)} onScan={handlePackScan} title={`Scan ${scanTarget}`} subtitle="Scan the component barcode assigned to this battery pack" />
-          </>}
+            </>
+          ) : null}
+          {builderOpen && (
+            <>
+              <div className="mt-5 rounded-xl border border-blue-200 bg-blue-50 p-4">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <p className="text-[10px] font-black uppercase tracking-widest text-blue-700">
+                      Controller Selection
+                    </p>
+                    <p className="mt-1 text-xs text-blue-900">
+                      Select an existing controller from inventory before
+                      scanning its barcode.
+                    </p>
+                  </div>
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setScanTarget("BMS");
+                        setScannerOpen(true);
+                      }}
+                      className="rounded-lg border border-blue-300 bg-white px-4 py-2 text-xs font-bold text-blue-800 hover:bg-blue-100"
+                    >
+                      Select BMS
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setScanTarget("BMU");
+                        setScannerOpen(true);
+                      }}
+                      className="rounded-lg border border-blue-300 bg-white px-4 py-2 text-xs font-bold text-blue-800 hover:bg-blue-100"
+                    >
+                      Select BMU
+                    </button>
+                  </div>
+                </div>
+              </div>
+              {battery && (
+                <div className="mt-5 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+                  <div className="flex items-center justify-between border-b border-slate-100 pb-4">
+                    <div>
+                      <p className="text-[10px] font-black uppercase tracking-widest text-emerald-600">
+                        2D Battery Builder
+                      </p>
+                      <h3 className="text-lg font-black text-slate-900">
+                        Physical Component Layout
+                      </h3>
+                      <p className="text-xs text-slate-500">
+                        Scan or verify the controller and both module positions.
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="rounded-lg bg-slate-100 px-3 py-2 text-xs font-mono font-bold text-slate-700">
+                        {battery.serialNumber}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => void handleEditBatterySerial()}
+                        disabled={submitting}
+                        className="rounded-lg border border-slate-200 bg-white p-2 text-slate-500 hover:bg-emerald-50 hover:text-emerald-700 disabled:opacity-50"
+                        title="Edit battery serial number"
+                      >
+                        <Pencil className="h-4 w-4" />
+                      </button>
+                    </div>
+                  </div>
+                  <div className="mt-4 rounded-xl border border-blue-200 bg-blue-50 p-4">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-[10px] font-black uppercase tracking-widest text-blue-700">
+                          Controller
+                        </p>
+                        <p className="mt-1 text-sm font-bold text-slate-900">
+                          {scannedControllerType
+                            ? `${scannedControllerType} verified`
+                            : "Scan BMS or BMU"}
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setScanTarget(scannedControllerType || "BMS");
+                          setScannerOpen(true);
+                        }}
+                        className="rounded-lg bg-blue-600 px-3 py-2 text-xs font-bold text-white"
+                      >
+                        {scannedControllerType ? "Rescan" : "Scan controller"}
+                      </button>
+                    </div>
+                  </div>
+                  <div className="mt-4 grid gap-4 md:grid-cols-2">
+                    {[0, 1].map((moduleIndex) => {
+                      const module = battery.modules?.[moduleIndex];
+                      const scanned = Boolean(
+                        module && scannedModuleIds.includes(module.id),
+                      );
+                      return (
+                        <div
+                          key={moduleIndex}
+                          className="rounded-xl border border-emerald-200 bg-emerald-50/60 p-4"
+                        >
+                          <div className="flex items-center justify-between">
+                            <div>
+                              <p className="text-[10px] font-black uppercase tracking-widest text-emerald-700">
+                                Module{" "}
+                                {String(moduleIndex + 1).padStart(2, "0")}
+                              </p>
+                              <p className="mt-1 font-mono text-xs font-bold text-slate-900">
+                                {module?.serialNumber ||
+                                  "Module slot not assigned"}
+                              </p>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setScanTarget("MODULE");
+                                setScannerOpen(true);
+                              }}
+                              disabled={scanned}
+                              className="rounded-lg border border-emerald-300 bg-white px-3 py-2 text-xs font-bold text-emerald-800 disabled:opacity-60"
+                            >
+                              {scanned ? "Verified" : "Scan module"}
+                            </button>
+                          </div>
+                          <div className="mt-3 grid grid-cols-4 gap-2">
+                            {(module?.cells || []).map((cell, cellIndex) => (
+                              <div
+                                key={cell.id}
+                                className="rounded-lg border border-emerald-200 bg-white p-2 text-center"
+                              >
+                                <span className="block text-[9px] font-black text-emerald-700">
+                                  S{cellIndex + 1}
+                                </span>
+                                <span
+                                  className="mt-1 block break-all font-mono text-[8px] leading-tight text-slate-600"
+                                  title={cell.supplierBarcode || (cell as any).supplier_barcode || cell.internalSerial || (cell as any).internal_serial || cell.id}
+                                >
+                                  {cell.supplierBarcode ||
+                                    (cell as any).supplier_barcode ||
+                                    cell.internalSerial ||
+                                    (cell as any).internal_serial ||
+                                    cell.id}
+                                </span>
+                              </div>
+                            ))}
+                            {!module?.cells?.length && (
+                              <div className="col-span-4 rounded-lg border border-dashed border-emerald-300 bg-white/70 p-4 text-center text-[10px] text-slate-500">
+                                Cells appear after the module is assigned.
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+              {battery && (
+                <div className="mt-4 grid gap-3 md:grid-cols-3 text-xs">
+                  <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+                    <strong>Modules required</strong>
+                    <span className="block mt-1 font-mono">
+                      {scannedModuleIds.length} / {requiredModuleCount} scanned
+                    </span>
+                  </div>
+                  <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+                    <strong>Controller required</strong>
+                    <span className="block mt-1 font-mono">
+                      {controllerReady
+                        ? (scannedControllerType || "Controller") + " scanned"
+                        : "Scan BMS or BMU"}
+                    </span>
+                  </div>
+                  <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+                    <strong>2D builder</strong>
+                    <span className="block mt-1 font-mono">
+                      {setupReady
+                        ? "Ready for testing"
+                        : "Scan controller + 2 modules"}
+                    </span>
+                  </div>
+                </div>
+              )}
+              <p
+                className={`mt-4 text-center text-xs font-bold ${setupReady ? "text-emerald-700" : "text-amber-700"}`}
+              >
+                {setupReady
+                  ? "2D battery builder complete. Continue to pack testing."
+                  : "Select a template and battery, then scan one BMS or BMU and 2 modules."}
+              </p>
+              {setupReady && (
+                <button
+                  type="button"
+                  onClick={() => setBuilderEditMode(false)}
+                  className="mt-3 w-full rounded-lg bg-slate-900 px-4 py-3 text-xs font-bold text-white hover:bg-slate-800"
+                >
+                  Continue to pack testing
+                </button>
+              )}
+              <ScannerModal
+                isOpen={scannerOpen}
+                onClose={() => setScannerOpen(false)}
+                onScan={handlePackScan}
+                title={`Scan ${scanTarget}`}
+                subtitle="Scan the component barcode assigned to this battery pack"
+              />
+            </>
+          )}
         </div>
-
       </div>
     );
   }
 
-  const isTestingPassed = battery.stepResults.FINAL_TESTING?.status === 'PASSED';
-  const isFinalQcPassed = battery.stepResults.FINAL_QC?.status === 'PASSED' || battery.status === 'FINISHED';
+  const isTestingPassed =
+    battery.stepResults.FINAL_TESTING?.status === "PASSED";
+  const isFinalQcPassed =
+    battery.stepResults.FINAL_QC?.status === "PASSED" ||
+    battery.status === "FINISHED";
 
   // Count total cells
   let totalCellsCount = 0;
-  battery.modules.forEach(m => {
+  battery.modules.forEach((m) => {
     totalCellsCount += m.cells?.length || 0;
   });
 
   return (
     <div className="flex-1 p-4 md:p-8 overflow-y-auto bg-slate-50">
       <div className="max-w-6xl mx-auto space-y-6">
-
         {/* Header */}
         <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div>
@@ -321,20 +746,36 @@ export const BatteryPackWorkflowView: React.FC = () => {
 
           <div className="flex flex-wrap gap-2 text-xs">
             <div className="px-3 py-1.5 bg-slate-100 rounded-lg border border-slate-200">
-              <span className="text-slate-400 font-bold block text-[10px] uppercase">Battery Serial</span>
-              <span className="font-mono font-bold text-slate-800">{battery.serialNumber}</span>
+              <span className="text-slate-400 font-bold block text-[10px] uppercase">
+                Battery Serial
+              </span>
+              <span className="font-mono font-bold text-slate-800">
+                {battery.serialNumber}
+              </span>
             </div>
             <div className="px-3 py-1.5 bg-slate-100 rounded-lg border border-slate-200">
-              <span className="text-slate-400 font-bold block text-[10px] uppercase">Product</span>
-              <span className="font-bold text-slate-800">{battery.productName}</span>
+              <span className="text-slate-400 font-bold block text-[10px] uppercase">
+                Product
+              </span>
+              <span className="font-bold text-slate-800">
+                {battery.productName}
+              </span>
             </div>
             <div className="px-3 py-1.5 bg-emerald-50 rounded-lg border border-emerald-200">
-              <span className="text-emerald-600 font-bold block text-[10px] uppercase">Status</span>
-              <span className="font-bold text-emerald-800">{battery.status}</span>
+              <span className="text-emerald-600 font-bold block text-[10px] uppercase">
+                Status
+              </span>
+              <span className="font-bold text-emerald-800">
+                {battery.status}
+              </span>
             </div>
             <div className="px-3 py-1.5 bg-blue-50 rounded-lg border border-blue-200">
-              <span className="text-blue-600 font-bold block text-[10px] uppercase">Modules Scanned</span>
-              <span className="font-mono font-bold text-blue-800">{scannedModuleIds.length} / {requiredModuleCount}</span>
+              <span className="text-blue-600 font-bold block text-[10px] uppercase">
+                Modules Scanned
+              </span>
+              <span className="font-mono font-bold text-blue-800">
+                {scannedModuleIds.length} / {requiredModuleCount}
+              </span>
             </div>
           </div>
         </div>
@@ -347,9 +788,12 @@ export const BatteryPackWorkflowView: React.FC = () => {
                 <CheckCircle2 className="w-8 h-8 text-white" />
               </div>
               <div>
-                <h3 className="text-lg font-black tracking-tight">BATTERY RELEASED & COMPLIANCE VERIFIED</h3>
+                <h3 className="text-lg font-black tracking-tight">
+                  BATTERY RELEASED & COMPLIANCE VERIFIED
+                </h3>
                 <p className="text-xs text-emerald-100">
-                  All cell, module, BMS, and pack-level testing stages passed 100%. Ready for shipping or customer assignment.
+                  All cell, module, BMS, and pack-level testing stages passed
+                  100%. Ready for shipping or customer assignment.
                 </p>
               </div>
             </div>
@@ -365,7 +809,6 @@ export const BatteryPackWorkflowView: React.FC = () => {
 
         {/* Step 1 & 2: Pack Assembly & Testing Table */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-
           {/* Left: Pack Enclosure & BMS Integration Verification */}
           <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-4">
             <div className="flex items-center justify-between border-b border-slate-100 pb-3">
@@ -379,24 +822,38 @@ export const BatteryPackWorkflowView: React.FC = () => {
 
             <div className="space-y-3 text-xs">
               <div className="flex justify-between items-center p-3 bg-slate-50 rounded-xl border border-slate-100">
-                <span className="text-slate-600 font-medium">Assembled Modules:</span>
-                <span className="font-bold font-mono text-slate-900">{battery.modules.length} Modules ({totalCellsCount} Cells)</span>
+                <span className="text-slate-600 font-medium">
+                  Assembled Modules:
+                </span>
+                <span className="font-bold font-mono text-slate-900">
+                  {battery.modules.length} Modules ({totalCellsCount} Cells)
+                </span>
               </div>
               <div className="flex justify-between items-center p-3 bg-slate-50 rounded-xl border border-slate-100">
                 <span className="text-slate-600 font-medium">BMS Board:</span>
                 <span className="font-bold font-mono text-slate-900">
-                  {battery.bms ? `${battery.bms.serialNumber} (${battery.bms.model})` : 'Integrated BMS'}
+                  {battery.bms
+                    ? `${battery.bms.serialNumber} (${battery.bms.model})`
+                    : "Integrated BMS"}
                 </span>
               </div>
               {battery.bmu && (
                 <div className="flex justify-between items-center p-3 bg-slate-50 rounded-xl border border-slate-100">
-                  <span className="text-slate-600 font-medium">BMU Master Controller:</span>
-                  <span className="font-bold font-mono text-slate-900">{battery.bmu.serialNumber} ({battery.bmu.model})</span>
+                  <span className="text-slate-600 font-medium">
+                    BMU Master Controller:
+                  </span>
+                  <span className="font-bold font-mono text-slate-900">
+                    {battery.bmu.serialNumber} ({battery.bmu.model})
+                  </span>
                 </div>
               )}
               <div className="flex justify-between items-center p-3 bg-slate-50 rounded-xl border border-slate-100">
-                <span className="text-slate-600 font-medium">Wiring Harness & Connectors:</span>
-                <span className="font-bold text-emerald-700">Torque Verified (4.5 Nm)</span>
+                <span className="text-slate-600 font-medium">
+                  Wiring Harness & Connectors:
+                </span>
+                <span className="font-bold text-emerald-700">
+                  Torque Verified (4.5 Nm)
+                </span>
               </div>
             </div>
           </div>
@@ -408,7 +865,10 @@ export const BatteryPackWorkflowView: React.FC = () => {
                 <h2 className="text-sm font-black uppercase text-slate-900 tracking-wider">
                   2. Battery Pack IR & QC Testing
                 </h2>
-                <p className="text-[10px] text-slate-400">Total IR is calculated from the assigned cell values and can be adjusted.</p>
+                <p className="text-[10px] text-slate-400">
+                  Total IR is calculated from the assigned cell values and can
+                  be adjusted.
+                </p>
               </div>
               <Zap className="w-4 h-4 text-emerald-600" />
             </div>
@@ -432,16 +892,17 @@ export const BatteryPackWorkflowView: React.FC = () => {
                     QC Testing
                   </label>
                   <div className="flex gap-2">
-                    {(['PASSED', 'FAILED'] as const).map(status => (
+                    {(["PASSED", "FAILED"] as const).map((status) => (
                       <button
                         key={status}
                         type="button"
                         onClick={() => setQcTesting(status)}
-                        className={`flex-1 rounded-lg border px-3 py-2 text-xs font-bold transition-colors ${qcTesting === status
-                          ? status === 'PASSED'
-                            ? 'border-emerald-300 bg-emerald-50 text-emerald-800'
-                            : 'border-red-300 bg-red-50 text-red-800'
-                          : 'border-slate-200 bg-slate-50 text-slate-500 hover:bg-slate-100'
+                        className={`flex-1 rounded-lg border px-3 py-2 text-xs font-bold transition-colors ${
+                          qcTesting === status
+                            ? status === "PASSED"
+                              ? "border-emerald-300 bg-emerald-50 text-emerald-800"
+                              : "border-red-300 bg-red-50 text-red-800"
+                            : "border-slate-200 bg-slate-50 text-slate-500 hover:bg-slate-100"
                         }`}
                       >
                         {status}
@@ -457,11 +918,12 @@ export const BatteryPackWorkflowView: React.FC = () => {
                 disabled={submitting}
                 className="w-full py-2.5 bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold rounded-xl transition-colors shadow-xs"
               >
-                {submitting ? 'RECORDING PARAMETERS...' : 'RECORD PACK ELECTRICAL TESTING'}
+                {submitting
+                  ? "RECORDING PARAMETERS..."
+                  : "RECORD PACK ELECTRICAL TESTING"}
               </button>
             </div>
           </div>
-
         </div>
 
         {/* Step 3: Complete Manufacturing Traceability Summary Table */}
@@ -471,7 +933,9 @@ export const BatteryPackWorkflowView: React.FC = () => {
               <h3 className="text-sm font-black uppercase tracking-wider">
                 Manufacturing Stage Traceability & Quality Gate
               </h3>
-              <p className="text-xs text-slate-400">All workflow milestones must be satisfied before final release</p>
+              <p className="text-xs text-slate-400">
+                All workflow milestones must be satisfied before final release
+              </p>
             </div>
             <ShieldCheck className="w-5 h-5 text-emerald-400" />
           </div>
@@ -489,52 +953,93 @@ export const BatteryPackWorkflowView: React.FC = () => {
               </thead>
               <tbody className="divide-y divide-slate-100">
                 <tr>
-                  <td className="px-4 py-3 font-bold text-slate-800">1. Cell OCV / IR Testing</td>
-                  <td className="px-4 py-3 text-slate-500 font-mono">CELL LEVEL ({totalCellsCount} Cells)</td>
+                  <td className="px-4 py-3 font-bold text-slate-800">
+                    1. Cell OCV / IR Testing
+                  </td>
+                  <td className="px-4 py-3 text-slate-500 font-mono">
+                    CELL LEVEL ({totalCellsCount} Cells)
+                  </td>
                   <td className="px-4 py-3">
                     <span className="inline-flex items-center px-2 py-0.5 bg-emerald-100 text-emerald-800 rounded font-bold">
                       ✓ PASSED
                     </span>
                   </td>
-                  <td className="px-4 py-3 text-slate-600">{battery.stepResults.CELL_TESTING?.completedBy || 'Operator 1'}</td>
-                  <td className="px-4 py-3 text-slate-400 font-mono">{battery.stepResults.CELL_TESTING?.completedAt || 'Verified'}</td>
+                  <td className="px-4 py-3 text-slate-600">
+                    {battery.stepResults.CELL_TESTING?.completedBy ||
+                      "Operator 1"}
+                  </td>
+                  <td className="px-4 py-3 text-slate-400 font-mono">
+                    {battery.stepResults.CELL_TESTING?.completedAt ||
+                      "Verified"}
+                  </td>
                 </tr>
                 <tr>
-                  <td className="px-4 py-3 font-bold text-slate-800">2. Cell Grading Assessment</td>
-                  <td className="px-4 py-3 text-slate-500 font-mono">CELL LEVEL</td>
+                  <td className="px-4 py-3 font-bold text-slate-800">
+                    2. Cell Grading Assessment
+                  </td>
+                  <td className="px-4 py-3 text-slate-500 font-mono">
+                    CELL LEVEL
+                  </td>
                   <td className="px-4 py-3">
                     <span className="inline-flex items-center px-2 py-0.5 bg-emerald-100 text-emerald-800 rounded font-bold">
                       ✓ PASSED
                     </span>
                   </td>
-                  <td className="px-4 py-3 text-slate-600">{battery.stepResults.GRADING?.completedBy || 'Operator 1'}</td>
-                  <td className="px-4 py-3 text-slate-400 font-mono">{battery.stepResults.GRADING?.completedAt || 'Verified'}</td>
+                  <td className="px-4 py-3 text-slate-600">
+                    {battery.stepResults.GRADING?.completedBy || "Operator 1"}
+                  </td>
+                  <td className="px-4 py-3 text-slate-400 font-mono">
+                    {battery.stepResults.GRADING?.completedAt || "Verified"}
+                  </td>
                 </tr>
                 <tr>
-                  <td className="px-4 py-3 font-bold text-slate-800">3. Damage History Visual Inspection</td>
-                  <td className="px-4 py-3 text-slate-500 font-mono">CELL LEVEL</td>
+                  <td className="px-4 py-3 font-bold text-slate-800">
+                    3. Damage History Visual Inspection
+                  </td>
+                  <td className="px-4 py-3 text-slate-500 font-mono">
+                    CELL LEVEL
+                  </td>
                   <td className="px-4 py-3">
                     <span className="inline-flex items-center px-2 py-0.5 bg-emerald-100 text-emerald-800 rounded font-bold">
                       ✓ PASSED
                     </span>
                   </td>
-                  <td className="px-4 py-3 text-slate-600">{battery.stepResults.DAMAGE_HISTORY?.completedBy || 'Quality Inspector'}</td>
-                  <td className="px-4 py-3 text-slate-400 font-mono">{battery.stepResults.DAMAGE_HISTORY?.completedAt || 'Verified'}</td>
+                  <td className="px-4 py-3 text-slate-600">
+                    {battery.stepResults.DAMAGE_HISTORY?.completedBy ||
+                      "Quality Inspector"}
+                  </td>
+                  <td className="px-4 py-3 text-slate-400 font-mono">
+                    {battery.stepResults.DAMAGE_HISTORY?.completedAt ||
+                      "Verified"}
+                  </td>
                 </tr>
                 <tr>
-                  <td className="px-4 py-3 font-bold text-slate-800">4. Module Laser Welding & QC</td>
-                  <td className="px-4 py-3 text-slate-500 font-mono">MODULE LEVEL ({battery.modules.length} Modules)</td>
+                  <td className="px-4 py-3 font-bold text-slate-800">
+                    4. Module Laser Welding & QC
+                  </td>
+                  <td className="px-4 py-3 text-slate-500 font-mono">
+                    MODULE LEVEL ({battery.modules.length} Modules)
+                  </td>
                   <td className="px-4 py-3">
                     <span className="inline-flex items-center px-2 py-0.5 bg-emerald-100 text-emerald-800 rounded font-bold">
                       ✓ PASSED
                     </span>
                   </td>
-                  <td className="px-4 py-3 text-slate-600">{battery.stepResults.MODULE_QC?.completedBy || 'Welding Tech'}</td>
-                  <td className="px-4 py-3 text-slate-400 font-mono">{battery.stepResults.MODULE_QC?.completedAt || 'Verified'}</td>
+                  <td className="px-4 py-3 text-slate-600">
+                    {battery.stepResults.MODULE_QC?.completedBy ||
+                      "Welding Tech"}
+                  </td>
+                  <td className="px-4 py-3 text-slate-400 font-mono">
+                    {battery.stepResults.MODULE_QC?.completedAt || "Verified"}
+                  </td>
                 </tr>
                 <tr>
-                  <td className="px-4 py-3 font-bold text-slate-800">5. Battery Pack IR & Hi-Pot</td>
-                  <td className="px-4 py-3 text-slate-500 font-mono">BATTERY PACK LEVEL</td>
+                  <td className="px-4 py-3 font-bold text-slate-800">
+                    5. Battery Pack IR & Hi-Pot
+                  </td>
+                  <td className="px-4 py-3 text-slate-500 font-mono">
+                    BATTERY PACK LEVEL
+                  </td>
                   <td className="px-4 py-3">
                     {isTestingPassed ? (
                       <span className="inline-flex items-center px-2 py-0.5 bg-emerald-100 text-emerald-800 rounded font-bold">
@@ -546,8 +1051,12 @@ export const BatteryPackWorkflowView: React.FC = () => {
                       </span>
                     )}
                   </td>
-                  <td className="px-4 py-3 text-slate-600">{currentUser.name}</td>
-                  <td className="px-4 py-3 text-slate-400 font-mono">Pending final signoff</td>
+                  <td className="px-4 py-3 text-slate-600">
+                    {currentUser.name}
+                  </td>
+                  <td className="px-4 py-3 text-slate-400 font-mono">
+                    Pending final signoff
+                  </td>
                 </tr>
               </tbody>
             </table>
@@ -561,14 +1070,15 @@ export const BatteryPackWorkflowView: React.FC = () => {
               Final Release Signoff
             </span>
             <p className="text-xs text-slate-600 font-medium">
-              Signing off marks the battery as finished, registers the final warranty QR code, and updates production order quantity.
+              Signing off marks the battery as finished, registers the final
+              warranty QR code, and updates production order quantity.
             </p>
           </div>
 
           <div className="flex space-x-3 shrink-0">
             <button
               type="button"
-              onClick={() => handleFinalQcSignoff('FAILED')}
+              onClick={() => handleFinalQcSignoff("FAILED")}
               disabled={submitting || isFinalQcPassed}
               className="px-5 py-3 bg-red-50 hover:bg-red-100 text-red-700 font-bold rounded-xl text-xs border border-red-200 transition-colors disabled:opacity-50"
             >
@@ -576,23 +1086,32 @@ export const BatteryPackWorkflowView: React.FC = () => {
             </button>
             <button
               type="button"
-              onClick={() => handleFinalQcSignoff('PASSED')}
+              onClick={() => handleFinalQcSignoff("PASSED")}
               disabled={submitting || isFinalQcPassed}
               className="px-8 py-3.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-xl text-sm shadow-xs transition-colors flex items-center space-x-2 disabled:opacity-50"
             >
               <CheckCircle2 className="w-4 h-4" />
-              <span>{isFinalQcPassed ? 'BATTERY RELEASED ✓' : 'RELEASE BATTERY PACK'}</span>
+              <span>
+                {isFinalQcPassed
+                  ? "BATTERY RELEASED ✓"
+                  : "RELEASE BATTERY PACK"}
+              </span>
             </button>
           </div>
         </div>
-
       </div>
       <ReleasedBatteryQrModal
         isOpen={qrPassportOpen}
         onClose={() => setQrPassportOpen(false)}
         battery={battery}
       />
-      <ScannerModal isOpen={scannerOpen} onClose={() => setScannerOpen(false)} onScan={handlePackScan} title={`Scan ${scanTarget}`} subtitle="Scan or enter the component barcode for this battery pack" />
+      <ScannerModal
+        isOpen={scannerOpen}
+        onClose={() => setScannerOpen(false)}
+        onScan={handlePackScan}
+        title={`Scan ${scanTarget}`}
+        subtitle="Scan or enter the component barcode for this battery pack"
+      />
     </div>
   );
 };

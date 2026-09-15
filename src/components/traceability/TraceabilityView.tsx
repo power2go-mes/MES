@@ -65,7 +65,7 @@ function batterySubtree(bat: any, bms: any, bmu: any, modules = bat.modules || [
   const children: TraceNode[] = [];
   modules.forEach((m: any, mi: number) => {
     const cellChildren: TraceNode[] = (m.cells || []).map((c: any, ci: number) =>
-      makeNode(`cell-${c.id}`, c.internalSerial || c.supplierBarcode, 'CELL', c, `Cell ${mi + 1} · Slot ${Number(c.moduleSlotIndex ?? ci) + 1}`)
+      makeNode(`cell-${c.id}`, c.supplierBarcode || c.internalSerial || c.id, 'CELL', c, `Cell ${mi + 1} · Slot ${Number(c.moduleSlotIndex ?? ci) + 1}`)
     );
     children.push(
       makeNode(`mod-${m.id}`, m.serialNumber, 'MODULE', m, `Module ${mi + 1}`, undefined, cellChildren)
@@ -109,14 +109,14 @@ function buildTree(t: any): TraceNode[] {
         makeNode('battery-' + t.battery.serialNumber, t.battery.serialNumber, 'BATTERY', t.battery, 'Battery Pack', undefined, bChildren)
       );
     }
-    roots.push(makeNode('cell', e.internalSerial || e.supplierBarcode, 'CELL', e, 'Cell', cellStatus(e), cellChildren));
+    roots.push(makeNode('cell', e.supplierBarcode || e.internalSerial || e.id, 'CELL', e, 'Cell', cellStatus(e), cellChildren));
     if (t.supplier) roots.unshift(makeNode('supplier', t.supplier.name, 'SUPPLIER', t.supplier, 'Supplier'));
     return roots;
   }
 
   if (type === 'MODULE') {
     const modChildren: TraceNode[] = (t.cells || e.cells || []).map((c: any, ci: number) =>
-      makeNode(`cell-${c.id}`, c.internalSerial || c.supplierBarcode, 'CELL', c, `Slot ${Number(c.moduleSlotIndex ?? ci) + 1}`)
+      makeNode(`cell-${c.id}`, c.supplierBarcode || c.internalSerial || c.id, 'CELL', c, `Slot ${Number(c.moduleSlotIndex ?? ci) + 1}`)
     );
     if (t.battery) {
       const bChildren: TraceNode[] = [];
@@ -167,7 +167,7 @@ function buildTree(t: any): TraceNode[] {
 
   if (type === 'SUPPLIER_BATCH') {
     const batchChildren: TraceNode[] = (t.cells || []).map((c: any) =>
-      makeNode(`cell-${c.id}`, c.internalSerial || c.supplierBarcode, 'CELL', c, 'Cell')
+      makeNode(`cell-${c.id}`, c.supplierBarcode || c.internalSerial || c.id, 'CELL', c, 'Cell')
     );
     const roots = [makeNode('batch', e.batchIdentifier, 'BATCH', e, 'Supplier Batch', undefined, batchChildren)];
     if (t.supplier) roots.unshift(makeNode('supplier', t.supplier.name, 'SUPPLIER', t.supplier, 'Supplier'));
@@ -364,26 +364,32 @@ const TreeNode: React.FC<{
 }> = ({ node, selectedKey, onSelect, depth }) => {
   const Icon = NODE_ICON[node.type] || GitMerge;
   const hasChildren = node.children && node.children.length > 0;
+  const copyValue = node.type === 'CELL'
+    ? String(node.data?.supplierBarcode || node.data?.supplier_barcode || node.title || '')
+    : String(node.data?.serialNumber || node.data?.serial_number || node.title || '');
+  const canCopy = node.type === 'CELL' || node.type === 'MODULE';
   return (
     <div>
-      <button
-        onClick={() => onSelect(node.key)}
-        className={`w-full flex items-center space-x-2 px-3 py-2 rounded-lg text-left transition-all ${
-          selectedKey === node.key
-            ? 'bg-emerald-50 border border-emerald-200 text-emerald-800'
-            : 'hover:bg-slate-50 border border-transparent text-slate-700'
-        }`}
-        style={{ marginLeft: depth * 14 }}
-      >
-        <Icon className="w-4 h-4 text-emerald-600 shrink-0" />
-        <div className="min-w-0 flex-1">
-          <div className="text-xs font-bold truncate">{node.title}</div>
-          {node.subtitle && <div className="text-[10px] text-slate-400 truncate">{node.subtitle}</div>}
-        </div>
-        <span className="text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded bg-slate-100 text-slate-500 shrink-0">
-          {TYPE_LABEL[node.type] || node.type}
-        </span>
-      </button>
+      <div className="flex items-center" style={{ marginLeft: depth * 14 }}>
+        <button
+          onClick={() => onSelect(node.key)}
+          className={`min-w-0 flex-1 flex items-center space-x-2 px-3 py-2 rounded-lg text-left transition-all ${
+            selectedKey === node.key
+              ? 'bg-emerald-50 border border-emerald-200 text-emerald-800'
+              : 'hover:bg-slate-50 border border-transparent text-slate-700'
+          }`}
+        >
+          <Icon className="w-4 h-4 text-emerald-600 shrink-0" />
+          <div className="min-w-0 flex-1">
+            <div className="text-xs font-bold truncate">{node.title}</div>
+            {node.subtitle && <div className="text-[10px] text-slate-400 truncate">{node.subtitle}</div>}
+          </div>
+          <span className="text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded bg-slate-100 text-slate-500 shrink-0">
+            {TYPE_LABEL[node.type] || node.type}
+          </span>
+        </button>
+        {canCopy && <CopyToClipboardButton value={copyValue} label={`Copy ${node.type.toLowerCase()} identifier`} />}
+      </div>
       {hasChildren &&
         node.children!.map(child => (
           <TreeNode key={child.key} node={child} selectedKey={selectedKey} onSelect={onSelect} depth={depth + 1} />
@@ -562,7 +568,7 @@ export const TraceabilityView: React.FC = () => {
               </span>
               <div className="mt-2 space-y-1 text-xs">
                 <p><span className="text-slate-400">Type:</span> <strong className="text-white">{TYPE_LABEL[trace.entityType] || trace.entityType}</strong></p>
-                <p className="inline-flex items-center gap-1"><span className="text-slate-400">Identifier:</span> <strong className="font-mono text-emerald-300">{trace.identifier}</strong><CopyToClipboardButton value={String(trace.identifier || '')} label="Copy trace identifier" /></p>
+                <p className="inline-flex items-center gap-1"><span className="text-slate-400">Identifier:</span> <strong className="font-mono text-emerald-300">{trace.entityType === 'CELL' ? (trace.entity?.supplierBarcode || trace.entity?.supplier_barcode || trace.identifier) : trace.identifier}</strong><CopyToClipboardButton value={String(trace.entityType === 'CELL' ? (trace.entity?.supplierBarcode || trace.entity?.supplier_barcode || trace.identifier) : trace.identifier || '')} label="Copy trace identifier" /></p>
                 <p><span className="text-slate-400">Status:</span> <strong className="text-white">{formatTraceStatus(trace.status)}</strong></p>
               </div>
             </div>

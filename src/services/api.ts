@@ -241,7 +241,13 @@ function hydrateModuleCells(assignments: any[] = []): any[] {
         ? Number(cell.moduleSlotIndex)
         : undefined;
 
-    const normalizedCell = { ...cell, ...(slotIndex !== undefined ? { moduleSlotIndex: slotIndex } : {}) };
+    const normalizedCell = {
+      ...cell,
+      internalSerial: cell.internalSerial ?? cell.internal_serial,
+      supplierBarcode: cell.supplierBarcode ?? cell.supplier_barcode,
+      qrCode: cell.qrCode ?? cell.qr_code,
+      ...(slotIndex !== undefined ? { moduleSlotIndex: slotIndex } : {}),
+    };
     const current = uniqueByCellId.get(cellId);
     if (!current || (slotIndex !== undefined && (current.moduleSlotIndex === undefined || slotIndex < current.moduleSlotIndex))) {
       uniqueByCellId.set(cellId, normalizedCell);

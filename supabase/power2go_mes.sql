@@ -2055,7 +2055,8 @@ begin
             'status', case when v_passed then 'PASSED' else 'FAILED' end,
             'mode', coalesce(p_result->>'mode', 'MANUAL'),
             'completedAt', now(),
-            'completedBy', auth.uid()
+            'completedBy', auth.uid(),
+            'manualValues', p_result
         )),
         updated_at = now()
     where id = p_battery_id;
