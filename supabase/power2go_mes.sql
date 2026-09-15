@@ -2158,14 +2158,9 @@ begin
         raise exception 'Not all modules have passed QC inspection (% of % passed)', v_passed_module_tests, v_module_count;
     end if;
 
-    -- QC GATE 2: Validate every controller required by the product is assigned.
-    if coalesce((select (bms_config_json->>'required')::boolean from public.product_templates where id = v_battery.product_id), true)
-        and v_battery.bms_id is null then
-        raise exception 'Battery requires an assigned BMS';
-    end if;
-    if coalesce((select (bmu_config_json->>'required')::boolean from public.product_templates where id = v_battery.product_id), false)
-        and v_battery.bmu_id is null then
-        raise exception 'Battery requires an assigned BMU';
+    -- QC GATE 2: A battery must have one assigned controller, BMS or BMU.
+    if v_battery.bms_id is null and v_battery.bmu_id is null then
+        raise exception 'Battery requires an assigned BMS or BMU';
     end if;
 
     -- QC GATE 3: Validate final EOL test passed

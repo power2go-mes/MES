@@ -2047,12 +2047,7 @@ apiRouter.post('/batteries/:id/final-qc', requirePermission('qc.approve_final'),
 
   const product = db.products.find(p => p.id === battery.productId);
   if (status === 'PASSED' && product) {
-    if (product.bmsConfig?.required && !battery.bms) {
-      return res.status(400).json({ error: `Product template ${product.sku} requires a BMS. Please scan and assign BMS before final release.` });
-    }
-    if (product.bmuConfig?.required && !battery.bmu) {
-      return res.status(400).json({ error: `Product template ${product.sku} requires a BMU. Please scan and assign BMU before final release.` });
-    }
+    if (!battery.bms && !battery.bmu) return res.status(400).json({ error: 'Cannot release battery: assign a BMS or BMU first.' });
   }
 
   if (status === 'PASSED') {

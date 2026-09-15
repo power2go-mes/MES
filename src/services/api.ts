@@ -3658,10 +3658,7 @@ async getUsers(): Promise<User[]> {
       const assignedCells = modules.reduce((total: number, module: any) => total + (Array.isArray(module.cells) ? module.cells.length : 0), 0);
       const cellsComplete = modules.length > 0 && assignedCells > 0 && (!requiredCells || assignedCells >= requiredCells);
       if (!cellsComplete) throw new Error('Cannot release battery: all module cell slots must be assigned.');
-      const bmsRequired = current.product?.bmsConfig?.required ?? current.product?.bms_config_json?.required ?? true;
-      const bmuRequired = current.product?.bmuConfig?.required ?? current.product?.bmu_config_json?.required ?? false;
-      if (bmsRequired && !current.bmsId) throw new Error('Cannot release battery: assign a BMS first.');
-      if (bmuRequired && !current.bmuId) throw new Error('Cannot release battery: assign a BMU first.');
+      if (!current.bmsId && !current.bmuId) throw new Error('Cannot release battery: assign a BMS or BMU first.');
       if (current.stepResults?.FINAL_TESTING?.status !== 'PASSED') throw new Error('Cannot release battery: pack testing must pass first.');
       const { data: openQuarantine, error: quarantineError } = await supabase
         .from('quarantine_records')
