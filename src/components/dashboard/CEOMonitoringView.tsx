@@ -265,7 +265,7 @@ export const CEOMonitoringView: React.FC = () => {
   const batteryPackData = useMemo<ChartRow[]>(() => (source.batteryPackBuckets || []).map((row: any, index: number) => ({
     label: String(row.label || 'Unnamed Pack'),
     value: numberOr(row.value),
-    color: packColorByModel[String(row.label || '')] || packColors[index % packColors.length],
+    color: reportColors.green,
   })), [source.batteryPackBuckets]);
   const filteredBatteryPackRows = selectedPackType === 'All' ? batteryPackData : batteryPackData.filter((row) => row.label === selectedPackType);
   const batteryPackDistribution = useMemo(() => buildDashboardDistribution(
@@ -292,7 +292,7 @@ export const CEOMonitoringView: React.FC = () => {
     return Array.from(totals.entries()).filter(([, value]) => value > 0).map(([power, value]) => ({
       label: `${power === '70' ? '67.9' : power} kWh ${power === '25' ? 'Rack' : 'Cabinet'}`,
       value,
-      color: rackPowerColors[power] || reportColors.blue,
+      color: reportColors.green,
     }));
   }, [source.rackStatusBuckets]);
   const filteredRackRows = selectedRackType === 'All' ? rackData : rackData.filter((row) => row.label === selectedRackType);
@@ -441,7 +441,7 @@ export const CEOMonitoringView: React.FC = () => {
           label,
           value: numberOr(row.value),
           capacityKwh: numberOr(row.capacityKwh),
-          color: index % 2 === 0 ? reportGreen : reportDarkGrey,
+          color: reportGreen,
         };
       });
       const cabinetReportRows = [{
@@ -466,7 +466,7 @@ export const CEOMonitoringView: React.FC = () => {
       const rackTypeTotals = new Map<string, { value: number; capacityKwh: number }>();
       const rackColor = (rackType: string) => {
         const powerMatch = rackType.match(/RACK_(\d+(?:\.\d+)?)KWH/i);
-        return (powerMatch && rackPowerColors[powerMatch[1]]) || reportCabinetBlue;
+        return reportGreen;
       };
       const formatRackLabel = (rackType: string) => {
         const powerMatch = rackType.match(/RACK_(\d+(?:\.\d+)?)KWH/i);
