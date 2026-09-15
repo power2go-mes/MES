@@ -2960,6 +2960,10 @@ begin
     values ('role-operator', 'MANAGE_INVENTORY')
     on conflict (role_id, permission_id) do nothing;
 
+    insert into public.role_permissions (role_id, permission_id)
+    values ('role-operator', 'ALL')
+    on conflict (role_id, permission_id) do nothing;
+
     -- 3. Link permission to role
     if not exists (select 1 from public.role_permissions where role_id = 'role-admin' and permission_id = 'ALL') then
         insert into public.role_permissions (role_id, permission_id) 

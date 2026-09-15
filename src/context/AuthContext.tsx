@@ -243,7 +243,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     (perm: string) => {
       if (!currentUser) return false;
       if (currentUser.role === 'admin' || currentUser.roleId === 'role-admin') return true;
-      return currentUser.permissions?.includes(perm) ?? false;
+      return currentUser.permissions?.includes(perm) || currentUser.permissions?.includes('ALL') || false;
     },
     [currentUser]
   );

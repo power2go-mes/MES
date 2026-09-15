@@ -389,7 +389,7 @@ export function requirePermission(permissionId: string) {
         .eq('role_id', user.roleId)
         .eq('permission_id', permissionId)
         .maybeSingle();
-      if (!error && grant) return next();
+      if (!error && (grant?.permission_id === permissionId || grant?.permission_id === 'ALL')) return next();
     }
     return res.status(403).json({ error: `Access Denied: Requires permission [${permissionId}]` });
   };

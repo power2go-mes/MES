@@ -166,7 +166,7 @@ class Database {
         name,
         description: `${name} access`,
         status: 'ACTIVE' as const,
-        permissions: [],
+        permissions: ['ALL'],
         createdAt: now,
         updatedAt: now,
       })),
