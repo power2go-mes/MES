@@ -95,7 +95,7 @@ const centerAlignSheet = (sheet: XLSX.WorkSheet) => {
   }
 };
 
-const styleExportSheet = (sheet: XLSX.WorkSheet) => {
+const styleExportSheet = (sheet: XLSX.WorkSheet, colorStatusCells = true) => {
   const range = sheet['!ref'];
   if (!range) return;
   const decodedRange = XLSX.utils.decode_range(range);
@@ -112,12 +112,13 @@ const styleExportSheet = (sheet: XLSX.WorkSheet) => {
     if (headerCell) {
       headerCell.s = {
         ...(headerCell.s || {}),
-        fill: { fgColor: { rgb: exportColors.navy } },
-        font: { bold: true, color: exportColors.white },
+        font: { ...(headerCell.s?.font || {}), bold: true },
         border: { bottom: { style: 'thin', color: exportColors.border } },
       };
     }
   }
+
+  if (!colorStatusCells) return;
 
   for (let row = decodedRange.s.r + 1; row <= decodedRange.e.r; row += 1) {
     statusColumns.forEach(({ index }) => {
@@ -134,12 +135,12 @@ const styleExportSheet = (sheet: XLSX.WorkSheet) => {
   }
 };
 
-const createExportSheet = (rows: object[]) => {
+const createExportSheet = (rows: object[], colorStatusCells = true) => {
   const numberedRows = rows.map((row, index) => ({ 'S.No.': index + 1, ...row }));
   const sheet = XLSX.utils.json_to_sheet(numberedRows);
   autoFitColumns(sheet, numberedRows);
   centerAlignSheet(sheet);
-  styleExportSheet(sheet);
+  styleExportSheet(sheet, colorStatusCells);
   return sheet;
 };
 
@@ -152,7 +153,7 @@ const formatClassificationLabel = (value: unknown) => String(value || '')
   .toLowerCase()
   .replace(/\b\w/g, character => character.toUpperCase());
 
-const appendOverviewSheet = (workbook: XLSX.WorkBook, classifications: string[]) => {
+const appendOverviewSheet = (workbook: XLSX.WorkBook, classifications: string[], colorStatusCells = true) => {
   const counts = classifications.reduce<Record<string, number>>((result, classification) => {
     result[classification] = (result[classification] || 0) + 1;
     return result;
@@ -161,7 +162,7 @@ const appendOverviewSheet = (workbook: XLSX.WorkBook, classifications: string[])
     .sort(([left], [right]) => getClassificationRank(left) - getClassificationRank(right) || left.localeCompare(right))
     .map(([classification, quantity]) => ({ Classification: formatClassificationLabel(classification), Quantity: quantity }));
   overviewRows.push({ Classification: 'Total', Quantity: classifications.length });
-  const overviewSheet = createExportSheet(overviewRows);
+  const overviewSheet = createExportSheet(overviewRows, colorStatusCells);
   XLSX.utils.book_append_sheet(workbook, overviewSheet, 'Overview');
 };
 
@@ -234,10 +235,10 @@ export const downloadCellReport = (
     const summaryQuantity = dashboardSummary.rows.length > 0 ? summaryTotal : cellRows.length;
     summaryRows.forEach(row => { row.Status = formatClassificationLabel(row.Status); });
     summaryRows.push({ Status: 'Total', Quantity: summaryQuantity });
-    const summarySheet = createExportSheet(summaryRows);
+    const summarySheet = createExportSheet(summaryRows, false);
     XLSX.utils.book_append_sheet(workbook, summarySheet, 'CEO Dashboard Summary');
   }
-  const sheet = createExportSheet(cellRows);
+  const sheet = createExportSheet(cellRows, false);
   XLSX.utils.book_append_sheet(workbook, sheet, 'Cells');
   writeExportFile(workbook, `MES_Cell_Inventory_${new Date().toISOString().slice(0, 10)}.xlsx`);
 };
@@ -253,8 +254,8 @@ export const downloadBatteryReport = (batteries: BatteryUnit[], options: CellExp
   }));
   sortByClassification(rows);
   const workbook = XLSX.utils.book_new();
-  appendOverviewSheet(workbook, rows.map(row => row.Classification));
-  const sheet = createExportSheet(rows);
+  appendOverviewSheet(workbook, rows.map(row => row.Classification), false);
+  const sheet = createExportSheet(rows, false);
   XLSX.utils.book_append_sheet(workbook, sheet, 'Batteries');
   writeExportFile(workbook, `MES_Battery_Report_${new Date().toISOString().slice(0, 10)}.xlsx`);
 };
@@ -269,8 +270,8 @@ export const downloadRackReport = (racks: RackUnit[], options: CellExportOptions
   }));
   sortByClassification(rows);
   const workbook = XLSX.utils.book_new();
-  appendOverviewSheet(workbook, rows.map(row => row.Classification));
-  const sheet = createExportSheet(rows);
+  appendOverviewSheet(workbook, rows.map(row => row.Classification), false);
+  const sheet = createExportSheet(rows, false);
   XLSX.utils.book_append_sheet(workbook, sheet, 'Rack-Cabinet');
   writeExportFile(workbook, 'MES_Rack_Cabinet_Report.xlsx');
 };
@@ -319,11 +320,11 @@ export const downloadSoldReport = (batteries: BatteryUnit[], racks: RackUnit[], 
     { Entity: 'Racks', Quantity: soldRacks.length },
     { Entity: 'TOTAL', Quantity: batteryRows.length + soldRacks.length },
   ];
-  const overviewSheet = createExportSheet(overviewRows);
+  const overviewSheet = createExportSheet(overviewRows, false);
   XLSX.utils.book_append_sheet(workbook, overviewSheet, 'Sold Overview');
   const appendSoldSheet = (name: string, rows: Record<string, unknown>[]) => {
     const outputRows = rows.length > 0 ? rows : [{ 'Serial Number': `No sold ${name.toLowerCase()} found` }];
-    const sheet = createExportSheet(outputRows);
+    const sheet = createExportSheet(outputRows, false);
     XLSX.utils.book_append_sheet(workbook, sheet, name);
   };
   appendSoldSheet('Battery Packs', batteryRows);
@@ -399,7 +400,7 @@ export const downloadWarehouseReport = (
     { Location: 'Lahore', Racks: rows.filter(row => row.Location === 'Lahore' && row.Entity === 'Rack').length, Cabinets: rows.filter(row => row.Location === 'Lahore' && row.Entity === 'Cabinet').length, 'Standalone Battery Packs': rows.filter(row => row.Location === 'Lahore' && row.Entity === 'Standalone Battery Pack').length },
     { Location: 'TOTAL', Racks: rows.filter(row => row.Entity === 'Rack').length, Cabinets: rows.filter(row => row.Entity === 'Cabinet').length, 'Standalone Battery Packs': rows.filter(row => row.Entity === 'Standalone Battery Pack').length },
   ];
-  const overviewSheet = createExportSheet(overviewRows);
+  const overviewSheet = createExportSheet(overviewRows, false);
   XLSX.utils.book_append_sheet(workbook, overviewSheet, 'Warehouse Overview');
   const batteryRows = rows.filter(row => row.Entity === 'Standalone Battery Pack');
   const rackRows = rows.filter(row => row.Entity === 'Rack' || row.Entity === 'Rack Battery Pack');
@@ -411,7 +412,7 @@ export const downloadWarehouseReport = (
     const emptyRow = sheetName === 'Battery Packs'
       ? { Location: '', 'Serial / QR': `No ${sheetName.toLowerCase()} found` }
       : { Location: '', 'Serial / QR': `No ${sheetName.toLowerCase()} found`, 'Type / Model': '' };
-    const sheet = createExportSheet(outputRows.length > 0 ? outputRows : [emptyRow]);
+    const sheet = createExportSheet(outputRows.length > 0 ? outputRows : [emptyRow], false);
     XLSX.utils.book_append_sheet(workbook, sheet, sheetName);
   };
   appendWarehouseSheet('Battery Packs', batteryRows);
