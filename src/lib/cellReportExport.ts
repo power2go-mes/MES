@@ -1,6 +1,31 @@
 import * as XLSX from 'xlsx-js-style';
 import { BatteryUnit, CellItem, RackUnit } from '../types';
 
+const exportColors = {
+  green: '10A36D',
+  blue: '2979C7',
+  amber: 'F4A62A',
+  red: 'DC3545',
+  slate: '64748B',
+  navy: '101828',
+  light: 'EAF7F2',
+  border: 'E2E8F0',
+  white: 'FFFFFF',
+} as const;
+
+const exportStatusColors: Record<string, string> = {
+  'IN STOCK': exportColors.green,
+  'FLOOR STOCK': exportColors.amber,
+  'IN MODULE': exportColors.green,
+  'IN PACK': exportColors.green,
+  'IN RACK': exportColors.green,
+  'KARACHI WAREHOUSE': exportColors.green,
+  'LAHORE WAREHOUSE': exportColors.green,
+  SOLD: exportColors.slate,
+  SCRAP: exportColors.red,
+  RECYCLE: exportColors.green,
+};
+
 const exportDate = (value?: string) => value ? new Date(value).toLocaleString() : '';
 const exportDateOnly = (value?: string) => {
   if (!value) return '';
@@ -69,11 +94,51 @@ const centerAlignSheet = (sheet: XLSX.WorkSheet) => {
   }
 };
 
+const styleExportSheet = (sheet: XLSX.WorkSheet) => {
+  const range = sheet['!ref'];
+  if (!range) return;
+  const decodedRange = XLSX.utils.decode_range(range);
+  const headers = Array.from({ length: decodedRange.e.c - decodedRange.s.c + 1 }, (_, offset) => {
+    const cell = sheet[XLSX.utils.encode_cell({ r: decodedRange.s.r, c: decodedRange.s.c + offset })];
+    return String(cell?.v || '').trim();
+  });
+  const statusColumns = headers
+    .map((header, index) => ({ header: header.toUpperCase(), index }))
+    .filter(({ header }) => ['CLASSIFICATION', 'STATUS', 'LOCATION'].includes(header));
+
+  for (let column = decodedRange.s.c; column <= decodedRange.e.c; column += 1) {
+    const headerCell = sheet[XLSX.utils.encode_cell({ r: decodedRange.s.r, c: column })];
+    if (headerCell) {
+      headerCell.s = {
+        ...(headerCell.s || {}),
+        fill: { fgColor: { rgb: exportColors.navy } },
+        font: { bold: true, color: exportColors.white },
+        border: { bottom: { style: 'thin', color: exportColors.border } },
+      };
+    }
+  }
+
+  for (let row = decodedRange.s.r + 1; row <= decodedRange.e.r; row += 1) {
+    statusColumns.forEach(({ index }) => {
+      const cell = sheet[XLSX.utils.encode_cell({ r: row, c: index })];
+      const status = String(cell?.v || '').trim().replace(/[_-]+/g, ' ').toUpperCase();
+      const color = exportStatusColors[status];
+      if (!cell || !color) return;
+      cell.s = {
+        ...(cell.s || {}),
+        fill: { fgColor: { rgb: color } },
+        font: { ...(cell.s?.font || {}), bold: true, color: color === exportColors.amber ? exportColors.navy : exportColors.white },
+      };
+    });
+  }
+};
+
 const createExportSheet = (rows: object[]) => {
   const numberedRows = rows.map((row, index) => ({ 'S.No.': index + 1, ...row }));
   const sheet = XLSX.utils.json_to_sheet(numberedRows);
   autoFitColumns(sheet, numberedRows);
   centerAlignSheet(sheet);
+  styleExportSheet(sheet);
   return sheet;
 };
 
