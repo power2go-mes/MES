@@ -432,7 +432,7 @@ export const CEOMonitoringView: React.FC = () => {
       const moduleReportRows = statusRows(
         ['8S', '12S'],
         source.moduleTypeBuckets,
-        { '8S': reportDarkGrey, '12S': reportGreen },
+        { '8S': reportCabinetBlue, '12S': reportCabinetBlue },
         (status) => status === '12S' ? 3.75 : 2.5,
       );
       const batteryReportRows = (source.batteryPackBuckets || []).map((row: any, index: number) => {
