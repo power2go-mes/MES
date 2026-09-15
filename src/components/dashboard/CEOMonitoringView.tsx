@@ -19,6 +19,7 @@ const reportColors = {
   amber: '#F4A62A',
   red: '#DC3545',
   slate: '#64748B',
+  silver: '#C0C0C0',
   navy: '#101828',
   card: '#EAF7F2',
   canvas: '#F7F9FB',
@@ -34,7 +35,7 @@ const statusColors: Record<string, string> = {
   'In Rack': reportColors.green,
   'Karachi Warehouse': reportColors.green,
   'Lahore Warehouse': reportColors.green,
-  Sold: reportColors.slate,
+  Sold: reportColors.silver,
   Scrap: reportColors.red,
   Recycle: reportColors.green,
 };
@@ -251,9 +252,9 @@ export const CEOMonitoringView: React.FC = () => {
       .filter((row: any) => String(row.label || row.status || '').toUpperCase().replace(/_/g, ' ') === 'SOLD')
       .reduce((total: number, row: any) => total + numberOr(row.value), 0);
     return [
-      { label: 'Cells', value: soldCells, color: reportColors.slate },
-      { label: 'Battery Packs', value: soldBatteries, color: reportColors.slate },
-      { label: 'Racks', value: soldRacks, color: reportColors.slate },
+      { label: 'Cells', value: soldCells, color: reportColors.silver },
+      { label: 'Battery Packs', value: soldBatteries, color: reportColors.silver },
+      { label: 'Racks', value: soldRacks, color: reportColors.silver },
     ];
   }, [inventory.soldCells, source.batteryStatusBuckets, source.cellBuckets, source.rackStatusBuckets]);
   const filteredSoldRows = selectedSoldEntity === 'All' ? soldData : soldData.filter(row => row.label === selectedSoldEntity);
@@ -461,7 +462,7 @@ export const CEOMonitoringView: React.FC = () => {
       const soldCellQuantity = numberOr(source.soldCellCount ?? source.cellBuckets?.find((row: any) => String(row.label || '').toUpperCase() === 'SOLD')?.value);
       const soldReportRows = [
         { label: 'Battery Pack units', value: soldBatteryCount, capacityKwh: soldBatteryCellCapacityKwh, color: statusColors.Sold },
-        { label: 'Rack units', value: soldRackCount, capacityKwh: soldRackCellCapacityKwh, color: reportCabinetBlue },
+        { label: 'Rack units', value: soldRackCount, capacityKwh: soldRackCellCapacityKwh, color: reportColors.silver },
       ];
       const rackTypeTotals = new Map<string, { value: number; capacityKwh: number }>();
       const rackColor = (rackType: string) => {

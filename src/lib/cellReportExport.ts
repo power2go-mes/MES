@@ -7,6 +7,7 @@ const exportColors = {
   amber: 'F4A62A',
   red: 'DC3545',
   slate: '64748B',
+  silver: 'C0C0C0',
   navy: '101828',
   light: 'EAF7F2',
   border: 'E2E8F0',
@@ -21,7 +22,7 @@ const exportStatusColors: Record<string, string> = {
   'IN RACK': exportColors.green,
   'KARACHI WAREHOUSE': exportColors.green,
   'LAHORE WAREHOUSE': exportColors.green,
-  SOLD: exportColors.slate,
+  SOLD: exportColors.silver,
   SCRAP: exportColors.red,
   RECYCLE: exportColors.green,
 };
