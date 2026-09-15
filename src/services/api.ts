@@ -91,6 +91,17 @@ function toAppValue(value: any): any {
   return Object.fromEntries(Object.entries(value).map(([key, child]) => [toAppColumn(key), toAppValue(child)]));
 }
 
+async function readApiResponse(response: Response): Promise<any> {
+  const body = await response.text();
+  if (!body) return {};
+
+  try {
+    return JSON.parse(body);
+  } catch {
+    return { error: body.trim() || `Request failed with status ${response.status}` };
+  }
+}
+
 export function buildWarehouseReceiveResult(entityType: 'MODULE' | 'BATTERY' | 'RACK', entityId: string, location: 'KARACHI' | 'LAHORE') {
   const normalizedType = String(entityType).toUpperCase() as 'MODULE' | 'BATTERY' | 'RACK';
   const normalizedLocation = String(location).toUpperCase() as 'KARACHI' | 'LAHORE';
@@ -621,7 +632,7 @@ async getUsers(): Promise<User[]> {
       },
       body: JSON.stringify({ ...user, userId }),
     });
-    const result = await response.json();
+    const result = await readApiResponse(response);
     if (!response.ok) throw new Error(result.error || 'Could not create user');
     return result;
   },
@@ -636,7 +647,7 @@ async getUsers(): Promise<User[]> {
       },
       body: JSON.stringify({ ...user, userId }),
     });
-    const result = await response.json();
+    const result = await readApiResponse(response);
     if (!response.ok) throw new Error(result.error || 'Could not update user');
     return result;
   },
@@ -651,7 +662,7 @@ async getUsers(): Promise<User[]> {
       },
       body: JSON.stringify({ userId }),
     });
-    const result = await response.json();
+    const result = await readApiResponse(response);
     if (!response.ok) throw new Error(result.error || 'Could not delete user');
     return result;
   },
