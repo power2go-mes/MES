@@ -14,15 +14,16 @@ const numberOr = (value: any, fallback = 0) => {
 const clamp = (value: number, min: number, max: number) => Math.min(Math.max(value, min), max);
 
 const statusColors: Record<string, string> = {
-  'In Stock': '#ed1c24',
-  'Floor Stock': '#f36f21',
-  'In Module': '#ffc20e',
-  'In Pack': '#7fba27',
-  'In Rack': '#159947',
-  'Karachi Warehouse': '#39b7bf',
-  'Lahore Warehouse': '#286bb1',
-  Sold: '#542681',
-  Scrap: '#be2c80',
+  'In Stock': '#16A34A',
+  'Floor Stock': '#2563EB',
+  'In Module': '#7C3AED',
+  'In Pack': '#F59E0B',
+  'In Rack': '#0891B2',
+  'Karachi Warehouse': '#4F46E5',
+  'Lahore Warehouse': '#9333EA',
+  Sold: '#475569',
+  Scrap: '#DC2626',
+  Recycle: '#059669',
 };
 const packColors = ['#286bb1', '#f36f21', '#159947'];
 const packColorByModel: Record<string, string> = {
@@ -437,8 +438,8 @@ export const CEOMonitoringView: React.FC = () => {
         color: reportGreen,
       }];
       const scrapReportRows = [
-        { label: 'Scrap', value: damageScrapCount, capacityKwh: damageScrapCount * CELL_CAPACITY_KWH, color: reportDarkGrey },
-        { label: 'Recycle', value: reusableScrapCount, capacityKwh: reusableScrapCount * CELL_CAPACITY_KWH, color: reportGreen },
+        { label: 'Scrap', value: damageScrapCount, capacityKwh: damageScrapCount * CELL_CAPACITY_KWH, color: statusColors.Scrap },
+        { label: 'Recycle', value: reusableScrapCount, capacityKwh: reusableScrapCount * CELL_CAPACITY_KWH, color: statusColors.Recycle },
       ];
       const soldBatteryCount = numberOr(source.soldBatteryPackCount ?? source.batteryStatusBuckets?.find((row: any) => String(row.label || '').toUpperCase() === 'SOLD')?.value);
       const soldRackCount = numberOr(source.rackStatusBuckets?.find((row: any) => String(row.label || row.status || '').toUpperCase().replace(/_/g, ' ') === 'SOLD')?.value);
@@ -446,7 +447,7 @@ export const CEOMonitoringView: React.FC = () => {
       const soldRackCellCapacityKwh = numberOr(source.soldRackCellCount) * CELL_CAPACITY_KWH;
       const soldCellQuantity = numberOr(source.soldCellCount ?? source.cellBuckets?.find((row: any) => String(row.label || '').toUpperCase() === 'SOLD')?.value);
       const soldReportRows = [
-        { label: 'Battery Pack units', value: soldBatteryCount, capacityKwh: soldBatteryCellCapacityKwh, color: reportDarkGrey },
+        { label: 'Battery Pack units', value: soldBatteryCount, capacityKwh: soldBatteryCellCapacityKwh, color: statusColors.Sold },
         { label: 'Rack units', value: soldRackCount, capacityKwh: soldRackCellCapacityKwh, color: reportCabinetBlue },
       ];
       const rackTypeTotals = new Map<string, { value: number; capacityKwh: number }>();
