@@ -70,7 +70,7 @@ const DistributionDonut: React.FC<{ distribution: DashboardDistribution; ariaLab
             const start = offset;
             offset += row.share;
             const circumference = 2 * Math.PI * 35;
-            const gap = visible.length > 1 ? 0.7 : 0;
+            const gap = visible.length > 1 ? 1.8 : 0;
             const segmentLength = Math.max(0, (row.share / 100) * circumference - gap);
             const dashOffset = -((start / 100) * circumference + gap / 2);
             return <circle className="chart-donut-segment" key={row.label} cx="50" cy="50" r="35" fill="none" stroke={row.color} strokeWidth="14" strokeDasharray={`${segmentLength} ${circumference - segmentLength}`} strokeDashoffset={dashOffset} transform="rotate(-90 50 50)" strokeLinecap="butt"><title>{`${row.label}: ${formatNumber(row.value)}${showShare ? ` (${row.share.toFixed(2)}%)` : ''}`}</title></circle>;
@@ -115,8 +115,8 @@ const formatMwh = (capacityKwh: number) => {
   const mwh = roundMwh(capacityKwh);
   return `${mwh.toFixed(mwh > 0 && mwh < 0.01 ? 3 : 2)} MWh`;
 };
-const formatCellTotalMwh = (capacityKwh: number) => `${roundMwh(capacityKwh).toFixed(2)}MWh`;
-const formatCellRowMwh = (capacityKwh: number) => `${roundMwh(capacityKwh).toFixed(2)}MWh`;
+const formatCellTotalMwh = (capacityKwh: number) => `${roundMwh(capacityKwh).toFixed(2)} MWh`;
+const formatCellRowMwh = (capacityKwh: number) => `${roundMwh(capacityKwh).toFixed(2)} MWh`;
 const formatShare = (value: number, total: number) => `${((value / Math.max(1, total)) * 100).toFixed(2)}%`;
 export const CEOMonitoringView: React.FC = () => {
   const { refreshKey, addNotification } = useApp();
@@ -562,14 +562,17 @@ export const CEOMonitoringView: React.FC = () => {
         }
         const chartTotal = total;
         let start = -Math.PI / 2;
+        const segmentGap = rows.length > 1 ? 0.035 : 0;
         doc.setFont('helvetica', 'bold');
         reportFontSize(9);
         doc.text(title, x - radius, y - radius - 10);
         rows.forEach((row) => {
           const end = start + (row.value / chartTotal) * Math.PI * 2;
           doc.setFillColor(...hexRgb(row.color));
-          for (let angle = start; angle < end; angle += 0.035) {
-            const next = Math.min(angle + 0.04, end);
+          const segmentStart = start + segmentGap / 2;
+          const segmentEnd = end - segmentGap / 2;
+          for (let angle = segmentStart; angle < segmentEnd; angle += 0.035) {
+            const next = Math.min(angle + 0.04, segmentEnd);
             const points = [[x, y], [x + Math.cos(angle) * radius, y + Math.sin(angle) * radius], [x + Math.cos(next) * radius, y + Math.sin(next) * radius]];
             doc.triangle(points[0][0], points[0][1], points[1][0], points[1][1], points[2][0], points[2][1], 'F');
           }
