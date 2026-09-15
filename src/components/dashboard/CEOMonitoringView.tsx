@@ -462,8 +462,8 @@ export const CEOMonitoringView: React.FC = () => {
       const soldRackCellCapacityKwh = numberOr(source.soldRackCellCount) * CELL_CAPACITY_KWH;
       const soldCellQuantity = numberOr(source.soldCellCount ?? source.cellBuckets?.find((row: any) => String(row.label || '').toUpperCase() === 'SOLD')?.value);
       const soldReportRows = [
-        { label: 'Battery Pack units', value: soldBatteryCount, capacityKwh: soldBatteryCellCapacityKwh, color: statusColors.Sold },
-        { label: 'Rack units', value: soldRackCount, capacityKwh: soldRackCellCapacityKwh, color: reportColors.silver },
+        { label: 'Battery Pack units', value: soldBatteryCount, capacityKwh: soldBatteryCellCapacityKwh, color: reportGreen },
+        { label: 'Rack units', value: soldRackCount, capacityKwh: soldRackCellCapacityKwh, color: reportGreen },
       ];
       const rackTypeTotals = new Map<string, { value: number; capacityKwh: number }>();
       const rackColor = (rackType: string) => {

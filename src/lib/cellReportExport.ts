@@ -22,7 +22,7 @@ const exportStatusColors: Record<string, string> = {
   'IN RACK': exportColors.green,
   'KARACHI WAREHOUSE': exportColors.green,
   'LAHORE WAREHOUSE': exportColors.green,
-  SOLD: exportColors.silver,
+  SOLD: exportColors.green,
   SCRAP: exportColors.red,
   RECYCLE: exportColors.green,
 };
