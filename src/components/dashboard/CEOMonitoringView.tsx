@@ -63,15 +63,22 @@ const DistributionDonut: React.FC<{ distribution: DashboardDistribution; ariaLab
     <div className="flex min-w-0 flex-col items-center gap-4 sm:flex-row sm:gap-6">
       <div className="h-[150px] w-[150px] shrink-0 sm:h-[190px] sm:w-[190px]">
         {distribution.total === 0 ? <div className="grid h-full place-items-center rounded-full border-[14px] border-slate-100 text-center"><span className="text-[11px] font-semibold text-slate-400">No recorded data</span></div> : <svg viewBox="0 0 100 100" className="h-full w-full" aria-label={ariaLabel}>
-          <circle cx="50" cy="50" r="35" fill="none" stroke={reportColors.border} strokeWidth="14" />
+          <circle cx="50" cy="50" r="35" fill="none" stroke={reportColors.border} strokeWidth="17" />
           {visible.map((row) => {
             const start = offset;
             offset += row.share;
             const circumference = 2 * Math.PI * 35;
-            const gap = visible.length > 1 ? 0.7 : 0;
+            const gap = visible.length > 1 ? 2.4 : 0;
             const segmentLength = Math.max(0, (row.share / 100) * circumference - gap);
             const dashOffset = -((start / 100) * circumference + gap / 2);
-            return <circle className="chart-donut-segment" key={row.label} cx="50" cy="50" r="35" fill="none" stroke={row.color} strokeWidth="14" strokeDasharray={`${segmentLength} ${circumference - segmentLength}`} strokeDashoffset={dashOffset} transform="rotate(-90 50 50)" strokeLinecap="butt"><title>{`${row.label}: ${formatNumber(row.value)}${showShare ? ` (${row.share.toFixed(2)}%)` : ''}`}</title></circle>;
+            const midpoint = ((start + row.share / 2) / 100) * Math.PI * 2 - Math.PI / 2;
+            const labelX = 50 + Math.cos(midpoint) * 25;
+            const labelY = 50 + Math.sin(midpoint) * 25;
+            const labelColor = row.color === reportColors.amber ? reportColors.navy : reportColors.white;
+            return <g key={row.label}>
+              <circle className="chart-donut-segment" cx="50" cy="50" r="35" fill="none" stroke={row.color} strokeWidth="17" strokeDasharray={`${segmentLength} ${circumference - segmentLength}`} strokeDashoffset={dashOffset} transform="rotate(-90 50 50)" strokeLinecap="round"><title>{`${row.label}: ${formatNumber(row.value)}${showShare ? ` (${row.share.toFixed(2)}%)` : ''}`}</title></circle>
+              {row.share >= 8 && <text x={labelX} y={labelY} textAnchor="middle" dominantBaseline="middle" fontSize="4.2" fontWeight="700" fill={labelColor}>{showShare ? `${row.share.toFixed(1)}%` : formatNumber(row.value)}</text>}
+            </g>;
           })}
           <circle cx="50" cy="50" r="22" fill={reportColors.white} />
           <text x="50" y="49" textAnchor="middle" fontSize="9" fontWeight="700" fill={reportColors.navy}>{formatNumber(distribution.total)}</text>
@@ -560,20 +567,43 @@ export const CEOMonitoringView: React.FC = () => {
         }
         const chartTotal = total;
         let start = -Math.PI / 2;
+        const ringRadius = radius * 0.79;
+        const ringWidth = radius * 0.42;
+        const sliceGap = rows.length > 1 ? 0.09 : 0;
         doc.setFont('helvetica', 'bold');
         reportFontSize(9);
         doc.text(title, x - radius, y - radius - 10);
         rows.forEach((row) => {
           const end = start + (row.value / chartTotal) * Math.PI * 2;
           doc.setFillColor(...hexRgb(row.color));
-          for (let angle = start; angle < end; angle += 0.035) {
-            const next = Math.min(angle + 0.04, end);
-            const points = [[x, y], [x + Math.cos(angle) * radius, y + Math.sin(angle) * radius], [x + Math.cos(next) * radius, y + Math.sin(next) * radius]];
-            doc.triangle(points[0][0], points[0][1], points[1][0], points[1][1], points[2][0], points[2][1], 'F');
+          const segmentStart = start + sliceGap / 2;
+          const segmentEnd = end - sliceGap / 2;
+          if (segmentEnd > segmentStart) {
+            doc.setLineWidth(ringWidth);
+            (doc as any).setLineCap?.(1);
+            (doc as any).setLineJoin?.(1);
+            for (let angle = segmentStart; angle < segmentEnd; angle += 0.035) {
+              const next = Math.min(angle + 0.04, segmentEnd);
+              const startX = x + Math.cos(angle) * ringRadius;
+              const startY = y + Math.sin(angle) * ringRadius;
+              const endX = x + Math.cos(next) * ringRadius;
+              const endY = y + Math.sin(next) * ringRadius;
+              doc.line(startX, startY, endX - startX, endY - startY);
+            }
+            if (row.value / chartTotal >= 0.08) {
+              const midpoint = (segmentStart + segmentEnd) / 2;
+              const labelX = x + Math.cos(midpoint) * ringRadius;
+              const labelY = y + Math.sin(midpoint) * ringRadius;
+              const labelColor: [number, number, number] = row.color === reportColors.amber ? ink : [255, 255, 255];
+              doc.setTextColor(...labelColor);
+              doc.setFont('helvetica', 'bold');
+              reportFontSize(5.8);
+              doc.text(showShare ? `${((row.value / chartTotal) * 100).toFixed(1)}%` : formatNumber(row.value), labelX, labelY + 1.5, { align: 'center' });
+            }
           }
           start = end;
         });
-        doc.setFillColor(255, 255, 255);
+        doc.setFillColor(...hexRgb(reportColors.white));
         doc.circle(x, y, radius * 0.58, 'F');
         doc.setTextColor(...ink);
         doc.setFont('helvetica', 'bold');
