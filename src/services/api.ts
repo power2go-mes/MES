@@ -2369,13 +2369,31 @@ async getUsers(): Promise<User[]> {
       if (bmsError) throw bmsError;
       if (bmuError) throw bmuError;
       if (moduleError) throw moduleError;
+      const moduleIds = (moduleRows || []).map((module: any) => module.id).filter(Boolean);
+      const assignments = moduleIds.length ? await loadModuleCellAssignments(moduleIds) : [];
       const bmsById = new Map((bmsRows || []).map((controller: any) => [controller.id, controller]));
       const bmuById = new Map((bmuRows || []).map((controller: any) => [controller.id, controller]));
+      const cellsByModule = new Map<string, any[]>();
+      (assignments || []).forEach((assignment: any) => {
+        const moduleId = assignment.module_id || assignment.moduleId;
+        if (!moduleId) return;
+        const existing = cellsByModule.get(moduleId) || [];
+        cellsByModule.set(moduleId, hydrateModuleCells([...existing, assignment]));
+      });
       const modulesByBattery = new Map<string, any[]>();
       (moduleRows || []).forEach((module: any) => {
         const batteryId = module.battery_id || module.batteryId;
+        const moduleId = module.id;
         const current = modulesByBattery.get(batteryId) || [];
-        current.push(module);
+        current.push({
+          ...module,
+          batteryId,
+          moduleIndex: module.module_index ?? module.moduleIndex,
+          serialNumber: module.serial_number ?? module.serialNumber,
+          moduleType: module.module_type ?? module.moduleType,
+          qrCode: module.qr_code || module.qrCode || `${module.serial_number || module.serialNumber}|MODULE:${moduleId}`,
+          cells: cellsByModule.get(moduleId) || [],
+        });
         modulesByBattery.set(batteryId, current);
       });
       return batteries.map(battery => normalizeBatteryRecord({
