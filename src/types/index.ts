@@ -251,6 +251,7 @@ export interface ModuleItem {
   productId: string;
   productionOrderId: string;
   batteryId?: string;
+  assignedBatterySerial?: string;
   moduleIndex: number; // 0, 1, ...
   cells: CellItem[];
   matchingScore: number; // 0-100%

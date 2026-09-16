@@ -204,6 +204,17 @@ function normalizeBatterySerial(value: unknown): string {
   return String(value || '').trim().replace(/(7\.5|8)KWH/gi, (_, capacity) => `${capacity}KWH`);
 }
 
+function moduleSerialPrefix(date = new Date()): string {
+  return `P2G-MOD-${String(date.getDate()).padStart(2, '0')}${String(date.getMonth() + 1).padStart(2, '0')}`;
+}
+
+function moduleSerialSequence(serial: unknown, prefix: string): number {
+  const value = String(serial || '');
+  if (!value.startsWith(`${prefix}-`)) return 0;
+  const match = value.match(/-(\d+)$/);
+  return match ? Number(match[1]) || 0 : 0;
+}
+
 function reconcileDashboardCellBuckets(buckets: any[], totalCells: any): any[] {
   if (!Array.isArray(buckets)) return [];
   const rows = buckets.map(row => ({ ...row, label: String(row.label), value: Math.max(0, Number(row.value) || 0) }));
@@ -1604,7 +1615,16 @@ async getUsers(): Promise<User[]> {
       const moduleInserts: any[] = [];
       const moduleCellInserts: any[] = [];
       const moduleTestsInserts: any[] = [];
-      let moduleSequence = 1;
+      const modulePrefix = moduleSerialPrefix(now);
+      const { data: existingModuleSerials, error: moduleSerialError } = await supabase
+        .from('modules')
+        .select('serial_number')
+        .like('serial_number', `${modulePrefix}-%`);
+      if (moduleSerialError) throw new Error(`Failed to verify module serials: ${moduleSerialError.message}`);
+      let moduleSequence = Math.max(
+        0,
+        ...(existingModuleSerials || []).map((module: any) => moduleSerialSequence(module.serial_number, modulePrefix)),
+      ) + 1;
 
       params.batchPlan.batteries.forEach((plan: any, batteryIndex: number) => {
         const battery = batteriesData?.[batteryIndex];
@@ -1649,7 +1669,7 @@ async getUsers(): Promise<User[]> {
             `Module ${moduleIndex} (${moduleId}): Slice[${start}:${end}] from ${plan.cells.length} = ${cellsSlice.length} cells. ` +
             `IDs before dedup: [${moduleCellIds.join(', ')}]`
           );
-          const moduleSerial = `P2G-MOD-${String(now.getDate()).padStart(2, '0')}${String(now.getMonth() + 1).padStart(2, '0')}-${timestampSuffix}-${String(moduleSequence).padStart(5, '0')}`;
+          const moduleSerial = `${modulePrefix}-${String(moduleSequence).padStart(5, '0')}`;
           moduleSequence += 1;
 
           moduleInserts.push({
@@ -2270,8 +2290,19 @@ async getUsers(): Promise<User[]> {
     if (error) throw error;
     const modules = (data || []) as any[];
     console.log(`getModules: Loaded ${modules.length} modules`);
+    const batteryIds = Array.from(new Set(modules.map(module => module.battery_id || module.batteryId).filter(Boolean)));
+    const { data: batteryRows, error: batteryError } = batteryIds.length
+      ? await supabase.from('batteries').select('id,serial_number').in('id', batteryIds)
+      : { data: [], error: null };
+    if (batteryError) throw batteryError;
+    const batterySerialById = new Map((batteryRows || []).map((battery: any) => [battery.id, battery.serial_number]));
     const moduleIds = modules.map(module => module.id).filter(Boolean);
-    if (moduleIds.length === 0 || params?.includeCells === false) return modules.map(module => toAppValue(module)) as ModuleItem[];
+    if (moduleIds.length === 0 || params?.includeCells === false) {
+      return modules.map(module => toAppValue({
+        ...module,
+        assignedBatterySerial: batterySerialById.get(module.battery_id || module.batteryId),
+      })) as ModuleItem[];
+    }
 
     // Explicitly select with snake_case and map to camelCase
     const assignments = await loadModuleCellAssignments(moduleIds);
@@ -2307,6 +2338,7 @@ async getUsers(): Promise<User[]> {
     return modules.map(module => toAppValue({
       ...module,
       qr_code: module.qr_code || `${module.serial_number}|MODULE:${module.id}`,
+      assignedBatterySerial: batterySerialById.get(module.battery_id || module.batteryId),
       cells: cellsByModule.get(module.id) || [],
     })) as ModuleItem[];
   },
@@ -2617,13 +2649,24 @@ async getUsers(): Promise<User[]> {
     for (let q = 0; q < data.quantity; q++) {
       const batId = `bat-${Date.now()}-${q}`;
       const batSerial = `${prod.serialPrefix}-${String(Date.now() + q + 1).padStart(6, '0')}`;
+      const modulePrefix = moduleSerialPrefix();
+      const { data: existingModuleSerials, error: moduleSerialError } = await supabase
+        .from('modules')
+        .select('serial_number')
+        .like('serial_number', `${modulePrefix}-%`);
+      if (moduleSerialError) throw moduleSerialError;
+      let moduleSequence = Math.max(
+        0,
+        ...(existingModuleSerials || []).map((module: any) => moduleSerialSequence(module.serial_number, modulePrefix)),
+      ) + 1;
       batteryIds.push(batId);
 
       // Create modules based on product configuration
       const modules: any[] = [];
       for (let m = 0; m < prod.numModules; m++) {
         const modId = `mod-${Date.now()}-${q}-${m}`;
-        const moduleSerial = `${prod.serialPrefix}-MOD-${Date.now()}-${q}-${m + 1}`;
+        const moduleSerial = `${modulePrefix}-${String(moduleSequence).padStart(5, '0')}`;
+        moduleSequence += 1;
         modules.push({
           id: modId,
           serialNumber: moduleSerial,

@@ -1070,7 +1070,7 @@ export const InventoryView: React.FC = () => {
                       />
                     </td>
                     <td className="px-5 py-3.5"><span className="inline-flex items-center gap-1 font-bold text-slate-900">{m.serialNumber}<CopyToClipboardButton value={m.serialNumber} label="Copy module serial number" /></span></td>
-                    <td className="px-5 py-3.5 text-slate-600">{m.batteryId || 'UNALLOCATED'}</td>
+                    <td className="px-5 py-3.5 text-slate-600">{m.assignedBatterySerial || 'UNALLOCATED'}</td>
                     <td className="px-5 py-3.5 font-bold text-slate-800">{m.cells?.length ?? 0} cells</td>
                     <td className="px-5 py-3.5 text-emerald-600 font-bold">
                       {m.matchingScore > 0 ? `${m.matchingScore}%` : 'N/A'}
