@@ -997,7 +997,13 @@ export const CEOMonitoringView: React.FC = () => {
             {selectedWarehouseInventoryType !== 'Racks' && <div className="mb-3 flex flex-wrap gap-2 text-[10px] font-medium text-slate-500">
               {warehouseBatteryTypeOptions.map(type => <button key={type} type="button" onClick={() => setSelectedWarehouseBatteryType(type)} className={`rounded-md border px-2 py-1 ${selectedWarehouseBatteryType === type ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-slate-200 bg-slate-50 text-slate-500'}`}>{type === 'All' ? 'All battery packs' : type}</button>)}
             </div>}
-            <DistributionBars distribution={warehouseDistribution} ariaLabel="Warehouse distribution" />
+            <DistributionDonut
+              distribution={warehouseDistribution}
+              ariaLabel="Warehouse distribution"
+              large={false}
+              compactLegend
+              legendBelow
+            />
           </div>
 
           <div className="order-6 xl:col-span-1 flex flex-col rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
