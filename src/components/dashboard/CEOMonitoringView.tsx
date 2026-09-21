@@ -57,13 +57,13 @@ const rackPowerColors: Record<string, string> = {
 };
 type ChartRow = DashboardChartRow;
 
-const DistributionDonut: React.FC<{ distribution: DashboardDistribution; ariaLabel: string; showShare?: boolean; extraRows?: ChartRow[]; large?: boolean; compactLegend?: boolean }> = ({ distribution, ariaLabel, showShare = true, extraRows = [], large = true, compactLegend = true }) => {
+const DistributionDonut: React.FC<{ distribution: DashboardDistribution; ariaLabel: string; showShare?: boolean; extraRows?: ChartRow[]; large?: boolean; compactLegend?: boolean; legendBelow?: boolean }> = ({ distribution, ariaLabel, showShare = true, extraRows = [], large = true, compactLegend = true, legendBelow = false }) => {
   const visible = distribution.rows.filter((row) => row.value > 0 && row.share > 0);
   const centerLabel = /cell inventory/i.test(ariaLabel) ? 'CELLS' : 'TOTAL';
   let offset = 0;
   return (
-    <div className={`flex min-w-0 flex-col items-center gap-4 sm:flex-row sm:gap-6 ${large ? 'sm:justify-center sm:gap-4' : ''}`}>
-      <div className={`shrink-0 ${large ? 'flex items-center justify-center h-[220px] w-[220px] sm:h-[250px] sm:w-[52%]' : 'h-[185px] w-[185px] sm:h-[220px] sm:w-[220px]'}`}>
+    <div className={`flex min-w-0 items-center gap-4 ${legendBelow ? 'flex-col' : 'flex-col sm:flex-row sm:gap-6'} ${large && !legendBelow ? 'sm:justify-center sm:gap-4' : ''}`}>
+      <div className={`shrink-0 ${large ? `${legendBelow ? 'h-[220px] w-[220px] sm:h-[250px] sm:w-[250px]' : 'flex h-[220px] w-[220px] items-center justify-center sm:h-[250px] sm:w-[52%]'}` : 'h-[185px] w-[185px] sm:h-[220px] sm:w-[220px]'}`}>
         {distribution.total === 0 ? <div className="grid h-full place-items-center rounded-full border-[14px] border-slate-100 text-center"><span className="text-[11px] font-semibold text-slate-400">No recorded data</span></div> : <svg viewBox="0 0 100 100" className="h-full w-full" aria-label={ariaLabel}>
           <circle cx="50" cy="50" r="35" fill="none" stroke={reportColors.border} strokeWidth="14" />
           {visible.map((row) => {
@@ -80,7 +80,7 @@ const DistributionDonut: React.FC<{ distribution: DashboardDistribution; ariaLab
           <text x="50" y="57" textAnchor="middle" fontSize="4.5" fill={reportColors.slate}>{centerLabel}</text>
         </svg>}
       </div>
-      <div className="min-w-0 w-full flex-1 space-y-2.5 py-2 sm:w-auto">
+      <div className={`min-w-0 space-y-2.5 py-2 ${legendBelow ? 'w-full' : 'w-full flex-1 sm:w-auto'}`}>
         {distribution.rows.map((row) => <div key={row.label} className={`flex items-center gap-3 text-[12px] ${compactLegend ? 'justify-start' : 'justify-between'}`}><div className="flex items-center gap-2 text-slate-600"><span className="h-2.5 w-2.5 rounded-sm" style={{ backgroundColor: row.color }} />{row.label}</div><span className="font-semibold text-slate-900">{formatNumber(row.value)}{showShare && <span className="font-normal text-slate-400"> ({row.share.toFixed(2)}%)</span>}</span></div>)}
         {extraRows.map((row) => <div key={row.label} className={`flex items-center gap-3 text-[12px] ${compactLegend ? 'justify-start' : 'justify-between'}`}><div className="flex items-center gap-2 text-slate-600"><span className="h-2.5 w-2.5 rounded-sm" style={{ backgroundColor: row.color }} />{row.label}</div><span className="font-semibold text-slate-900">{formatNumber(row.value)}</span></div>)}
       </div>
@@ -88,10 +88,10 @@ const DistributionDonut: React.FC<{ distribution: DashboardDistribution; ariaLab
   );
 };
 
-const DistributionBars: React.FC<{ distribution: DashboardDistribution; colors?: string[]; ariaLabel: string }> = ({ distribution, colors, ariaLabel }) => {
+const DistributionBars: React.FC<{ distribution: DashboardDistribution; colors?: string[]; ariaLabel: string; large?: boolean }> = ({ distribution, colors, ariaLabel, large = false }) => {
   const max = Math.max(1, ...distribution.rows.map((row) => row.value));
   if (distribution.total === 0) return <div className="grid h-[150px] place-items-center rounded-lg border border-dashed border-slate-200 text-center"><div><div className="text-xs font-semibold text-slate-500">No recorded data</div><div className="mt-1 text-[10px] text-slate-400">No data is available for this chart yet.</div></div></div>;
-  return <svg viewBox="0 0 220 130" className="h-[190px] w-full" role="img" aria-label={ariaLabel}>
+  return <svg viewBox="0 0 220 130" className={`${large ? 'h-[250px]' : 'h-[190px]'} w-full`} role="img" aria-label={ariaLabel}>
     {[0, 1, 2, 3].map((line) => <line key={line} x1="20" x2="200" y1={line * 28 + 12} y2={line * 28 + 12} stroke={reportColors.border} strokeDasharray="2 3" />)}
     {distribution.rows.map((row, index) => {
       const slotWidth = 180 / Math.max(distribution.rows.length, 1);
@@ -966,9 +966,9 @@ export const CEOMonitoringView: React.FC = () => {
           ))}
         </div>
 
-        <div className="grid gap-4 lg:grid-cols-4">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <div className="contents">
-          <div className="order-2 lg:col-span-2 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+          <div className="order-2 xl:col-span-2 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
             <div className="mb-2 flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-50">
@@ -994,7 +994,7 @@ export const CEOMonitoringView: React.FC = () => {
             <DistributionBars distribution={warehouseDistribution} ariaLabel="Warehouse distribution" />
           </div>
 
-          <div className="order-6 lg:col-span-1 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+          <div className="order-6 xl:col-span-1 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
             <div className="mb-2 flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-50">
@@ -1025,12 +1025,13 @@ export const CEOMonitoringView: React.FC = () => {
               distribution={cellDistribution}
               ariaLabel="Cells distribution"
               showShare={false}
+              legendBelow
             />
           </div>
         </div>
 
         <div className="contents">
-          <div className="order-5 lg:col-span-1 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+          <div className="order-5 xl:col-span-1 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
             <div className="mb-2 flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-50">
@@ -1057,10 +1058,10 @@ export const CEOMonitoringView: React.FC = () => {
               ))}
             </div>
 
-            <DistributionBars distribution={moduleDistribution} ariaLabel="Module distribution" />
+            <DistributionBars distribution={moduleDistribution} ariaLabel="Module distribution" large />
           </div>
 
-          <div className="order-1 lg:col-span-2 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+          <div className="order-1 xl:col-span-2 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
             <div className="mb-2 flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-50">
@@ -1092,7 +1093,7 @@ export const CEOMonitoringView: React.FC = () => {
         </div>
 
         <div className="contents">
-          <div className="order-4 lg:col-span-1 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+          <div className="order-4 xl:col-span-1 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
             <div className="mb-2 flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-50">
@@ -1124,10 +1125,11 @@ export const CEOMonitoringView: React.FC = () => {
               ariaLabel="Battery pack model distribution"
               large
               compactLegend
+              legendBelow
             />
           </div>
 
-          <div className="order-3 lg:col-span-1 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+          <div className="order-3 xl:col-span-1 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
             <div className="mb-2 flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-50">
@@ -1154,7 +1156,7 @@ export const CEOMonitoringView: React.FC = () => {
               ))}
             </div>
 
-            <DistributionBars distribution={rackDistribution} ariaLabel="Rack status distribution" />
+            <DistributionBars distribution={rackDistribution} ariaLabel="Rack status distribution" large />
           </div>
         </div>
         </div>
