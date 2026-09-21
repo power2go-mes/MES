@@ -307,10 +307,11 @@ export const CEOMonitoringView: React.FC = () => {
       .filter((row: any) => String(row.label || row.status || '').toUpperCase().replace(/_/g, ' ') === 'SOLD')
       .reduce((total: number, row: any) => total + numberOr(row.value), 0);
     return [
-      { label: 'Racks', value: soldRacks, color: reportColors.silver },
-      { label: 'Battery Packs', value: soldBatteries, color: reportColors.silver },
+      { label: 'Racks', value: soldRacks, color: reportColors.green },
+      { label: 'Battery Packs', value: soldBatteries, color: reportColors.green },
     ];
   }, [source.batteryStatusBuckets, source.rackStatusBuckets]);
+  const soldCellTotal = numberOr(inventory.soldCells ?? source.cellBuckets?.find((row: any) => row.label === 'Sold')?.value);
   const filteredSoldRows = selectedSoldEntity === 'All' ? soldData : soldData.filter(row => row.label === selectedSoldEntity);
   const soldDistribution = useMemo(() => buildDashboardDistribution(
     filteredSoldRows,
@@ -1071,7 +1072,7 @@ export const CEOMonitoringView: React.FC = () => {
                   <div className="text-[11px] text-slate-400">Terminal sales by entity</div>
                 </div>
               </div>
-              <div className="text-[18px] font-extrabold text-slate-900">{formatNumber(soldDistribution.total)}</div>
+              <div className="text-[18px] font-extrabold text-slate-900">{formatNumber(soldCellTotal)}</div>
             </div>
 
             <div className="mb-3 flex flex-wrap gap-2 text-[10px]">
