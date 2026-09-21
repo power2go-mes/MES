@@ -1101,7 +1101,14 @@ export const CEOMonitoringView: React.FC = () => {
               ))}
             </div>
 
-            <DistributionDonut distribution={soldDistribution} ariaLabel="Sold entity distribution" showShare={false} />
+            <DistributionDonut
+              distribution={soldDistribution}
+              ariaLabel="Sold entity distribution"
+              showShare={false}
+              large={false}
+              compactLegend
+              legendBelow
+            />
           </div>
         </div>
 
