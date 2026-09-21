@@ -36,6 +36,7 @@ const AppContent: React.FC = () => {
   const { activeView, setActiveView, notifications, dismissNotification } = useApp();
   const { isAuthenticated, authLoading, currentUser } = useAuth();
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  const [postLoginReady, setPostLoginReady] = useState(false);
   const canManageUsers = currentUser?.roleId === 'role-admin' || currentUser?.role === 'admin';
   const isCeo = currentUser?.roleId === 'role-ceo' || currentUser?.role === 'ceo';
   const ceoViews = new Set(['ceo-monitoring', 'inventory', 'traceability']);
@@ -44,6 +45,16 @@ const AppContent: React.FC = () => {
   useEffect(() => {
     if (isCeo && !ceoViews.has(activeView)) setActiveView('ceo-monitoring');
   }, [activeView, isCeo, setActiveView]);
+
+  useEffect(() => {
+    if (!isAuthenticated) {
+      setPostLoginReady(false);
+      return;
+    }
+
+    const timeout = window.setTimeout(() => setPostLoginReady(true), 3000);
+    return () => window.clearTimeout(timeout);
+  }, [isAuthenticated]);
 
   // If auth is still loading (initial check in progress), show nothing
   if (authLoading) {
@@ -60,6 +71,20 @@ const AppContent: React.FC = () => {
   // If NOT authenticated — show LOGIN page (the auth gate)
   if (!isAuthenticated) {
     return <LoginPage />;
+  }
+
+  if (isAuthenticated && !postLoginReady) {
+    return (
+      <div className="flex h-screen w-screen items-center justify-center bg-slate-50">
+        <div className="rounded-2xl border border-slate-200 bg-white px-8 py-6 text-center shadow-sm">
+          <h1 className="text-2xl font-black tracking-[-0.06em] text-slate-900">Power2Go MES</h1>
+          <p className="mt-3 text-sm text-slate-500">Preparing dashboard for you...</p>
+          <div className="mt-5 h-2 w-40 overflow-hidden rounded-full bg-slate-200">
+            <div className="h-full w-full animate-pulse rounded-full bg-emerald-500" />
+          </div>
+        </div>
+      </div>
+    );
   }
 
   // Authenticated — render the MES application
