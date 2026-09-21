@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { jsPDF } from 'jspdf';
-import { Activity, AlertTriangle, Boxes, Download, Factory, PackageCheck, Truck, Zap } from 'lucide-react';
+import { Activity, AlertTriangle, Boxes, ChevronDown, Download, Factory, PackageCheck, Truck, Zap } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
 import { api } from '../../services/api';
 import { downloadBatteryReport, downloadCellReport, downloadRackReport, downloadSoldReport, downloadWarehouseReport } from '../../lib/cellReportExport';
@@ -80,9 +80,9 @@ const DistributionDonut: React.FC<{ distribution: DashboardDistribution; ariaLab
           <text x="50" y="57" textAnchor="middle" fontSize="4.5" fill={reportColors.slate}>{centerLabel}</text>
         </svg>}
       </div>
-      <div className={`min-w-0 space-y-2.5 py-2 ${legendBelow ? 'w-full' : 'w-full flex-1 sm:w-auto'}`}>
-        {distribution.rows.map((row) => <div key={row.label} className={`flex items-center gap-3 text-[12px] ${compactLegend ? 'justify-start' : 'justify-between'}`}><div className="flex items-center gap-2 text-slate-600"><span className="h-2.5 w-2.5 rounded-sm" style={{ backgroundColor: row.color }} />{row.label}</div><span className="font-semibold text-slate-900">{formatNumber(row.value)}{showShare && <span className="font-normal text-slate-400"> ({row.share.toFixed(2)}%)</span>}</span></div>)}
-        {extraRows.map((row) => <div key={row.label} className={`flex items-center gap-3 text-[12px] ${compactLegend ? 'justify-start' : 'justify-between'}`}><div className="flex items-center gap-2 text-slate-600"><span className="h-2.5 w-2.5 rounded-sm" style={{ backgroundColor: row.color }} />{row.label}</div><span className="font-semibold text-slate-900">{formatNumber(row.value)}</span></div>)}
+      <div className={`min-w-0 grid grid-cols-[max-content_auto] items-center gap-y-2.5 gap-x-[20px] py-2 ${legendBelow ? 'w-full' : 'w-full flex-1 sm:w-auto'}`}>
+        {distribution.rows.map((row) => <div key={row.label} className="contents"><div className="flex items-center gap-2 whitespace-nowrap text-[12px] text-slate-600"><span className="h-2.5 w-2.5 shrink-0 rounded-sm" style={{ backgroundColor: row.color }} />{row.label}</div><span className="whitespace-nowrap text-[12px] font-semibold text-slate-900">{formatNumber(row.value)}{showShare && <span className="font-normal text-slate-400"> ({row.share.toFixed(2)}%)</span>}</span></div>)}
+        {extraRows.map((row) => <div key={row.label} className="contents"><div className="flex items-center gap-2 whitespace-nowrap text-[12px] text-slate-600"><span className="h-2.5 w-2.5 shrink-0 rounded-sm" style={{ backgroundColor: row.color }} />{row.label}</div><span className="whitespace-nowrap text-[12px] font-semibold text-slate-900">{formatNumber(row.value)}</span></div>)}
       </div>
     </div>
   );
@@ -136,6 +136,8 @@ export const CEOMonitoringView: React.FC = () => {
   const [selectedWarehouseRackType, setSelectedWarehouseRackType] = useState('All');
   const [selectedWarehouseInventoryType, setSelectedWarehouseInventoryType] = useState<'All' | 'Racks' | 'Battery Packs'>('All');
   const [selectedWarehouseBatteryType, setSelectedWarehouseBatteryType] = useState('All');
+  const [openWarehouseFilter, setOpenWarehouseFilter] = useState<'Racks' | 'Battery Packs' | null>(null);
+  const [openCellFilter, setOpenCellFilter] = useState(false);
   const [selectedModuleConfig, setSelectedModuleConfig] = useState('All');
   const [selectedSoldEntity, setSelectedSoldEntity] = useState('All');
   useEffect(() => {
@@ -988,18 +990,16 @@ export const CEOMonitoringView: React.FC = () => {
               <div className="text-[18px] font-extrabold text-slate-900">{formatNumber(warehouseCellTotal)}</div>
             </div>
             <div className="mb-3 flex flex-wrap gap-2 text-[10px] font-medium text-slate-500">
-              {(['All', 'Racks', 'Battery Packs'] as const).map(type => <button key={type} type="button" onClick={() => setSelectedWarehouseInventoryType(type)} className={`rounded-md border px-2 py-1 ${selectedWarehouseInventoryType === type ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-slate-200 bg-slate-50 text-slate-500'}`}>{type}</button>)}
+              <button type="button" onClick={() => { setSelectedWarehouseInventoryType('All'); setOpenWarehouseFilter(null); }} className={`rounded-md border px-2 py-1 ${selectedWarehouseInventoryType === 'All' ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-slate-200 bg-slate-50 text-slate-500'}`}>All</button>
+              {(['Racks', 'Battery Packs'] as const).map(type => <div key={type} className="relative">
+                <button type="button" onClick={() => { setSelectedWarehouseInventoryType(type); setOpenWarehouseFilter(openWarehouseFilter === type ? null : type); }} className={`inline-flex items-center gap-1 rounded-md border px-2 py-1 ${selectedWarehouseInventoryType === type ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-slate-200 bg-slate-50 text-slate-500'}`} aria-expanded={openWarehouseFilter === type}>
+                  {type}<ChevronDown className="h-3 w-3" />
+                </button>
+                {openWarehouseFilter === type && <div className="absolute left-0 top-full z-20 mt-1 flex min-w-max flex-col gap-1 rounded-lg border border-slate-200 bg-white p-1.5 shadow-lg">
+                  {(type === 'Racks' ? warehouseRackTypeOptions : warehouseBatteryTypeOptions).map(filterType => <button key={filterType} type="button" onClick={() => { if (type === 'Racks') setSelectedWarehouseRackType(filterType); else setSelectedWarehouseBatteryType(filterType); setOpenWarehouseFilter(null); }} className={`whitespace-nowrap rounded-md px-2 py-1.5 text-left ${((type === 'Racks' ? selectedWarehouseRackType : selectedWarehouseBatteryType) === filterType) ? 'bg-emerald-50 text-emerald-700' : 'text-slate-600 hover:bg-slate-50'}`}>{filterType === 'All' ? `All ${type.toLowerCase()}` : type === 'Racks' ? warehouseRackTypeLabel(filterType) : filterType}</button>)}
+                </div>}
+              </div>)}
             </div>
-            {selectedWarehouseInventoryType !== 'Battery Packs' && <div className="mb-3">
-              <select value={selectedWarehouseRackType} onChange={event => setSelectedWarehouseRackType(event.target.value)} aria-label="Filter warehouse racks" className="w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-[11px] font-medium text-slate-600">
-                {warehouseRackTypeOptions.map(type => <option key={type} value={type}>{type === 'All' ? 'All racks' : warehouseRackTypeLabel(type)}</option>)}
-              </select>
-            </div>}
-            {selectedWarehouseInventoryType !== 'Racks' && <div className="mb-3">
-              <select value={selectedWarehouseBatteryType} onChange={event => setSelectedWarehouseBatteryType(event.target.value)} aria-label="Filter warehouse battery packs" className="w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-[11px] font-medium text-slate-600">
-                {warehouseBatteryTypeOptions.map(type => <option key={type} value={type}>{type === 'All' ? 'All battery packs' : type}</option>)}
-              </select>
-            </div>}
             <DistributionDonut
               distribution={warehouseDistribution}
               ariaLabel="Warehouse distribution"
@@ -1024,7 +1024,14 @@ export const CEOMonitoringView: React.FC = () => {
             </div>
 
             <div className="mb-3 flex flex-wrap gap-2 text-[10px] font-medium text-slate-500">
-                {['All', 'In Stock', 'Floor Stock', 'In Module', 'In Pack', 'In Rack', 'Karachi Warehouse', 'Lahore Warehouse', 'Sold', 'Scrap', 'Recycle'].map((label) => (
+              <button
+                type="button"
+                onClick={() => setSelectedCellStatus('All')}
+                className={`rounded-md border px-2 py-1 ${selectedCellStatus === 'All' ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-slate-200 bg-slate-50 text-slate-500'}`}
+              >
+                All cells
+              </button>
+              {['In Stock', 'Floor Stock', 'Scrap', 'Recycle'].map((label) => (
                 <button
                   key={label}
                   type="button"
@@ -1034,6 +1041,28 @@ export const CEOMonitoringView: React.FC = () => {
                   {label}
                 </button>
               ))}
+              <div className="relative">
+                <button
+                  type="button"
+                  onClick={() => setOpenCellFilter(open => !open)}
+                  aria-expanded={openCellFilter}
+                  className={`inline-flex items-center gap-1 rounded-md border px-2 py-1 ${selectedCellStatus === 'All' || !['In Stock', 'Floor Stock', 'Scrap', 'Recycle'].includes(selectedCellStatus) ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-slate-200 bg-slate-50 text-slate-500'}`}
+                >
+                  Other<ChevronDown className="h-3 w-3" />
+                </button>
+                {openCellFilter && <div className="absolute left-0 top-full z-20 mt-1 flex min-w-max flex-col gap-1 rounded-lg border border-slate-200 bg-white p-1.5 shadow-lg">
+                  {['In Module', 'In Pack', 'In Rack', 'Karachi Warehouse', 'Lahore Warehouse', 'Sold'].map((label) => (
+                    <button
+                      key={label}
+                      type="button"
+                      onClick={() => { setSelectedCellStatus(label); setOpenCellFilter(false); }}
+                      className={`whitespace-nowrap rounded-md px-2 py-1.5 text-left ${selectedCellStatus === label ? 'bg-emerald-50 text-emerald-700' : 'text-slate-600 hover:bg-slate-50'}`}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>}
+              </div>
             </div>
 
             <DistributionDonut
