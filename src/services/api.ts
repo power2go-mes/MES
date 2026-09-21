@@ -832,7 +832,7 @@ async getUsers(): Promise<User[]> {
         applyDateRange(rawSupabase.from('cells').select('id,reserved_for_battery_id').eq('lifecycle_status', 'SOLD')),
         rawSupabase.from('module_cells').select('cell_id,module:modules(battery_id)'),
         rawSupabase.from('rack_packs').select('battery_id,rack:racks(status)'),
-        rawSupabase.from('cells').select('id,status,lifecycle_status,internal_serial,serial_number,supplier_barcode,production_grade,disposition,created_at'),
+        rawSupabase.from('cells').select('id,status,lifecycle_status,internal_serial,supplier_barcode,grade,created_at'),
         rawSupabase.from('bms_units').select('id,status,serial_number,serialNumber'),
         rawSupabase.from('bmu_units').select('id,status,serial_number,serialNumber'),
       ]);
@@ -861,13 +861,11 @@ async getUsers(): Promise<User[]> {
       };
       (liveCells || []).forEach((cell: any) => {
         const lifecycleStatus = String(cell.lifecycle_status || cell.status || '').toUpperCase();
-        const disposition = String(cell.disposition || '').toUpperCase();
-        const productionGrade = String(cell.production_grade || '').toUpperCase();
+        const productionGrade = String(cell.grade || '').toUpperCase();
         const warehouseLocation = String(latestByEntity.get(`CELL:${cell.id}`) || '').toUpperCase();
         let label = 'In Stock';
         if (['SOLD', 'DISPATCHED'].includes(lifecycleStatus)) label = 'Sold';
         else if (['DAMAGE', 'DAMAGED', 'SCRAP', 'QUARANTINED'].includes(lifecycleStatus) || ['DAMAGE', 'DAMAGED', 'SCRAP', 'QUARANTINED'].includes(productionGrade)) label = 'Damage';
-        else if (['REUSABLE', 'REWORK', 'RELEASE_APPROVED'].includes(lifecycleStatus) || ['REUSABLE', 'REWORK', 'RELEASE_APPROVED'].includes(disposition)) label = 'Reusable';
         else if (lifecycleStatus === 'IN_RACK') label = 'In Rack';
         else if (lifecycleStatus === 'IN_PACK') label = 'In Pack';
         else if (lifecycleStatus === 'IN_MODULE') label = 'In Module';
@@ -878,15 +876,14 @@ async getUsers(): Promise<User[]> {
       const damageReusableSerialNumbers: Record<string, string[]> = {};
       (liveCells || []).forEach((cell: any) => {
         const lifecycleStatus = String(cell.lifecycle_status || cell.status || '').toUpperCase();
-        const disposition = String(cell.disposition || '').toUpperCase();
-        const productionGrade = String(cell.production_grade || '').toUpperCase();
+        const productionGrade = String(cell.grade || '').toUpperCase();
         const serial = extractSerial(cell.internal_serial, cell.internalSerial, cell.supplier_barcode, cell.supplierBarcode, cell.serial_number, cell.serialNumber, cell.id);
         if (!serial) return;
         if (['DAMAGE', 'DAMAGED', 'SCRAP', 'QUARANTINED'].includes(lifecycleStatus) || ['DAMAGE', 'DAMAGED', 'SCRAP', 'QUARANTINED'].includes(productionGrade)) {
           damageReusableSerialNumbers.Damage = [...(damageReusableSerialNumbers.Damage || []), serial];
           damageReusableSerialNumbers.Scrap = [...(damageReusableSerialNumbers.Scrap || []), serial];
         }
-        if (['REUSABLE', 'REWORK', 'RELEASE_APPROVED'].includes(lifecycleStatus) || ['REUSABLE', 'REWORK', 'RELEASE_APPROVED'].includes(disposition)) {
+        if (['REUSABLE', 'REWORK', 'RELEASE_APPROVED'].includes(lifecycleStatus)) {
           damageReusableSerialNumbers.Reusable = [...(damageReusableSerialNumbers.Reusable || []), serial];
           damageReusableSerialNumbers.Recycle = [...(damageReusableSerialNumbers.Recycle || []), serial];
         }

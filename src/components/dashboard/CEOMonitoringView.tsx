@@ -254,9 +254,13 @@ export const CEOMonitoringView: React.FC = () => {
         const existingReusableValue = numberOr(res.cellBuckets?.find((row: any) => ['RECYCLE', 'REUSABLE'].includes(String(row.label || '').toUpperCase()))?.value);
         const scrapCellCount = existingDamageValue || 0;
         const reusableCount = existingReusableValue > 0 ? existingReusableValue : reusableCellIds.size;
+        const reusableToReclassify = existingReusableValue > 0 ? 0 : reusableCount;
         const patchedBuckets = normalizeCellBucketLabels(
           (res.cellBuckets || [])
             .filter((row: any) => !['SCRAP', 'DAMAGE', 'RECYCLE', 'REUSABLE'].includes(String(row.label || '').toUpperCase()))
+            .map((row: any) => String(row.label || '').toUpperCase() === 'FLOOR STOCK'
+              ? { ...row, value: Math.max(0, numberOr(row.value) - reusableToReclassify) }
+              : row)
             .concat([
               { label: 'Damage', value: scrapCellCount },
               { label: 'Reusable', value: reusableCount },
