@@ -302,7 +302,6 @@ export const CEOMonitoringView: React.FC = () => {
     selectedModuleConfig === 'All' ? source.moduleTotal : undefined,
   ), [filteredModuleRows, selectedModuleConfig, source.moduleTotal]);
   const soldData = useMemo<ChartRow[]>(() => {
-    const soldCells = numberOr(inventory.soldCells ?? source.cellBuckets?.find((row: any) => row.label === 'Sold')?.value);
     const soldBatteries = numberOr(source.batteryStatusBuckets?.find((row: any) => String(row.label || '').toUpperCase() === 'SOLD')?.value);
     const soldRacks = (source.rackStatusBuckets || [])
       .filter((row: any) => String(row.label || row.status || '').toUpperCase().replace(/_/g, ' ') === 'SOLD')
@@ -310,9 +309,8 @@ export const CEOMonitoringView: React.FC = () => {
     return [
       { label: 'Racks', value: soldRacks, color: reportColors.silver },
       { label: 'Battery Packs', value: soldBatteries, color: reportColors.silver },
-      { label: 'Cells', value: soldCells, color: reportColors.silver },
     ];
-  }, [inventory.soldCells, source.batteryStatusBuckets, source.cellBuckets, source.rackStatusBuckets]);
+  }, [source.batteryStatusBuckets, source.rackStatusBuckets]);
   const filteredSoldRows = selectedSoldEntity === 'All' ? soldData : soldData.filter(row => row.label === selectedSoldEntity);
   const soldDistribution = useMemo(() => buildDashboardDistribution(
     filteredSoldRows,
