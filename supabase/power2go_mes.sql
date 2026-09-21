@@ -2985,29 +2985,32 @@ begin
         on conflict (role_id, permission_id) do nothing;
 end $$;
 
--- Backfill production serials for cells reserved before this numbering rule was added.
+-- Normalize all existing cells to the production internal serial format.
 do $$
 declare
-    reserved_cell record;
+    existing_cell record;
     serial_prefix text := 'P2G-CL-' || to_char(current_date, 'MMDD');
     next_cell_number integer;
 begin
     perform pg_advisory_xact_lock(hashtext(serial_prefix));
+
+    -- Avoid collisions while replacing legacy/internal supplier serials.
+    update public.cells
+    set internal_serial = 'LEGACY-CELL-' || id;
+
     select coalesce(max((substring(internal_serial from '([0-9]+)$'))::integer), 0) + 1
     into next_cell_number
     from public.cells
     where internal_serial like serial_prefix || '-%';
 
-    for reserved_cell in
+    for existing_cell in
         select id
         from public.cells
-        where (reserved_for_order_id is not null or reserved_for_battery_id is not null)
-          and internal_serial !~ '^P2G-CL-[0-9]{4}-[0-9]{5}$'
         order by created_at asc, id asc
     loop
         update public.cells
         set internal_serial = serial_prefix || '-' || lpad(next_cell_number::text, 5, '0')
-        where id = reserved_cell.id;
+        where id = existing_cell.id;
         next_cell_number := next_cell_number + 1;
     end loop;
 end $$;

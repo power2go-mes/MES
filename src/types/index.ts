@@ -213,6 +213,7 @@ export interface BMSItem {
   status: ComponentStatus;
   reservedForOrderId?: string;
   assignedToBatteryId?: string;
+  assignedBatterySerial?: string;
   testResult?: {
     status: 'PASSED' | 'FAILED';
     canCommsOk: boolean;
@@ -235,6 +236,7 @@ export interface BMUItem {
   status: ComponentStatus;
   reservedForOrderId?: string;
   assignedToBatteryId?: string;
+  assignedBatterySerial?: string;
   testResult?: {
     status: 'PASSED' | 'FAILED';
     testedAt: string;

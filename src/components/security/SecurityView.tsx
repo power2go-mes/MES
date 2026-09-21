@@ -15,7 +15,6 @@ const ALL_MODULES = [
   { id: 'inventory', name: 'Inventory & Stock Management', hasView: true, hasAdd: true, hasEdit: true, hasDelete: true },
   { id: 'production', name: 'Production Orders & 2D Twin', hasView: true, hasAdd: true, hasEdit: true, hasDelete: true },
   { id: 'products', name: 'Product Configurator & Templates', hasView: true, hasAdd: true, hasEdit: true, hasDelete: true },
-  { id: 'reports', name: 'Reports & Analytics', hasView: true, hasAdd: false, hasEdit: false, hasDelete: false },
   { id: 'traceability', name: 'Genealogy & Traceability', hasView: true, hasAdd: false, hasEdit: false, hasDelete: false },
   { id: 'security', name: 'Security (Users & Roles)', hasView: true, hasAdd: true, hasEdit: true, hasDelete: true },
 ];

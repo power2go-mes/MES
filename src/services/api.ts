@@ -2131,24 +2131,27 @@ async getUsers(): Promise<User[]> {
     }
     const { data, error } = await query;
     if (error) throw error;
-    const unassignedControllers = (data || []).filter((bms: any) => !bms.assignedToBatteryId && !bms.reservedForBatteryId && !bms.reserved_for_battery_id);
-    const { data: batteries, error: batteriesError } = unassignedControllers.length > 0
-      ? await supabase.from('batteries').select('id, bmsId')
-      : { data: [], error: null };
+    const { data: batteries, error: batteriesError } = await supabase.from('batteries').select('id, serial_number, serialNumber, bmsId, bms_id');
     if (batteriesError) throw batteriesError;
     const assignedBatteryByController = new Map<string, string>(
       (batteries || [])
-        .filter((battery: any) => battery.bmsId)
-        .map((battery: any) => [battery.bmsId, battery.id]),
+        .filter((battery: any) => battery.bmsId || battery.bms_id)
+        .map((battery: any) => [battery.bmsId || battery.bms_id, battery.id]),
+    );
+    const batterySerialById = new Map<string, string>(
+      (batteries || []).map((battery: any) => [String(battery.id), String(battery.serialNumber || battery.serial_number || ' ')])
     );
     return (data || []).map((bms: any) => {
       const assignedToBatteryId = bms.assignedToBatteryId
         || bms.reservedForBatteryId
         || bms.reserved_for_battery_id
-        || assignedBatteryByController.get(bms.id);
+        || assignedBatteryByController.get(bms.id)
+        || assignedBatteryByController.get(bms.bms_id)
+        || assignedBatteryByController.get(bms.bmsId);
+      const assignedBatterySerial = assignedToBatteryId ? batterySerialById.get(String(assignedToBatteryId)) || undefined : undefined;
       return assignedToBatteryId
-        ? { ...bms, status: 'ASSIGNED', assignedToBatteryId }
-        : bms;
+        ? { ...bms, status: 'ASSIGNED', assignedToBatteryId, assignedBatterySerial }
+        : { ...bms, assignedBatterySerial: undefined };
     });
   },
 
@@ -2202,24 +2205,27 @@ async getUsers(): Promise<User[]> {
     }
     const { data, error } = await query;
     if (error) throw error;
-    const unassignedControllers = (data || []).filter((bmu: any) => !bmu.assignedToBatteryId && !bmu.reservedForBatteryId && !bmu.reserved_for_battery_id);
-    const { data: batteries, error: batteriesError } = unassignedControllers.length > 0
-      ? await supabase.from('batteries').select('id, bmuId')
-      : { data: [], error: null };
+    const { data: batteries, error: batteriesError } = await supabase.from('batteries').select('id, serial_number, serialNumber, bmuId, bmu_id');
     if (batteriesError) throw batteriesError;
     const assignedBatteryByController = new Map<string, string>(
       (batteries || [])
-        .filter((battery: any) => battery.bmuId)
-        .map((battery: any) => [battery.bmuId, battery.id]),
+        .filter((battery: any) => battery.bmuId || battery.bmu_id)
+        .map((battery: any) => [battery.bmuId || battery.bmu_id, battery.id]),
+    );
+    const batterySerialById = new Map<string, string>(
+      (batteries || []).map((battery: any) => [String(battery.id), String(battery.serialNumber || battery.serial_number || ' ')])
     );
     return (data || []).map((bmu: any) => {
       const assignedToBatteryId = bmu.assignedToBatteryId
         || bmu.reservedForBatteryId
         || bmu.reserved_for_battery_id
-        || assignedBatteryByController.get(bmu.id);
+        || assignedBatteryByController.get(bmu.id)
+        || assignedBatteryByController.get(bmu.bmu_id)
+        || assignedBatteryByController.get(bmu.bmuId);
+      const assignedBatterySerial = assignedToBatteryId ? batterySerialById.get(String(assignedToBatteryId)) || undefined : undefined;
       return assignedToBatteryId
-        ? { ...bmu, status: 'ASSIGNED', assignedToBatteryId }
-        : bmu;
+        ? { ...bmu, status: 'ASSIGNED', assignedToBatteryId, assignedBatterySerial }
+        : { ...bmu, assignedBatterySerial: undefined };
     });
   },
 
@@ -3798,9 +3804,12 @@ async getUsers(): Promise<User[]> {
 
   // Universal Traceability Engine
   async universalTrace(query: string): Promise<any> {
-    const cleanQuery = query.trim().toLowerCase();
+    const cleanQuery = query.trim();
+    const normalizeFieldName = (value: string) => value.replace(/([a-z0-9])([A-Z])/g, '$1_$2').toLowerCase();
+    const uniqueColumns = (values: string[]) => Array.from(new Set(values.flatMap(value => [value, normalizeFieldName(value)]).filter(Boolean)));
     const find = async (table: string, columns: string[]) => {
-      const results = await Promise.all(columns.map(column =>
+      const candidates = uniqueColumns(columns);
+      const results = await Promise.all(candidates.map(column =>
         supabase.from(table).select('*').ilike(column, cleanQuery).limit(1),
       ));
       for (const result of results) {
@@ -3811,7 +3820,7 @@ async getUsers(): Promise<User[]> {
     };
 
     const findDirectTraceEntity = async () => {
-      const qrResult = await supabase.from('qr_registry').select('*').ilike('qrCode', cleanQuery).limit(1);
+      const qrResult = await supabase.from('qr_registry').select('*').ilike('qr_code', cleanQuery).limit(1);
       if (qrResult.error) throw qrResult.error;
       if (qrResult.data?.[0]) {
         const qrMatch = qrResult.data[0];
@@ -3834,23 +3843,23 @@ async getUsers(): Promise<User[]> {
       const normalized = cleanQuery.toUpperCase();
       const candidateLookups: Array<{ entityType: string; table: string; columns: string[] }> =
         normalized.startsWith('P2G-MOD') || normalized.startsWith('MOD-')
-          ? [{ entityType: 'MODULE', table: 'modules', columns: ['serialNumber', 'id'] }]
+          ? [{ entityType: 'MODULE', table: 'modules', columns: ['serialNumber', 'serial_number', 'id'] }]
           : normalized.startsWith('P2G-BP') || normalized.startsWith('BAT-')
-            ? [{ entityType: 'BATTERY', table: 'batteries', columns: ['serialNumber', 'id'] }]
+            ? [{ entityType: 'BATTERY', table: 'batteries', columns: ['serialNumber', 'serial_number', 'id'] }]
             : normalized.startsWith('P2G-RACK') || normalized.startsWith('RACK-')
-              ? [{ entityType: 'RACK', table: 'racks', columns: ['serialNumber', 'qrCode', 'id'] }]
+              ? [{ entityType: 'RACK', table: 'racks', columns: ['serialNumber', 'serial_number', 'qrCode', 'qr_code', 'id'] }]
               : normalized.startsWith('BMS-')
-                ? [{ entityType: 'BMS', table: 'bms_units', columns: ['serialNumber', 'id'] }]
+                ? [{ entityType: 'BMS', table: 'bms_units', columns: ['serialNumber', 'serial_number', 'id'] }]
                 : normalized.startsWith('BMU-')
-                  ? [{ entityType: 'BMU', table: 'bmu_units', columns: ['serialNumber', 'id'] }]
+                  ? [{ entityType: 'BMU', table: 'bmu_units', columns: ['serialNumber', 'serial_number', 'id'] }]
                   : normalized.startsWith('CELL-') || /^\d/.test(normalized)
                     ? []
                     : [
-                        { entityType: 'MODULE', table: 'modules', columns: ['serialNumber', 'id'] },
-                        { entityType: 'BATTERY', table: 'batteries', columns: ['serialNumber', 'id'] },
-                        { entityType: 'BMS', table: 'bms_units', columns: ['serialNumber', 'id'] },
-                        { entityType: 'BMU', table: 'bmu_units', columns: ['serialNumber', 'id'] },
-                        { entityType: 'RACK', table: 'racks', columns: ['serialNumber', 'qrCode', 'id'] },
+                        { entityType: 'MODULE', table: 'modules', columns: ['serialNumber', 'serial_number', 'id'] },
+                        { entityType: 'BATTERY', table: 'batteries', columns: ['serialNumber', 'serial_number', 'id'] },
+                        { entityType: 'BMS', table: 'bms_units', columns: ['serialNumber', 'serial_number', 'id'] },
+                        { entityType: 'BMU', table: 'bmu_units', columns: ['serialNumber', 'serial_number', 'id'] },
+                        { entityType: 'RACK', table: 'racks', columns: ['serialNumber', 'serial_number', 'qrCode', 'qr_code', 'id'] },
                       ];
       const directResults = await Promise.all(candidateLookups.map(async lookup => ({
         ...lookup,
@@ -3901,8 +3910,8 @@ async getUsers(): Promise<User[]> {
       const { data: modules, error: modulesError } = await supabase
         .from('modules')
         .select('*')
-        .eq('batteryId', batteryId)
-        .order('moduleIndex', { ascending: true });
+        .eq('battery_id', batteryId)
+        .order('module_index', { ascending: true });
       if (modulesError) throw modulesError;
       const cellsByModule = await loadModuleCellsBatch((modules || []).map((module: any) => module.id));
       return (modules || []).map((module: any) => ({
@@ -3915,12 +3924,14 @@ async getUsers(): Promise<User[]> {
       context.battery = battery;
       const [modules, bmsResult, bmuResult, rackPackResult] = await Promise.all([
         loadBatteryModules(battery.id),
-        battery.bmsId ? supabase.from('bms_units').select('*').eq('id', battery.bmsId).maybeSingle() : Promise.resolve({ data: null, error: null }),
-        battery.bmuId ? supabase.from('bmu_units').select('*').eq('id', battery.bmuId).maybeSingle() : Promise.resolve({ data: null, error: null }),
+        battery.bms_id || battery.bmsId ? supabase.from('bms_units').select('*').eq('id', battery.bms_id || battery.bmsId).maybeSingle() : Promise.resolve({ data: null, error: null }),
+        battery.bmu_id || battery.bmuId ? supabase.from('bmu_units').select('*').eq('id', battery.bmu_id || battery.bmuId).maybeSingle() : Promise.resolve({ data: null, error: null }),
         supabase.from('rack_packs').select('rack_id,pack_slot_index').eq('battery_id', battery.id).maybeSingle(),
       ]);
       context.modules = modules;
-      context.cells = modules.flatMap((module: any) => module.cells || []);
+      if (context.entityType !== 'MODULE') {
+        context.cells = modules.flatMap((module: any) => module.cells || []);
+      }
       context.bms = bmsResult.data;
       context.bmu = bmuResult.data;
       const { data: rackPack, error: rackPackError } = rackPackResult;
@@ -3960,8 +3971,8 @@ async getUsers(): Promise<User[]> {
       const modulesResult = await supabase
         .from('modules')
         .select('*')
-        .in('batteryId', batteryIds)
-        .order('moduleIndex', { ascending: true });
+        .in('battery_id', batteryIds)
+        .order('module_index', { ascending: true });
       if (modulesResult.error) throw modulesResult.error;
       const modules = modulesResult.data || [];
       const cellsByModule = await loadModuleCellsBatch(modules.map((module: any) => module.id));
@@ -3973,8 +3984,8 @@ async getUsers(): Promise<User[]> {
         modulesByBattery.set(batteryId, batteryModules);
       }
 
-      const bmsIds = Array.from(new Set((batteries || []).map((battery: any) => battery.bmsId || battery.bms_id).filter(Boolean)));
-      const bmuIds = Array.from(new Set((batteries || []).map((battery: any) => battery.bmuId || battery.bmu_id).filter(Boolean)));
+      const bmsIds = Array.from(new Set((batteries || []).map((battery: any) => battery.bms_id || battery.bmsId).filter(Boolean)));
+      const bmuIds = Array.from(new Set((batteries || []).map((battery: any) => battery.bmu_id || battery.bmuId).filter(Boolean)));
       const [bmsResult, bmuResult] = await Promise.all([
         bmsIds.length ? supabase.from('bms_units').select('*').in('id', bmsIds) : Promise.resolve({ data: [], error: null }),
         bmuIds.length ? supabase.from('bmu_units').select('*').in('id', bmuIds) : Promise.resolve({ data: [], error: null }),
@@ -4053,27 +4064,70 @@ async getUsers(): Promise<User[]> {
       } else {
         context.traceabilityWarning = `Genealogy history could not be loaded: ${genealogyError.message || 'database query failed'}`;
       }
+
+      if (['CELL', 'MODULE', 'BATTERY', 'BMS', 'BMU', 'RACK'].includes(entityType)) {
+        const statusKey = String(normalizedEntity.status || normalizedEntity.lifecycleStatus || normalizedEntity.lifecycle_status || '').toUpperCase();
+        if (statusKey === 'SOLD' || statusKey === 'DISPATCHED') {
+          const { data: saleRows } = await supabase.from('sale_history').select('*').eq('entity_type', entityType).eq('entity_id', normalizedEntity.id).order('sold_at', { ascending: false }).limit(20);
+          if (saleRows?.[0]) context.saleHistory = saleRows[0];
+        }
+        if (statusKey === 'SCRAP' || statusKey === 'REJECTED' || statusKey === 'QUARANTINED') {
+          const { data: scrapRows } = await supabase.from('quarantine_records').select('*').eq('entity_type', entityType).eq('entity_id', normalizedEntity.id).order('quarantined_at', { ascending: false }).limit(20);
+          if (scrapRows?.[0]) context.scrapRecord = scrapRows[0];
+        }
+      }
       if (entityType === 'CELL') {
         const supplier = normalizedEntity.supplierId ? await supabase.from('suppliers').select('*').eq('id', normalizedEntity.supplierId).maybeSingle() : null;
         if (supplier?.data) context.supplier = supplier.data;
-        const { data: assignment, error: assignmentError } = await supabase
+
+        const cellBatteryId = normalizedEntity.reservedForBatteryId ?? normalizedEntity.reserved_for_battery_id;
+        const cellModuleResult = await supabase
           .from('module_cells')
-          .select('moduleId')
-          .eq('cellId', normalizedEntity.id)
-          .maybeSingle();
-        if (assignmentError) throw assignmentError;
-        if (assignment?.moduleId) {
-          const module = await supabase.from('modules').select('*').eq('id', assignment.moduleId).maybeSingle();
-          if (module?.data) context.module = { ...module.data, cells: await loadModuleCells(module.data.id) };
+          .select('module_id, cell_id, module:modules(*)')
+          .eq('cell_id', normalizedEntity.id)
+          .limit(10);
+        if (cellModuleResult.error) throw cellModuleResult.error;
+
+        const assignment = Array.isArray(cellModuleResult.data) && cellModuleResult.data.length > 0 ? cellModuleResult.data[0] : null;
+        const moduleId = assignment?.module_id || assignment?.module?.id || null;
+        if (moduleId) {
+          const module = await supabase.from('modules').select('*').eq('id', moduleId).maybeSingle();
+          if (module?.data) {
+            context.module = { ...module.data, cells: await loadModuleCells(module.data.id) };
+          }
+        }
+
+        const resolvedBatteryId = (cellBatteryId || (assignment?.module?.battery_id ?? assignment?.module?.batteryId) || (context.module?.batteryId ?? context.module?.battery_id));
+        if (resolvedBatteryId) {
+          const battery = await supabase.from('batteries').select('*').eq('id', resolvedBatteryId).maybeSingle();
+          if (battery?.data) {
+            context.battery = battery.data;
+            await loadBatteryContext(battery.data, context);
+          }
+        }
+
+        const batteryForRack = context.battery || (cellBatteryId ? await supabase.from('batteries').select('*').eq('id', cellBatteryId).maybeSingle() : null);
+        if (batteryForRack?.data) {
+          const rackPackResult = await supabase.from('rack_packs').select('rack_id,pack_slot_index').eq('battery_id', batteryForRack.data.id).maybeSingle();
+          if (!rackPackResult.error && rackPackResult.data) {
+            const rackId = rackPackResult.data.rackId || rackPackResult.data.rack_id;
+            if (rackId) {
+              const rackResult = await supabase.from('racks').select('*').eq('id', rackId).maybeSingle();
+              if (rackResult.data) context.rack = rackResult.data;
+            }
+          }
         }
       }
       if (entityType === 'CELL' || entityType === 'MODULE') {
-        const batteryId = entityType === 'CELL' ? context.module?.batteryId : normalizedEntity.batteryId;
+        const fallbackModuleBatteryId = context.module?.batteryId ?? context.module?.battery_id ?? context.battery?.id;
+        const batteryId = entityType === 'CELL'
+          ? (fallbackModuleBatteryId ?? normalizedEntity.batteryId ?? normalizedEntity.battery_id ?? normalizedEntity.reservedForBatteryId ?? normalizedEntity.reserved_for_battery_id)
+          : (normalizedEntity.batteryId ?? normalizedEntity.battery_id ?? fallbackModuleBatteryId);
         if (entityType === 'MODULE') {
           context.cells = await loadModuleCells(entity.id);
           context.entity = { ...context.entity, cells: context.cells };
         }
-        if (batteryId) {
+        if (batteryId && !context.battery) {
           const battery = await supabase.from('batteries').select('*').eq('id', batteryId).maybeSingle();
           if (battery?.data) {
             await loadBatteryContext(battery.data, context);
@@ -4091,7 +4145,8 @@ async getUsers(): Promise<User[]> {
       }
       if (entityType === 'BMS' || entityType === 'BMU') {
         const batteryColumn = entityType === 'BMS' ? 'bmsId' : 'bmuId';
-        const battery = await supabase.from('batteries').select('*').eq(batteryColumn, entity.id).maybeSingle();
+        const batteryColumnDb = batteryColumn === 'bmsId' ? 'bms_id' : 'bmu_id';
+        const battery = await supabase.from('batteries').select('*').eq(batteryColumnDb, entity.id).maybeSingle();
         if (battery?.data) {
           await loadBatteryContext(battery.data, context);
           const assignedEntity = { ...entity, status: 'ASSIGNED', assignedToBatteryId: battery.data.id };

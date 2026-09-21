@@ -18,7 +18,6 @@ export type NavView =
   | 'quarantine'
   | 'scrap'
   | 'audit'
-  | 'reports'
   | 'security'
   | 'warehouse'
   | 'sold';

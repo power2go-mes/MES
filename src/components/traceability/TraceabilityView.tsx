@@ -88,7 +88,37 @@ function rackSubtree(rack: any, batteries: any[] = []): TraceNode {
   return makeNode('rack-' + (rack.serialNumber || rack.id), rack.serialNumber || rack.id, 'RACK', rack, 'Rack', rack.status, children);
 }
 
-function buildTree(t: any): TraceNode[] {
+export function buildModuleTraceNodes(data: any): TraceNode[] {
+  const moduleEntity = data.module || {};
+  const moduleCells = Array.isArray(data.cells) ? data.cells : Array.isArray(data.entity?.cells) ? data.entity.cells : [];
+  const modChildren: TraceNode[] = moduleCells.map((c: any, ci: number) =>
+    makeNode(`cell-${c.id}`, c.supplierBarcode || c.internalSerial || c.id, 'CELL', c, `Slot ${Number(c.moduleSlotIndex ?? ci) + 1}`)
+  );
+
+  if (data.battery) {
+    const bChildren: TraceNode[] = [];
+    if (data.bms) bChildren.push(makeNode('bms', data.bms.serialNumber, 'BMS', data.bms, 'BMS/BMU'));
+    if (data.bmu) bChildren.push(makeNode('bmu', data.bmu.serialNumber, 'BMU', data.bmu, 'BMS/BMU'));
+    if (data.battery.finalQcResult) bChildren.push(makeNode('finalqc', 'Final QC', 'FINAL_QC', data.battery.finalQcResult, 'Final QC'));
+    const batteryStatus = getBatteryTraceStatus(data.battery);
+    bChildren.push(makeNode('release', 'Release', 'RELEASE', { status: batteryStatus }, batteryStatus));
+    if (data.rack) {
+      const rack = data.rack;
+      bChildren.push(makeNode('rack', rack.serialNumber || rack.id, 'RACK', rack, 'Rack', rack.status));
+    }
+    modChildren.push(makeNode(`battery-summary-${data.battery.id}`, data.battery.serialNumber, 'BATTERY', data.battery, 'Battery Pack', undefined, bChildren));
+  }
+
+  if (data.rack && !data.battery) {
+    modChildren.push(makeNode('rack', data.rack.serialNumber || data.rack.id, 'RACK', data.rack, 'Rack', data.rack.status));
+  }
+
+  const roots = [makeNode('module', moduleEntity.serialNumber || moduleEntity.id, 'MODULE', moduleEntity, 'Module', moduleEntity.lifecycleStatus || moduleEntity.lifecycle_status || moduleEntity.status, modChildren)];
+  if (data.supplier) roots.unshift(makeNode('supplier', data.supplier.name, 'SUPPLIER', data.supplier, 'Supplier'));
+  return roots;
+}
+
+export function buildTree(t: any): TraceNode[] {
   const type = t.entityType;
   const e = t.entity;
   const cellStatus = (cell: any) => cell.lifecycleStatus || cell.lifecycle_status || cell.status;
@@ -96,18 +126,31 @@ function buildTree(t: any): TraceNode[] {
   if (type === 'CELL') {
     const roots: TraceNode[] = [];
     const cellChildren: TraceNode[] = [];
-    if (t.module) cellChildren.push(makeNode('module', t.module.serialNumber, 'MODULE', t.module, 'Module'));
+    if (t.module) cellChildren.push(makeNode('module', t.module.serialNumber || t.module.serial_number || t.module.id, 'MODULE', t.module, 'Module'));
     if (t.battery) {
       const bChildren: TraceNode[] = [];
-      if (t.bms) bChildren.push(makeNode('bms-' + t.battery.serialNumber, t.bms.serialNumber, 'BMS', t.bms, 'BMS/BMU'));
-      if (t.bmu) bChildren.push(makeNode('bmu-' + t.battery.serialNumber, t.bmu.serialNumber, 'BMU', t.bmu, 'BMS/BMU'));
+      if (t.bms) bChildren.push(makeNode('bms-' + (t.battery.serialNumber || t.battery.serial_number), t.bms.serialNumber || t.bms.serial_number, 'BMS', t.bms, 'BMS/BMU'));
+      if (t.bmu) bChildren.push(makeNode('bmu-' + (t.battery.serialNumber || t.battery.serial_number), t.bmu.serialNumber || t.bmu.serial_number, 'BMU', t.bmu, 'BMS/BMU'));
       if (t.battery.finalQcResult)
-        bChildren.push(makeNode('finalqc-' + t.battery.serialNumber, 'Final QC', 'FINAL_QC', t.battery.finalQcResult, 'Final QC'));
+        bChildren.push(makeNode('finalqc-' + (t.battery.serialNumber || t.battery.serial_number), 'Final QC', 'FINAL_QC', t.battery.finalQcResult, 'Final QC'));
       const batteryStatus = getBatteryTraceStatus(t.battery);
-      bChildren.push(makeNode('release-' + t.battery.serialNumber, 'Release', 'RELEASE', { status: batteryStatus }, batteryStatus));
+      bChildren.push(makeNode('release-' + (t.battery.serialNumber || t.battery.serial_number), 'Release', 'RELEASE', { status: batteryStatus }, batteryStatus));
+      if (t.rack) {
+        const rack = t.rack;
+        bChildren.push(makeNode('rack-' + (rack.serialNumber || rack.serial_number || rack.id), rack.serialNumber || rack.serial_number || rack.id, 'RACK', rack, 'Rack', rack.status));
+      }
+      if (String(t.battery.status || t.battery.lifecycleStatus || t.battery.lifecycle_status || '').toUpperCase() === 'SOLD') {
+        bChildren.push(makeNode('sale-' + (t.battery.serialNumber || t.battery.serial_number), 'Sale', 'SOLD', { clientName: t.saleHistory?.client_name || t.saleHistory?.clientName || 'Not recorded' }, 'Sold'));
+      }
+      if (String(t.battery.status || t.battery.lifecycleStatus || t.battery.lifecycle_status || '').toUpperCase() === 'SCRAP') {
+        bChildren.push(makeNode('scrap-' + (t.battery.serialNumber || t.battery.serial_number), 'Scrap', 'SCRAP', { reason: t.scrapRecord?.reason || 'Scrap record' }, 'Scrap'));
+      }
       cellChildren.push(
-        makeNode('battery-' + t.battery.serialNumber, t.battery.serialNumber, 'BATTERY', t.battery, 'Battery Pack', undefined, bChildren)
+        makeNode('battery-' + (t.battery.serialNumber || t.battery.serial_number), t.battery.serialNumber || t.battery.serial_number, 'BATTERY', t.battery, 'Battery Pack', undefined, bChildren)
       );
+    }
+    if (t.rack && !t.battery) {
+      cellChildren.push(makeNode('rack-' + (t.rack.serialNumber || t.rack.id), t.rack.serialNumber || t.rack.id, 'RACK', t.rack, 'Rack', t.rack.status));
     }
     roots.push(makeNode('cell', e.supplierBarcode || e.internalSerial || e.id, 'CELL', e, 'Cell', cellStatus(e), cellChildren));
     if (t.supplier) roots.unshift(makeNode('supplier', t.supplier.name, 'SUPPLIER', t.supplier, 'Supplier'));
@@ -115,34 +158,38 @@ function buildTree(t: any): TraceNode[] {
   }
 
   if (type === 'MODULE') {
-    const modChildren: TraceNode[] = (t.cells || e.cells || []).map((c: any, ci: number) =>
-      makeNode(`cell-${c.id}`, c.supplierBarcode || c.internalSerial || c.id, 'CELL', c, `Slot ${Number(c.moduleSlotIndex ?? ci) + 1}`)
-    );
-    if (t.battery) {
-      const bChildren: TraceNode[] = [];
-      if (t.bms) bChildren.push(makeNode('bms', t.bms.serialNumber, 'BMS', t.bms, 'BMS/BMU'));
-      if (t.bmu) bChildren.push(makeNode('bmu', t.bmu.serialNumber, 'BMU', t.bmu, 'BMS/BMU'));
-      if (t.battery.finalQcResult)
-        bChildren.push(makeNode('finalqc', 'Final QC', 'FINAL_QC', t.battery.finalQcResult, 'Final QC'));
-      const batteryStatus = getBatteryTraceStatus(t.battery);
-      bChildren.push(makeNode('release', 'Release', 'RELEASE', { status: batteryStatus }, batteryStatus));
-      modChildren.push(
-        makeNode('battery', t.battery.serialNumber, 'BATTERY', t.battery, 'Battery Pack', undefined, bChildren)
-      );
-    }
-    const roots = [makeNode('module', e.serialNumber, 'MODULE', e, 'Module', e.lifecycleStatus || e.lifecycle_status || e.status, modChildren)];
-    if (t.supplier) roots.unshift(makeNode('supplier', t.supplier.name, 'SUPPLIER', t.supplier, 'Supplier'));
-    return roots;
+    return buildModuleTraceNodes({
+      module: e,
+      cells: t.cells || e.cells || [],
+      battery: t.battery,
+      bms: t.bms,
+      bmu: t.bmu,
+      rack: t.rack,
+      supplier: t.supplier,
+    });
   }
 
   if (type === 'BATTERY') {
     const roots = [batterySubtree(e, t.bms, t.bmu, t.modules || [], t.rack)];
+    if (t.saleHistory) {
+      roots.unshift(makeNode('sale', 'Sale', 'SOLD', { clientName: t.saleHistory.client_name || t.saleHistory.clientName || 'Not recorded' }, 'Sold'));
+    }
+    if (t.scrapRecord) {
+      roots.unshift(makeNode('scrap', 'Scrap', 'SCRAP', { reason: t.scrapRecord.reason || 'Scrap record' }, 'Scrap'));
+    }
     if (t.supplier) roots.unshift(makeNode('supplier', t.supplier.name, 'SUPPLIER', t.supplier, 'Supplier'));
     return roots;
   }
 
   if (type === 'RACK') {
-    return [rackSubtree({ ...e, batteries: t.batteries || [] }, t.batteries || [])];
+    const roots = [rackSubtree({ ...e, batteries: t.batteries || [] }, t.batteries || [])];
+    if (t.saleHistory) {
+      roots.unshift(makeNode('sale', 'Sale', 'SOLD', { clientName: t.saleHistory.client_name || t.saleHistory.clientName || 'Not recorded' }, 'Sold'));
+    }
+    if (t.scrapRecord) {
+      roots.unshift(makeNode('scrap', 'Scrap', 'SCRAP', { reason: t.scrapRecord.reason || 'Scrap record' }, 'Scrap'));
+    }
+    return roots;
   }
 
   if (type === 'BMS' || type === 'BMU') {
@@ -153,7 +200,13 @@ function buildTree(t: any): TraceNode[] {
       const supplier = t.cells && t.cells[0] ? t.cells[0].supplierName : null;
       if (supplier) compChildren.push(makeNode('supplier', supplier, 'SUPPLIER', { name: supplier }, 'Supplier'));
     }
-    roots.push(makeNode(type === 'BMS' ? 'bms' : 'bmu', e.serialNumber, type, e, type, e.status, compChildren));
+    if (e.status === 'SOLD') {
+      compChildren.push(makeNode('sale', 'Sale', 'SOLD', { clientName: t.saleHistory?.client_name || t.saleHistory?.clientName || 'Not recorded' }, 'Sold'));
+    }
+    if (e.status === 'SCRAP' || e.status === 'QUARANTINED' || e.status === 'REJECTED') {
+      compChildren.push(makeNode('scrap', 'Scrap', 'SCRAP', { reason: t.scrapRecord?.reason || 'Scrap record' }, 'Scrap'));
+    }
+    roots.push(makeNode(type === 'BMS' ? 'bms' : 'bmu', e.serialNumber || e.serial_number || e.id, type, e, type, e.status, compChildren));
     return roots;
   }
 

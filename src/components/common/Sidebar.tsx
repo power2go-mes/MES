@@ -73,12 +73,9 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
       <nav className="flex-1 min-h-0 overflow-y-auto custom-scrollbar px-3 py-4 space-y-5">
         
         {/* QUICK ACCESS */}
-        <div>
-          <button type="button" onClick={() => toggleSection('quick-access')} aria-expanded={Boolean(openSections['quick-access'])} className="w-full flex items-center justify-between px-3 mb-1.5 text-left">
-            <span className="text-[9px] font-black uppercase tracking-widest text-slate-400">Quick Access</span>
-            {openSections['quick-access'] ? <ChevronDown className="w-3.5 h-3.5 text-slate-400" /> : <ChevronRight className="w-3.5 h-3.5 text-slate-400" />}
-          </button>
-          {openSections['quick-access'] && !isCeo && <button
+        <div className="space-y-1">
+          <div className="mb-1.5 px-3 text-[9px] font-black uppercase tracking-widest text-slate-400">Quick Access</div>
+          {!isCeo && <button
             onClick={() => setActiveView('dashboard')}
             className={`w-full flex items-center space-x-2.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
               activeView === 'dashboard'
@@ -89,7 +86,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
             <LayoutDashboard className="w-3.5 h-3.5" />
             <span>Dashboard</span>
           </button>}
-          {openSections['quick-access'] && <button
+          <button
             onClick={() => setActiveView('ceo-monitoring')}
             className={`w-full flex items-center space-x-2.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
               activeView === 'ceo-monitoring'
@@ -99,8 +96,8 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
           >
             <BarChart3 className="w-3.5 h-3.5" />
             <span>CEO Monitoring</span>
-          </button>}
-          {openSections['quick-access'] && !isCeo && <button
+          </button>
+          {!isCeo && <button
             onClick={() => setActiveView('production-flow')}
             className={`w-full flex items-center space-x-2.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
               activeView === 'production-flow' ? 'bg-emerald-600 text-white shadow-xs' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
@@ -227,10 +224,10 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
           </div>}
         </div>
 
-        {/* REPORTS & SUPP */}
+        {/* IMPORT & TRACE */}
         <div>
           <button type="button" onClick={() => toggleSection('reports')} aria-expanded={Boolean(openSections.reports)} className="w-full flex items-center justify-between px-3 mb-1.5 text-left">
-            <span className="text-[9px] font-black uppercase tracking-widest text-slate-400">Reports &amp; Import</span>
+            <span className="text-[9px] font-black uppercase tracking-widest text-slate-400">Import &amp; Trace</span>
             {openSections.reports ? <ChevronDown className="w-3.5 h-3.5 text-slate-400" /> : <ChevronRight className="w-3.5 h-3.5 text-slate-400" />}
           </button>
           {openSections.reports && <div className="space-y-0.5">
@@ -244,18 +241,6 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
             >
               <Truck className="w-3.5 h-3.5 text-slate-400" />
               <span>Supplier Import</span>
-            </button>}
-
-            {!isCeo && <button
-              onClick={() => setActiveView('reports')}
-              className={`w-full flex items-center space-x-2.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
-                activeView === 'reports'
-                  ? 'bg-slate-900 text-white shadow-xs'
-                  : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
-              }`}
-            >
-              <BarChart3 className="w-3.5 h-3.5 text-slate-400" />
-              <span>Reports</span>
             </button>}
 
             <button
