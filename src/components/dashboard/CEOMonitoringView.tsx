@@ -57,7 +57,7 @@ const rackPowerColors: Record<string, string> = {
 };
 type ChartRow = DashboardChartRow;
 
-const DistributionDonut: React.FC<{ distribution: DashboardDistribution; ariaLabel: string; showShare?: boolean; extraRows?: ChartRow[]; large?: boolean; compactLegend?: boolean }> = ({ distribution, ariaLabel, showShare = true, extraRows = [], large = false, compactLegend = false }) => {
+const DistributionDonut: React.FC<{ distribution: DashboardDistribution; ariaLabel: string; showShare?: boolean; extraRows?: ChartRow[]; large?: boolean; compactLegend?: boolean }> = ({ distribution, ariaLabel, showShare = true, extraRows = [], large = true, compactLegend = true }) => {
   const visible = distribution.rows.filter((row) => row.value > 0 && row.share > 0);
   const centerLabel = /cell inventory/i.test(ariaLabel) ? 'CELLS' : 'TOTAL';
   let offset = 0;
