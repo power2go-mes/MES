@@ -959,7 +959,8 @@ export const CEOMonitoringView: React.FC = () => {
         </div>
 
         <div className="grid gap-4 lg:grid-cols-2">
-          <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+        <div className="contents">
+          <div className="order-2 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
             <div className="mb-2 flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-50">
@@ -985,7 +986,7 @@ export const CEOMonitoringView: React.FC = () => {
             <DistributionBars distribution={warehouseDistribution} ariaLabel="Warehouse distribution" />
           </div>
 
-          <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+          <div className="order-6 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
             <div className="mb-2 flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-50">
@@ -1020,8 +1021,8 @@ export const CEOMonitoringView: React.FC = () => {
           </div>
         </div>
 
-        <div className="grid gap-4 lg:grid-cols-2">
-          <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+        <div className="contents">
+          <div className="order-5 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
             <div className="mb-2 flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-50">
@@ -1051,7 +1052,7 @@ export const CEOMonitoringView: React.FC = () => {
             <DistributionBars distribution={moduleDistribution} ariaLabel="Module distribution" />
           </div>
 
-          <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+          <div className="order-1 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
             <div className="mb-2 flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-50">
@@ -1082,8 +1083,8 @@ export const CEOMonitoringView: React.FC = () => {
           </div>
         </div>
 
-        <div className="grid gap-4 lg:grid-cols-2">
-          <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+        <div className="contents">
+          <div className="order-4 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
             <div className="mb-2 flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-50">
@@ -1113,7 +1114,7 @@ export const CEOMonitoringView: React.FC = () => {
             <DistributionDonut distribution={batteryPackDistribution} ariaLabel="Battery pack model distribution" />
           </div>
 
-          <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+          <div className="order-3 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
             <div className="mb-2 flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-50">
@@ -1142,6 +1143,7 @@ export const CEOMonitoringView: React.FC = () => {
 
             <DistributionBars distribution={rackDistribution} ariaLabel="Rack status distribution" />
           </div>
+        </div>
         </div>
 
         <div className="pb-6 text-center text-[11px] text-slate-400">Power2Go MES · CEO Dashboard · Data refreshes automatically</div>
