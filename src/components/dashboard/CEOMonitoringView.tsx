@@ -291,7 +291,9 @@ export const CEOMonitoringView: React.FC = () => {
     warehouseRows.map(row => ({ label: row.label, color: row.color })),
     warehouseRows.reduce((sum, row) => sum + row.value, 0),
   ), [warehouseRows]);
-  const moduleData = useMemo<ChartRow[]>(() => (source.moduleTypeBuckets || source.moduleStatusBuckets || []).map((row: any) => ({ label: String(row.label || ''), value: numberOr(row.value), color: reportColors.blue })), [source.moduleTypeBuckets, source.moduleStatusBuckets]);
+  const moduleData = useMemo<ChartRow[]>(() => (source.moduleTypeBuckets || source.moduleStatusBuckets || [])
+    .map((row: any) => ({ label: String(row.label || ''), value: numberOr(row.value), color: reportColors.blue }))
+    .sort((left, right) => Number(right.label.match(/\d+/)?.[0] || 0) - Number(left.label.match(/\d+/)?.[0] || 0)), [source.moduleTypeBuckets, source.moduleStatusBuckets]);
   const filteredModuleRows = selectedModuleConfig === 'All' ? moduleData : moduleData.filter((row) => row.label === selectedModuleConfig);
   const moduleDistribution = useMemo(() => buildDashboardDistribution(
     filteredModuleRows,
@@ -305,9 +307,9 @@ export const CEOMonitoringView: React.FC = () => {
       .filter((row: any) => String(row.label || row.status || '').toUpperCase().replace(/_/g, ' ') === 'SOLD')
       .reduce((total: number, row: any) => total + numberOr(row.value), 0);
     return [
-      { label: 'Cells', value: soldCells, color: reportColors.silver },
-      { label: 'Battery Packs', value: soldBatteries, color: reportColors.silver },
       { label: 'Racks', value: soldRacks, color: reportColors.silver },
+      { label: 'Battery Packs', value: soldBatteries, color: reportColors.silver },
+      { label: 'Cells', value: soldCells, color: reportColors.silver },
     ];
   }, [inventory.soldCells, source.batteryStatusBuckets, source.cellBuckets, source.rackStatusBuckets]);
   const filteredSoldRows = selectedSoldEntity === 'All' ? soldData : soldData.filter(row => row.label === selectedSoldEntity);
@@ -316,11 +318,13 @@ export const CEOMonitoringView: React.FC = () => {
     soldData.map(row => ({ label: row.label, color: row.color })),
     selectedSoldEntity === 'All' ? undefined : filteredSoldRows.reduce((total, row) => total + row.value, 0),
   ), [filteredSoldRows, selectedSoldEntity, soldData]);
-  const batteryPackData = useMemo<ChartRow[]>(() => (source.batteryPackBuckets || []).map((row: any, index: number) => ({
-    label: String(row.label || 'Unnamed Pack'),
-    value: numberOr(row.value),
-    color: reportColors.green,
-  })), [source.batteryPackBuckets]);
+  const batteryPackData = useMemo<ChartRow[]>(() => (source.batteryPackBuckets || [])
+    .map((row: any) => ({
+      label: String(row.label || 'Unnamed Pack'),
+      value: numberOr(row.value),
+      color: reportColors.green,
+    }))
+    .sort((left, right) => Number(right.label.match(/\d+(?:\.\d+)?/)?.[0] || 0) - Number(left.label.match(/\d+(?:\.\d+)?/)?.[0] || 0)), [source.batteryPackBuckets]);
   const filteredBatteryPackRows = selectedPackType === 'All' ? batteryPackData : batteryPackData.filter((row) => row.label === selectedPackType);
   const batteryPackDistribution = useMemo(() => buildDashboardDistribution(
     filteredBatteryPackRows,
@@ -343,11 +347,14 @@ export const CEOMonitoringView: React.FC = () => {
         if (match) totals.set(match[1], (totals.get(match[1]) || 0) + numberOr(type.value));
       });
     });
-    return Array.from(totals.entries()).filter(([, value]) => value > 0).map(([power, value]) => ({
-      label: `${power === '70' ? '67.9' : power} kWh ${power === '25' ? 'Rack' : 'Cabinet'}`,
-      value,
-      color: reportColors.green,
-    }));
+    return Array.from(totals.entries())
+      .filter(([, value]) => value > 0)
+      .sort(([left], [right]) => Number(right) - Number(left))
+      .map(([power, value]) => ({
+        label: `${power === '70' ? '67.9' : power} kWh ${power === '25' ? 'Rack' : 'Cabinet'}`,
+        value,
+        color: reportColors.green,
+      }));
   }, [source.rackStatusBuckets]);
   const filteredRackRows = selectedRackType === 'All' ? rackData : rackData.filter((row) => row.label === selectedRackType);
   const rackDistribution = useMemo(() => buildDashboardDistribution(
