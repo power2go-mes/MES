@@ -833,13 +833,21 @@ create or replace function public.create_standalone_module_transaction(
 ) returns jsonb as $$
 declare
     v_module_id text := 'mod-' || gen_random_uuid()::text;
-    v_serial text := 'MOD-' || upper(replace(p_module_type, ' ', '')) || '-' || to_char(now(), 'YYYYMMDDHH24MISSMS');
+    v_serial text;
+    v_module_prefix text := 'P2G-MOD-' || to_char(current_date, 'DDMM');
+    v_next_module_number integer;
     v_required integer;
     v_cells jsonb;
     v_cell record;
     v_index integer := 0;
 begin
     perform public.require_permission('MANAGE_PRODUCTION');
+    perform pg_advisory_xact_lock(hashtext('P2G-module-serials'));
+    select coalesce(max((substring(serial_number from '([0-9]+)$'))::integer), 0) + 1
+      into v_next_module_number
+      from public.modules
+     where serial_number like v_module_prefix || '-%';
+    v_serial := v_module_prefix || '-' || lpad(v_next_module_number::text, 5, '0');
     if upper(p_module_type) not in ('8S', '12S') then
         raise exception 'Module type must be 8S or 12S';
     end if;
@@ -1480,10 +1488,12 @@ begin
         v_cell_slice_ids := v_cell_ids[((i - 1) * v_total_cells_per_battery + 1) : (i * v_total_cells_per_battery)];
         for j in 1..v_total_cells_per_battery loop
             update public.cells
-            set status = 'RESERVED',
+            set internal_serial = v_cell_serial_prefix || '-' || lpad(v_next_cell_number::text, 5, '0'),
+                status = 'RESERVED',
                 reserved_for_order_id = v_order_id,
                 reserved_for_battery_id = v_battery_id
             where id = v_cell_slice_ids[j];
+            v_next_cell_number := v_next_cell_number + 1;
         end loop;
     end loop;
 

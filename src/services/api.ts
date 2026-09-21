@@ -2298,17 +2298,21 @@ async getUsers(): Promise<User[]> {
     if (error) throw error;
     const modules = (data || []) as any[];
     console.log(`getModules: Loaded ${modules.length} modules`);
-    const batteryIds = Array.from(new Set(modules.map(module => module.battery_id || module.batteryId).filter(Boolean)));
+    const moduleBatteryId = (module: any) => String(module?.battery_id ?? module?.batteryId ?? '').trim();
+    const batteryIds = Array.from(new Set(modules.map(moduleBatteryId).filter(Boolean)));
     const { data: batteryRows, error: batteryError } = batteryIds.length
       ? await supabase.from('batteries').select('id,serial_number').in('id', batteryIds)
       : { data: [], error: null };
     if (batteryError) throw batteryError;
-    const batterySerialById = new Map((batteryRows || []).map((battery: any) => [battery.id, battery.serial_number]));
+    const batterySerialById = new Map((batteryRows || []).map((battery: any) => [
+      String(battery?.id ?? '').trim(),
+      String(battery?.serial_number ?? battery?.serialNumber ?? '').trim(),
+    ]));
     const moduleIds = modules.map(module => module.id).filter(Boolean);
     if (moduleIds.length === 0 || params?.includeCells === false) {
       return modules.map(module => toAppValue({
         ...module,
-        assignedBatterySerial: batterySerialById.get(module.battery_id || module.batteryId),
+        assignedBatterySerial: batterySerialById.get(moduleBatteryId(module)) || undefined,
       })) as ModuleItem[];
     }
 
@@ -2346,7 +2350,7 @@ async getUsers(): Promise<User[]> {
     return modules.map(module => toAppValue({
       ...module,
       qr_code: module.qr_code || `${module.serial_number}|MODULE:${module.id}`,
-      assignedBatterySerial: batterySerialById.get(module.battery_id || module.batteryId),
+      assignedBatterySerial: batterySerialById.get(moduleBatteryId(module)) || undefined,
       cells: cellsByModule.get(module.id) || [],
     })) as ModuleItem[];
   },

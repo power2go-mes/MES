@@ -3,7 +3,7 @@ import { jsPDF } from 'jspdf';
 import { Activity, AlertTriangle, Boxes, ChevronDown, Download, Factory, PackageCheck, Truck, Zap } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
 import { api } from '../../services/api';
-import { downloadBatteryReport, downloadCellReport, downloadRackReport, downloadSoldReport, downloadWarehouseReport } from '../../lib/cellReportExport';
+import { downloadBatteryReport, downloadCellReport, downloadModuleReport, downloadRackReport, downloadSoldReport, downloadWarehouseReport } from '../../lib/cellReportExport';
 import { buildDashboardDistribution, DashboardDistribution, DashboardChartRow } from '../../lib/dashboardCharts';
 
 const numberOr = (value: any, fallback = 0) => {
@@ -135,6 +135,7 @@ export const CEOMonitoringView: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [exporting, setExporting] = useState(false);
   const [exportingCells, setExportingCells] = useState(false);
+  const [exportingModules, setExportingModules] = useState(false);
   const [exportingBatteryReport, setExportingBatteryReport] = useState(false);
   const [exportingRackReport, setExportingRackReport] = useState(false);
   const [exportingWarehouseReport, setExportingWarehouseReport] = useState(false);
@@ -425,6 +426,19 @@ export const CEOMonitoringView: React.FC = () => {
       addNotification('error', 'Battery export failed', error?.message || 'Unable to export the battery report.');
     } finally {
       setExportingBatteryReport(false);
+    }
+  };
+
+  const exportModuleReport = async () => {
+    setExportingModules(true);
+    try {
+      const modules = await api.getModules({ includeCells: true });
+      downloadModuleReport(modules);
+      addNotification('success', 'Module report exported', `${modules.length.toLocaleString()} module records were exported.`);
+    } catch (error: any) {
+      addNotification('error', 'Module export failed', error?.message || 'Unable to export the module report.');
+    } finally {
+      setExportingModules(false);
     }
   };
 
@@ -1063,7 +1077,7 @@ export const CEOMonitoringView: React.FC = () => {
                   <div className="text-[11px] text-slate-400">Production &amp; status breakdown</div>
                 </div>
               </div>
-              <div className="text-[18px] font-extrabold text-slate-900">{formatNumber(moduleCellTotal)}</div>
+              <div className="flex items-center gap-2"><div className="text-[18px] font-extrabold text-slate-900">{formatNumber(moduleCellTotal)}</div><button type="button" onClick={() => void exportModuleReport()} disabled={exportingModules} className="inline-flex items-center gap-1 rounded-md border border-emerald-200 bg-white px-2 py-1 text-[10px] font-bold text-emerald-700 hover:bg-emerald-50 disabled:cursor-wait disabled:opacity-60" title="Export module report"><Download className="h-3 w-3" />{exportingModules ? 'Exporting...' : 'Export Module Report'}</button></div>
             </div>
 
             <div className="mb-3 flex flex-wrap gap-2 text-[10px]">

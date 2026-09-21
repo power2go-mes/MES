@@ -1,5 +1,5 @@
 import * as XLSX from 'xlsx-js-style';
-import { BatteryUnit, CellItem, RackUnit } from '../types';
+import { BatteryUnit, CellItem, ModuleItem, RackUnit } from '../types';
 
 const exportColors = {
   green: '10A36D',
@@ -258,6 +258,26 @@ export const downloadBatteryReport = (batteries: BatteryUnit[], options: CellExp
   const sheet = createExportSheet(rows, false);
   XLSX.utils.book_append_sheet(workbook, sheet, 'Batteries');
   writeExportFile(workbook, `MES_Battery_Report_${new Date().toISOString().slice(0, 10)}.xlsx`);
+};
+
+export const downloadModuleReport = (modules: ModuleItem[]) => {
+  if (modules.length === 0) throw new Error('No module records are available to export.');
+  const rows = modules.map(module => ({
+    'Serial Number': module.serialNumber || '',
+    'Module Type': module.moduleType || '',
+    Status: formatClassificationLabel(module.lifecycleStatus || module.status),
+    'Assigned Battery Serial': module.assignedBatterySerial || '',
+    'Created At': exportDateOnly(module.createdAt),
+  }));
+  rows.sort((left, right) => left.Status.localeCompare(right.Status) || left['Serial Number'].localeCompare(right['Serial Number']));
+  const workbook = XLSX.utils.book_new();
+  appendOverviewSheet(workbook, rows.map(row => row.Status), false);
+  (['12S', '8S'] as const).forEach(moduleType => {
+    const typeRows = rows.filter(row => row['Module Type'] === moduleType);
+    const sheet = createExportSheet(typeRows, false);
+    XLSX.utils.book_append_sheet(workbook, sheet, `${moduleType} Module`);
+  });
+  writeExportFile(workbook, `MES_Module_Report_${new Date().toISOString().slice(0, 10)}.xlsx`);
 };
 
 export const downloadRackReport = (racks: RackUnit[], options: CellExportOptions = {}) => {
