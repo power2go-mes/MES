@@ -96,9 +96,10 @@ const DistributionBars: React.FC<{ distribution: DashboardDistribution; colors?:
     {distribution.rows.map((row, index) => {
       const slotWidth = 180 / Math.max(distribution.rows.length, 1);
       const height = row.value > 0 ? Math.max((row.value / max) * 82, 1.5) : 0;
-      const x = 20 + index * slotWidth + slotWidth / 2 - 10;
+      const barWidth = 16;
+      const x = 20 + index * slotWidth + slotWidth / 2 - barWidth / 2;
       const labelParts = row.label.split(' ');
-      return <g key={row.label} transform={`translate(${x}, 0)`}><rect className="chart-bar" x="0" y={94 - height} width="20" height={height} fill={colors?.[index] || row.color} rx="3"><title>{`${row.label}: ${formatNumber(row.value)} (${row.share.toFixed(2)}%)`}</title></rect><text x="10" y={Math.max(8, 89 - height)} textAnchor="middle" fontSize="6.5" fontWeight="600" fill={reportColors.navy}>{formatNumber(row.value)}</text><text x="10" y="108" textAnchor="middle" fontSize="6.5" fill={reportColors.slate}>{labelParts[0]}</text>{labelParts.length > 1 && <text x="10" y="116" textAnchor="middle" fontSize="5.5" fill={reportColors.slate}>{labelParts.slice(1).join(' ')}</text>}<text x="10" y="125" textAnchor="middle" fontSize="5.5" fill={reportColors.slate}>{row.share.toFixed(2)}%</text></g>;
+      return <g key={row.label} transform={`translate(${x}, 0)`}><rect className="chart-bar" x="0" y={94 - height} width={barWidth} height={height} fill={colors?.[index] || row.color} rx="3"><title>{`${row.label}: ${formatNumber(row.value)} (${row.share.toFixed(2)}%)`}</title></rect><text x={barWidth / 2} y={Math.max(8, 89 - height)} textAnchor="middle" fontSize="6.5" fontWeight="600" fill={reportColors.navy}>{formatNumber(row.value)}</text><text x={barWidth / 2} y="108" textAnchor="middle" fontSize="6.5" fill={reportColors.slate}>{labelParts[0]}</text>{labelParts.length > 1 && <text x={barWidth / 2} y="116" textAnchor="middle" fontSize="5.5" fill={reportColors.slate}>{labelParts.slice(1).join(' ')}</text>}<text x={barWidth / 2} y="125" textAnchor="middle" fontSize="5.5" fill={reportColors.slate}>{row.share.toFixed(2)}%</text></g>;
     })}
   </svg>;
 };
