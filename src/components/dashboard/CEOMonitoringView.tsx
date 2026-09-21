@@ -156,36 +156,30 @@ export const CEOMonitoringView: React.FC = () => {
 
     const refresh = async () => {
       try {
-        const res = await api.getDashboardStats();
-        const scrapCellCount = numberOr(res.cellBuckets?.find((row: any) => ['SCRAP', 'DAMAGE'].includes(String(row.label || '').toUpperCase()))?.value);
-        const recycleCellCount = numberOr(res.cellBuckets?.find((row: any) => ['RECYCLE', 'REUSABLE'].includes(String(row.label || '').toUpperCase()))?.value);
-        const baseCellBuckets = (res.cellBuckets || [])
-          .filter((row: any) => !['SCRAP', 'DAMAGE', 'RECYCLE', 'REUSABLE'].includes(String(row.label || '').toUpperCase()));
-        const statsWithScrapBreakdown = { ...res, cellBuckets: baseCellBuckets.concat([
-          { label: 'Damage', value: scrapCellCount },
-          { label: 'Recycle', value: recycleCellCount },
-        ]) };
-        if (!cancelled) {
-          setStats(statsWithScrapBreakdown);
-          setLoadError(null);
-        }
+        const [res, quarantineRecords] = await Promise.all([
+          api.getDashboardStats(),
+          api.getQuarantineRecords().catch(() => []),
+        ]);
 
-        const quarantineRecords = await api.getQuarantineRecords().catch(() => []);
         const reusableCellIds = new Set(quarantineRecords.filter((record: any) => {
           const entityType = String(record.entityType || record.entity_type || '').toUpperCase();
           const entityId = String(record.entityId || record.entity_id || '');
           const disposition = String(record.disposition || '').toUpperCase();
           return entityType === 'CELL' && entityId && ['RELEASE_APPROVED', 'REWORK'].includes(disposition);
         }).map((record: any) => String(record.entityId || record.entity_id)));
-        const reusableCount = reusableCellIds.size || recycleCellCount;
+
+        const scrapCellCount = numberOr(res.cellBuckets?.find((row: any) => ['SCRAP', 'DAMAGE'].includes(String(row.label || '').toUpperCase()))?.value);
+        const reusableCount = reusableCellIds.size || numberOr(res.cellBuckets?.find((row: any) => ['RECYCLE', 'REUSABLE'].includes(String(row.label || '').toUpperCase()))?.value);
         const patchedBuckets = (res.cellBuckets || [])
           .filter((row: any) => !['SCRAP', 'DAMAGE', 'RECYCLE', 'REUSABLE'].includes(String(row.label || '').toUpperCase()))
           .concat([
             { label: 'Damage', value: scrapCellCount },
-            { label: 'Recycle', value: reusableCount },
+            { label: 'Reusable', value: reusableCount },
           ]);
+
         if (!cancelled) {
           setStats({ ...res, cellBuckets: patchedBuckets });
+          setLoadError(null);
         }
       } catch (error: any) {
         if (!cancelled) {
