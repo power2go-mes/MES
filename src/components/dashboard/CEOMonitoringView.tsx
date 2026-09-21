@@ -966,7 +966,7 @@ export const CEOMonitoringView: React.FC = () => {
           ))}
         </div>
 
-        <div className="grid gap-4 lg:grid-cols-2">
+        <div className="grid gap-4 lg:grid-cols-2 xl:grid-cols-4">
         <div className="contents">
           <div className="order-2 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
             <div className="mb-2 flex items-center justify-between">
