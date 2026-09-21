@@ -120,11 +120,11 @@ export const ProductionFlowView: React.FC = () => {
         </section>
 
         <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm md:p-6">
-          <div className="mb-5 flex items-center justify-between gap-3"><div><p className="text-[10px] font-black uppercase tracking-[0.2em] text-emerald-600">Lifecycle</p><h2 className="mt-1 text-lg font-black text-slate-900">Cell status from stock to sale</h2></div><button type="button" onClick={() => setActiveView('scrap')} className="flex items-center gap-2 rounded-lg border border-red-200 px-3 py-2 text-xs font-bold text-red-700 hover:bg-red-50"><Flame className="h-4 w-4" /> Scrap</button></div>
+          <div className="mb-5 flex items-center justify-between gap-3"><div><p className="text-[10px] font-black uppercase tracking-[0.2em] text-emerald-600">Lifecycle</p><h2 className="mt-1 text-lg font-black text-slate-900">Cell status from stock to sale</h2></div><button type="button" onClick={() => setActiveView('scrap')} className="flex items-center gap-2 rounded-lg border border-red-200 px-3 py-2 text-xs font-bold text-red-700 hover:bg-red-50"><Flame className="h-4 w-4" /> Damage</button></div>
           <div className="grid gap-3 md:grid-cols-3 xl:grid-cols-6">
             {lifecycle.map((item, index) => { const Icon = item.icon; return <div key={item.label} className="relative rounded-xl border border-slate-200 p-4"><div className="mb-3 flex items-center justify-between"><span className="flex h-7 w-7 items-center justify-center rounded-full bg-slate-900 text-xs font-black text-white">{index + 1}</span><Icon className="h-5 w-5 text-slate-500" /></div><h3 className="text-xs font-black uppercase tracking-wide text-slate-800">{item.label}</h3><p className="mt-1 text-[11px] leading-4 text-slate-500">{item.detail}</p></div>; })}
           </div>
-          <div className="mt-5 flex items-center gap-2 border-t border-slate-100 pt-4 text-xs text-red-700"><CheckCircle2 className="h-4 w-4" /> A damaged cell, module, pack, or rack is routed to scrap review and may be resolved as rework, release-approved, or scrap.</div>
+          <div className="mt-5 flex items-center gap-2 border-t border-slate-100 pt-4 text-xs text-red-700"><CheckCircle2 className="h-4 w-4" /> A damaged cell, module, pack, or rack is routed to damage review and may be resolved as rework, release-approved, or damage.</div>
         </section>
       </div>
     </div>

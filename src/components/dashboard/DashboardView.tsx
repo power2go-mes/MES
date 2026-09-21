@@ -74,7 +74,7 @@ export const DashboardView: React.FC = () => {
     { label: 'Karachi Warehouse', value: cellBucketValues.get('Karachi Warehouse') ?? Number(inventory.karachiWarehouseCells || 0), color: '#14532d' },
     { label: 'Lahore Warehouse', value: cellBucketValues.get('Lahore Warehouse') ?? Number(inventory.lahoreWarehouseCells || 0), color: '#2563eb' },
     { label: 'Sold', value: cellBucketValues.get('Sold') ?? Number(inventory.soldCells || 0), color: '#059669' },
-    { label: 'Scrap', value: cellBucketValues.get('Scrap') ?? Number(inventory.scrapCells || 0), color: '#b7b7b7' },
+    { label: 'Damage', value: cellBucketValues.get('Scrap') ?? Number(inventory.scrapCells || 0), color: '#b7b7b7' },
   ];
   const available = statusRows
     .filter(row => row.label === 'In Stock' || row.label === 'Floor Stock')

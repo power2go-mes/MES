@@ -143,7 +143,7 @@ export function buildTree(t: any): TraceNode[] {
         bChildren.push(makeNode('sale-' + (t.battery.serialNumber || t.battery.serial_number), 'Sale', 'SOLD', { clientName: t.saleHistory?.client_name || t.saleHistory?.clientName || 'Not recorded' }, 'Sold'));
       }
       if (String(t.battery.status || t.battery.lifecycleStatus || t.battery.lifecycle_status || '').toUpperCase() === 'SCRAP') {
-        bChildren.push(makeNode('scrap-' + (t.battery.serialNumber || t.battery.serial_number), 'Scrap', 'SCRAP', { reason: t.scrapRecord?.reason || 'Scrap record' }, 'Scrap'));
+        bChildren.push(makeNode('scrap-' + (t.battery.serialNumber || t.battery.serial_number), 'Damage', 'SCRAP', { reason: t.scrapRecord?.reason || 'Damage record' }, 'Damage'));
       }
       cellChildren.push(
         makeNode('battery-' + (t.battery.serialNumber || t.battery.serial_number), t.battery.serialNumber || t.battery.serial_number, 'BATTERY', t.battery, 'Battery Pack', undefined, bChildren)
@@ -204,7 +204,7 @@ export function buildTree(t: any): TraceNode[] {
       compChildren.push(makeNode('sale', 'Sale', 'SOLD', { clientName: t.saleHistory?.client_name || t.saleHistory?.clientName || 'Not recorded' }, 'Sold'));
     }
     if (e.status === 'SCRAP' || e.status === 'QUARANTINED' || e.status === 'REJECTED') {
-      compChildren.push(makeNode('scrap', 'Scrap', 'SCRAP', { reason: t.scrapRecord?.reason || 'Scrap record' }, 'Scrap'));
+      compChildren.push(makeNode('scrap', 'Damage', 'SCRAP', { reason: t.scrapRecord?.reason || 'Damage record' }, 'Damage'));
     }
     roots.push(makeNode(type === 'BMS' ? 'bms' : 'bmu', e.serialNumber || e.serial_number || e.id, type, e, type, e.status, compChildren));
     return roots;

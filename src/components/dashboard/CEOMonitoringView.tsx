@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { jsPDF } from 'jspdf';
-import { Activity, AlertTriangle, Boxes, ChevronDown, Download, Factory, PackageCheck, Truck, Zap } from 'lucide-react';
+import { Activity, AlertTriangle, Boxes, ChevronDown, Cpu, Download, Factory, PackageCheck, Truck, Zap } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
 import { api } from '../../services/api';
 import { downloadBatteryReport, downloadCellReport, downloadModuleReport, downloadRackReport, downloadSoldReport, downloadWarehouseReport } from '../../lib/cellReportExport';
@@ -36,7 +36,7 @@ const statusColors: Record<string, string> = {
   'Karachi Warehouse': reportColors.green,
   'Lahore Warehouse': reportColors.green,
   Sold: reportColors.silver,
-  Scrap: reportColors.red,
+  Damage: reportColors.red,
   Recycle: reportColors.green,
 };
 const packColors = [reportColors.blue, reportColors.green];
@@ -174,7 +174,7 @@ export const CEOMonitoringView: React.FC = () => {
             ? { ...row, value: Math.max(0, numberOr(row.value) - reusableScrapCount) }
             : row)
           .concat([
-            { label: 'Scrap', value: scrapCellCount },
+            { label: 'Damage', value: scrapCellCount },
             { label: 'Recycle', value: reusableScrapCount },
           ]);
         const statsWithScrapBreakdown = { ...res, cellBuckets };
@@ -210,6 +210,7 @@ export const CEOMonitoringView: React.FC = () => {
 
   const source = stats ?? {};
   const inventory = source.inventory ?? {};
+  const controllerInventory = source.controllerInventory ?? {};
   const quality = source.quality ?? {};
   const orders = source.orders ?? {};
   const production = source.production ?? {};
@@ -308,6 +309,34 @@ export const CEOMonitoringView: React.FC = () => {
     warehouseRows.map(row => ({ label: row.label, color: row.color })),
     warehouseRows.reduce((sum, row) => sum + row.value, 0),
   ), [warehouseRows]);
+  const damageReusableRows = useMemo<ChartRow[]>(() => {
+    const damageValue = numberOr(source.cellBuckets?.find((row: any) => ['DAMAGE', 'SCRAP'].includes(String(row.label || '').toUpperCase()))?.value);
+    const reusableValue = numberOr(source.cellBuckets?.find((row: any) => ['RECYCLE', 'REUSABLE'].includes(String(row.label || '').toUpperCase()))?.value);
+    const rows: ChartRow[] = [
+      { label: 'Damage', value: damageValue, color: reportColors.red },
+      { label: 'Reusable', value: reusableValue, color: reportColors.green },
+    ];
+    return rows.filter(row => row.value > 0 || damageValue > 0 || reusableValue > 0);
+  }, [source.cellBuckets]);
+  const damageReusableDistribution = useMemo(() => buildDashboardDistribution(
+    damageReusableRows,
+    damageReusableRows.map(row => ({ label: row.label, color: row.color })),
+    damageReusableRows.reduce((sum, row) => sum + row.value, 0),
+  ), [damageReusableRows]);
+  const controllerRows = useMemo<ChartRow[]>(() => {
+    const bmsTotal = numberOr(controllerInventory.totalBms ?? source.totalBms ?? 0);
+    const bmuTotal = numberOr(controllerInventory.totalBmu ?? source.totalBmu ?? 0);
+    const rows: ChartRow[] = [
+      { label: 'BMS', value: bmsTotal, color: reportColors.green },
+      { label: 'BMU', value: bmuTotal, color: reportColors.green },
+    ];
+    return rows.filter((row) => row.value > 0 || bmsTotal > 0 || bmuTotal > 0);
+  }, [controllerInventory, source.totalBms, source.totalBmu]);
+  const controllerDistribution = useMemo(() => buildDashboardDistribution(
+    controllerRows,
+    controllerRows.map(row => ({ label: row.label, color: row.color })),
+    controllerRows.reduce((sum, row) => sum + row.value, 0),
+  ), [controllerRows]);
   const warehouseCellTotal = cellBucketTotal('KARACHI WAREHOUSE', 'LAHORE WAREHOUSE');
   const moduleCellTotal = cellBucketTotal('IN MODULE');
   const batteryPackCellTotal = cellBucketTotal('IN PACK');
@@ -388,12 +417,12 @@ export const CEOMonitoringView: React.FC = () => {
   const rackProduced = numberOr(producedCategoryBuckets.find((row: any) => row.label === 'Rack')?.value);
 
   const kpiCards = [
-    { label: 'Nominal Capacity Produced', value: `${formatNumber(capacityProduced)} kWh`, delta: 'Nominal capacity produced · Live', positive: true, icon: <Zap className="h-5 w-5 text-emerald-600" />, bg: reportColors.card },
-    { label: 'Battery Packs Produced', value: formatNumber(scaleValue(completedBatteries)), delta: releaseTrendChange === null ? (targetBatteries > 0 ? `${batteryProgress?.toFixed(1)}% of target` : 'Produced/warehouse · Live') : `${releaseTrendChange >= 0 ? '+' : ''}${releaseTrendChange.toFixed(1)}% vs prior 7 days`, positive: releaseTrendChange === null || releaseTrendChange >= 0, icon: <Factory className="h-5 w-5 text-blue-600" />, bg: reportColors.card },
-    { label: 'Cabinet Produced', value: formatNumber(scaleValue(cabinetProduced)), delta: '7.5 kWh battery packs · Live', positive: true, icon: <PackageCheck className="h-5 w-5 text-blue-600" />, bg: reportColors.card },
-    { label: 'Rack Produced', value: formatNumber(scaleValue(rackProduced)), delta: '5 kWh battery packs · Live', positive: true, icon: <PackageCheck className="h-5 w-5 text-blue-600" />, bg: reportColors.card },
-    { label: 'In Stock Cells', value: formatNumber(inStockCells), delta: 'Inventory · In stock · Live', positive: true, icon: <Boxes className="h-5 w-5 text-emerald-600" />, bg: reportColors.card },
-    { label: 'Floor Stock Cells', value: formatNumber(floorStockCells), delta: 'Inventory · Floor stock · Live', positive: true, icon: <Boxes className="h-5 w-5 text-amber-600" />, bg: '#FFF7E8' },
+    { label: 'Nominal Capacity Produced', value: `${formatNumber(capacityProduced)} kWh`, delta: '', positive: true, icon: <Zap className="h-5 w-5 text-emerald-600" />, bg: reportColors.card },
+    { label: 'Battery Packs Produced', value: formatNumber(scaleValue(completedBatteries)), delta: '', positive: releaseTrendChange === null || releaseTrendChange >= 0, icon: <Factory className="h-5 w-5 text-blue-600" />, bg: reportColors.card },
+    { label: 'Cabinet Produced', value: formatNumber(scaleValue(cabinetProduced)), delta: '', positive: true, icon: <PackageCheck className="h-5 w-5 text-blue-600" />, bg: reportColors.card },
+    { label: 'Rack Produced', value: formatNumber(scaleValue(rackProduced)), delta: '', positive: true, icon: <PackageCheck className="h-5 w-5 text-blue-600" />, bg: reportColors.card },
+    { label: 'In Stock Cells', value: formatNumber(inStockCells), delta: '', positive: true, icon: <Boxes className="h-5 w-5 text-emerald-600" />, bg: reportColors.card },
+    { label: 'Floor Stock Cells', value: formatNumber(floorStockCells), delta: '', positive: true, icon: <Boxes className="h-5 w-5 text-amber-600" />, bg: '#FFF7E8' },
   ];
 
   const exportCellReport = async () => {
@@ -500,7 +529,7 @@ export const CEOMonitoringView: React.FC = () => {
         return entityType === 'CELL' && entityId && ['RELEASE_APPROVED', 'REWORK'].includes(disposition);
       }).map((record: any) => String(record.entityId || record.entity_id)));
       const reusableScrapCount = reusableCellIds.size;
-      const scrapCellCount = numberOr(source.cellBuckets?.find((row: any) => String(row.label || '').toUpperCase() === 'SCRAP')?.value);
+      const scrapCellCount = numberOr(source.cellBuckets?.find((row: any) => ['SCRAP', 'DAMAGE'].includes(String(row.label || '').toUpperCase()))?.value);
       const damageScrapCount = scrapCellCount;
       const statusRows = (statuses: string[], sourceRows: any[], colorMap: Record<string, string>, defaultCapacityKwh: (status: string) => number = () => 0) => {
         const values = new Map((sourceRows || []).map((row: any) => [String(row.label).replace(/_/g, ' ').toUpperCase(), { value: numberOr(row.value), capacityKwh: numberOr(row.capacityKwh) }]));
@@ -517,7 +546,7 @@ export const CEOMonitoringView: React.FC = () => {
         statusColors,
         () => CELL_CAPACITY_KWH,
       ).concat([
-        { label: 'Scrap', value: damageScrapCount, capacityKwh: damageScrapCount * CELL_CAPACITY_KWH, color: statusColors.Scrap },
+        { label: 'Damage', value: damageScrapCount, capacityKwh: damageScrapCount * CELL_CAPACITY_KWH, color: statusColors.Damage || statusColors.Scrap },
         { label: 'Recycle', value: reusableScrapCount, capacityKwh: reusableScrapCount * CELL_CAPACITY_KWH, color: reportGreen },
       ]).map((row) => row.label === 'In Module'
         ? { ...row, label: 'In Module (standalone)' }
@@ -544,7 +573,7 @@ export const CEOMonitoringView: React.FC = () => {
         color: reportGreen,
       }];
       const scrapReportRows = [
-        { label: 'Scrap', value: damageScrapCount, capacityKwh: damageScrapCount * CELL_CAPACITY_KWH, color: statusColors.Scrap },
+        { label: 'Damage', value: damageScrapCount, capacityKwh: damageScrapCount * CELL_CAPACITY_KWH, color: statusColors.Damage || statusColors.Scrap },
         { label: 'Recycle', value: reusableScrapCount, capacityKwh: reusableScrapCount * CELL_CAPACITY_KWH, color: statusColors.Recycle },
       ];
       const soldBatteryCount = numberOr(source.soldBatteryPackCount ?? source.batteryStatusBuckets?.find((row: any) => String(row.label || '').toUpperCase() === 'SOLD')?.value);
@@ -862,7 +891,7 @@ export const CEOMonitoringView: React.FC = () => {
       drawSingleKpi(leftChartX, 70, chartWidth, cabinetReportRows, 'CABINET STATUS');
       drawBars(leftChartX, 171, chartWidth, 34, bmsReportRows, 'BMS INVENTORY - TOTAL / AVAILABLE / USED', false, false, true);
       drawBars(rightChartX, 171, chartWidth, 34, bmuReportRows, 'BMU INVENTORY - TOTAL / AVAILABLE / USED', false, false, true);
-      drawBars(leftChartX, 230, chartWidth, 32, scrapReportRows, 'SCRAP STATUS');
+      drawBars(leftChartX, 230, chartWidth, 32, scrapReportRows, 'DAMAGE STATUS');
       drawBars(rightChartX, 230, chartWidth, 32, soldReportRows, 'SOLD STATUS');
       const reportRows = (rows: { label: string; value: number; capacityKwh: number }[]) => {
         const total = rows.reduce((summary, row) => ({
@@ -945,170 +974,12 @@ export const CEOMonitoringView: React.FC = () => {
                 <span className="text-[11px] font-medium text-slate-500">{card.label}</span>
               </div>
               <div className="text-[24px] font-extrabold tracking-[-0.04em] text-slate-900">{card.value}</div>
-              <div className={`mt-1 text-[11px] font-semibold ${card.positive ? 'text-emerald-600' : 'text-red-500'}`}>{card.delta}</div>
+              {card.delta ? <div className={`mt-1 text-[11px] font-semibold ${card.positive ? 'text-emerald-600' : 'text-red-500'}`}>{card.delta}</div> : <div className="mt-1 h-[14px]" />}
             </div>
           ))}
         </div>
 
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-2">
-        <div className="contents">
-          <div className="order-2 xl:col-span-1 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-            <div className="mb-2 flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-50">
-                  <PackageCheck className="h-4 w-4 text-emerald-600" />
-                </div>
-                <div>
-                  <div className="text-[15px] font-bold text-slate-900">Warehouse</div>
-                  <div className="text-[11px] text-slate-400">Karachi vs Lahore warehouse stock</div>
-                </div>
-              </div>
-              <div className="flex items-center gap-2"><div className="text-[18px] font-extrabold text-slate-900">{formatNumber(warehouseCellTotal)}</div><button type="button" onClick={() => void exportWarehouseReport()} disabled={exportingWarehouseReport} className="inline-flex items-center gap-1 rounded-md border border-emerald-200 bg-white px-2 py-1 text-[10px] font-bold text-emerald-700 hover:bg-emerald-50 disabled:cursor-wait disabled:opacity-60" title="Export warehouse report"><Download className="h-3 w-3" />{exportingWarehouseReport ? 'Exporting...' : 'Export Warehouse Report'}</button></div>
-            </div>
-            <div className="mb-3 flex flex-wrap gap-2 text-[10px] font-medium text-slate-500">
-              <button type="button" onClick={() => { setSelectedWarehouseInventoryType('All'); setOpenWarehouseFilter(null); }} className={`rounded-md border px-2 py-1 ${selectedWarehouseInventoryType === 'All' ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-slate-200 bg-slate-50 text-slate-500'}`}>All</button>
-              {(['Racks', 'Battery Packs'] as const).map(type => <div key={type} className="relative">
-                <button type="button" onClick={() => { setSelectedWarehouseInventoryType(type); setOpenWarehouseFilter(openWarehouseFilter === type ? null : type); }} className={`inline-flex items-center gap-1 rounded-md border px-2 py-1 ${selectedWarehouseInventoryType === type ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-slate-200 bg-slate-50 text-slate-500'}`} aria-expanded={openWarehouseFilter === type}>
-                  {type}<ChevronDown className="h-3 w-3" />
-                </button>
-                {openWarehouseFilter === type && <div className="absolute left-0 top-full z-20 mt-1 flex min-w-max flex-col gap-1 rounded-lg border border-slate-200 bg-white p-1.5 shadow-lg">
-                  {(type === 'Racks' ? warehouseRackTypeOptions : warehouseBatteryTypeOptions).map(filterType => <button key={filterType} type="button" onClick={() => { if (type === 'Racks') setSelectedWarehouseRackType(filterType); else setSelectedWarehouseBatteryType(filterType); setOpenWarehouseFilter(null); }} className={`whitespace-nowrap rounded-md px-2 py-1.5 text-left ${((type === 'Racks' ? selectedWarehouseRackType : selectedWarehouseBatteryType) === filterType) ? 'bg-emerald-50 text-emerald-700' : 'text-slate-600 hover:bg-slate-50'}`}>{filterType === 'All' ? `All ${type.toLowerCase()}` : type === 'Racks' ? warehouseRackTypeLabel(filterType) : filterType}</button>)}
-                </div>}
-              </div>)}
-            </div>
-            <DistributionDonut
-              distribution={warehouseDistribution}
-              ariaLabel="Warehouse distribution"
-              showShare
-              large
-              compactLegend
-              showLegendValues
-              legendLabelClassName="text-[12px] text-slate-600"
-              stackLegend
-              legendMarginRight
-              donutMarginLeft
-              donutMarginTop
-              balancedVerticalMargin
-            />
-          </div>
-
-          <div className="order-6 xl:col-span-1 flex flex-col rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-            <div className="mb-2 flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-50">
-                  <Boxes className="h-4 w-4 text-emerald-600" />
-                </div>
-                <div>
-                  <div className="text-[15px] font-bold text-slate-900">Cells</div>
-                  <div className="text-[11px] text-slate-400">Inventory status distribution</div>
-                </div>
-              </div>
-              <div className="flex items-center gap-2"><div className="text-[18px] font-extrabold text-slate-900">{formatNumber(cellDistribution.total)}</div><button type="button" onClick={() => void exportCellReport()} disabled={exportingCells} className="inline-flex items-center gap-1 rounded-md border border-emerald-200 bg-white px-2 py-1 text-[10px] font-bold text-emerald-700 hover:bg-emerald-50 disabled:cursor-wait disabled:opacity-60" title="Export cell report"><Download className="h-3 w-3" />{exportingCells ? 'Exporting...' : 'Export Cell Report'}</button></div>
-            </div>
-
-            <div className="mb-3 flex flex-wrap gap-2 text-[10px] font-medium text-slate-500">
-              <button
-                type="button"
-                onClick={() => setSelectedCellStatus('All')}
-                className={`rounded-md border px-2 py-1 ${selectedCellStatus === 'All' ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-slate-200 bg-slate-50 text-slate-500'}`}
-              >
-                All cells
-              </button>
-              {['In Stock', 'Floor Stock', 'Scrap', 'Recycle'].map((label) => (
-                <button
-                  key={label}
-                  type="button"
-                  onClick={() => setSelectedCellStatus(label)}
-                  className={`rounded-md border px-2 py-1 ${selectedCellStatus === label ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-slate-200 bg-slate-50 text-slate-500'}`}
-                >
-                  {label}
-                </button>
-              ))}
-              <div className="relative">
-                <button
-                  type="button"
-                  onClick={() => setOpenCellFilter(open => !open)}
-                  aria-expanded={openCellFilter}
-                  className={`inline-flex items-center gap-1 rounded-md border px-2 py-1 ${selectedCellStatus === 'All' || !['In Stock', 'Floor Stock', 'Scrap', 'Recycle'].includes(selectedCellStatus) ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-slate-200 bg-slate-50 text-slate-500'}`}
-                >
-                  Other<ChevronDown className="h-3 w-3" />
-                </button>
-                {openCellFilter && <div className="absolute left-0 top-full z-20 mt-1 flex min-w-max flex-col gap-1 rounded-lg border border-slate-200 bg-white p-1.5 shadow-lg">
-                  {['In Module', 'In Pack', 'In Rack', 'Karachi Warehouse', 'Lahore Warehouse', 'Sold'].map((label) => (
-                    <button
-                      key={label}
-                      type="button"
-                      onClick={() => { setSelectedCellStatus(label); setOpenCellFilter(false); }}
-                      className={`whitespace-nowrap rounded-md px-2 py-1.5 text-left ${selectedCellStatus === label ? 'bg-emerald-50 text-emerald-700' : 'text-slate-600 hover:bg-slate-50'}`}
-                    >
-                      {label}
-                    </button>
-                  ))}
-                </div>}
-              </div>
-            </div>
-
-            <DistributionDonut
-              distribution={cellDistribution}
-              ariaLabel="Cells distribution"
-              showShare
-              large
-              compactLegend
-              showLegendValues
-              legendLabelClassName="text-[12px] text-slate-600"
-              stackLegend
-              legendMarginRight
-              donutMarginLeft
-              donutMarginTop
-              balancedVerticalMargin
-            />
-          </div>
-        </div>
-
-        <div className="contents">
-          <div className="order-5 xl:col-span-1 flex flex-col rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-            <div className="mb-2 flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-50">
-                  <PackageCheck className="h-4 w-4 text-emerald-600" />
-                </div>
-                <div>
-                  <div className="text-[15px] font-bold text-slate-900">Modules</div>
-                  <div className="text-[11px] text-slate-400">Production &amp; status breakdown</div>
-                </div>
-              </div>
-              <div className="flex items-center gap-2"><div className="text-[18px] font-extrabold text-slate-900">{formatNumber(moduleCellTotal)}</div><button type="button" onClick={() => void exportModuleReport()} disabled={exportingModules} className="inline-flex items-center gap-1 rounded-md border border-emerald-200 bg-white px-2 py-1 text-[10px] font-bold text-emerald-700 hover:bg-emerald-50 disabled:cursor-wait disabled:opacity-60" title="Export module report"><Download className="h-3 w-3" />{exportingModules ? 'Exporting...' : 'Export Module Report'}</button></div>
-            </div>
-
-            <div className="mb-3 flex flex-wrap gap-2 text-[10px]">
-              {['All', ...moduleData.map((item) => item.label)].map((option) => (
-                <button
-                  key={option}
-                  type="button"
-                  onClick={() => setSelectedModuleConfig(option)}
-                  className={`rounded-md border px-2 py-1 ${selectedModuleConfig === option ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-slate-200 bg-slate-50 text-slate-500'}`}
-                >
-                  {option}
-                </button>
-              ))}
-            </div>
-
-            <DistributionDonut
-              distribution={moduleDistribution}
-              ariaLabel="Module distribution"
-              showShare
-              large
-              compactLegend
-              showLegendValues
-              legendLabelClassName="text-[12px] text-slate-600"
-              stackLegend
-              legendMarginRight
-              donutMarginLeft
-              donutMarginTop
-              balancedVerticalMargin
-            />
-          </div>
-
           <div className="order-1 xl:col-span-1 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
             <div className="mb-2 flex items-center justify-between">
               <div className="flex items-center gap-2">
@@ -1163,39 +1034,34 @@ export const CEOMonitoringView: React.FC = () => {
               balancedVerticalMargin
             />
           </div>
-        </div>
 
-        <div className="contents">
-          <div className="order-4 xl:col-span-1 flex flex-col rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+          <div className="order-2 xl:col-span-1 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
             <div className="mb-2 flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-50">
-                  <Factory className="h-4 w-4 text-emerald-600" />
+                  <PackageCheck className="h-4 w-4 text-emerald-600" />
                 </div>
                 <div>
-                  <div className="text-[15px] font-bold text-slate-900">Battery Packs</div>
-                  <div className="text-[11px] text-slate-400">Status by model</div>
+                  <div className="text-[15px] font-bold text-slate-900">Warehouse</div>
+                  <div className="text-[11px] text-slate-400">Karachi vs Lahore warehouse stock</div>
                 </div>
               </div>
-              <div className="flex items-center gap-2"><div className="text-[18px] font-extrabold text-slate-900">{formatNumber(batteryPackCellTotal)}</div><button type="button" onClick={() => void exportBatteryReport()} disabled={exportingBatteryReport} className="inline-flex items-center gap-1 rounded-md border border-emerald-200 bg-white px-2 py-1 text-[10px] font-bold text-emerald-700 hover:bg-emerald-50 disabled:cursor-wait disabled:opacity-60" title="Export battery report"><Download className="h-3 w-3" />{exportingBatteryReport ? 'Exporting...' : 'Export Battery Report'}</button></div>
+              <div className="flex items-center gap-2"><div className="text-[18px] font-extrabold text-slate-900">{formatNumber(warehouseCellTotal)}</div><button type="button" onClick={() => void exportWarehouseReport()} disabled={exportingWarehouseReport} className="inline-flex items-center gap-1 rounded-md border border-emerald-200 bg-white px-2 py-1 text-[10px] font-bold text-emerald-700 hover:bg-emerald-50 disabled:cursor-wait disabled:opacity-60" title="Export warehouse report"><Download className="h-3 w-3" />{exportingWarehouseReport ? 'Exporting...' : 'Export Warehouse Report'}</button></div>
             </div>
-
-            <div className="mb-3 flex flex-wrap gap-2 text-[10px]">
-              {['All', ...batteryPackData.map((item) => item.label)].map((size) => (
-                <button
-                  key={size}
-                  type="button"
-                  onClick={() => setSelectedPackType(size)}
-                  className={`rounded-md border px-2 py-1 ${selectedPackType === size ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-slate-200 bg-slate-50 text-slate-500'}`}
-                >
-                  {size}
+            <div className="mb-3 flex flex-wrap gap-2 text-[10px] font-medium text-slate-500">
+              <button type="button" onClick={() => { setSelectedWarehouseInventoryType('All'); setOpenWarehouseFilter(null); }} className={`rounded-md border px-2 py-1 ${selectedWarehouseInventoryType === 'All' ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-slate-200 bg-slate-50 text-slate-500'}`}>All</button>
+              {(['Racks', 'Battery Packs'] as const).map(type => <div key={type} className="relative">
+                <button type="button" onClick={() => { setSelectedWarehouseInventoryType(type); setOpenWarehouseFilter(openWarehouseFilter === type ? null : type); }} className={`inline-flex items-center gap-1 rounded-md border px-2 py-1 ${selectedWarehouseInventoryType === type ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-slate-200 bg-slate-50 text-slate-500'}`} aria-expanded={openWarehouseFilter === type}>
+                  {type}<ChevronDown className="h-3 w-3" />
                 </button>
-              ))}
+                {openWarehouseFilter === type && <div className="absolute left-0 top-full z-20 mt-1 flex min-w-max flex-col gap-1 rounded-lg border border-slate-200 bg-white p-1.5 shadow-lg">
+                  {(type === 'Racks' ? warehouseRackTypeOptions : warehouseBatteryTypeOptions).map(filterType => <button key={filterType} type="button" onClick={() => { if (type === 'Racks') setSelectedWarehouseRackType(filterType); else setSelectedWarehouseBatteryType(filterType); setOpenWarehouseFilter(null); }} className={`whitespace-nowrap rounded-md px-2 py-1.5 text-left ${((type === 'Racks' ? selectedWarehouseRackType : selectedWarehouseBatteryType) === filterType) ? 'bg-emerald-50 text-emerald-700' : 'text-slate-600 hover:bg-slate-50'}`}>{filterType === 'All' ? `All ${type.toLowerCase()}` : type === 'Racks' ? warehouseRackTypeLabel(filterType) : filterType}</button>)}
+                </div>}
+              </div>)}
             </div>
-
             <DistributionDonut
-              distribution={batteryPackDistribution}
-              ariaLabel="Battery pack model distribution"
+              distribution={warehouseDistribution}
+              ariaLabel="Warehouse distribution"
               showShare
               large
               compactLegend
@@ -1251,7 +1117,224 @@ export const CEOMonitoringView: React.FC = () => {
               balancedVerticalMargin
             />
           </div>
-        </div>
+
+          <div className="order-4 xl:col-span-1 flex flex-col rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+            <div className="mb-2 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-50">
+                  <Factory className="h-4 w-4 text-emerald-600" />
+                </div>
+                <div>
+                  <div className="text-[15px] font-bold text-slate-900">Battery Packs</div>
+                  <div className="text-[11px] text-slate-400">Status by model</div>
+                </div>
+              </div>
+              <div className="flex items-center gap-2"><div className="text-[18px] font-extrabold text-slate-900">{formatNumber(batteryPackCellTotal)}</div><button type="button" onClick={() => void exportBatteryReport()} disabled={exportingBatteryReport} className="inline-flex items-center gap-1 rounded-md border border-emerald-200 bg-white px-2 py-1 text-[10px] font-bold text-emerald-700 hover:bg-emerald-50 disabled:cursor-wait disabled:opacity-60" title="Export battery report"><Download className="h-3 w-3" />{exportingBatteryReport ? 'Exporting...' : 'Export Battery Report'}</button></div>
+            </div>
+
+            <div className="mb-3 flex flex-wrap gap-2 text-[10px]">
+              {['All', ...batteryPackData.map((item) => item.label)].map((size) => (
+                <button
+                  key={size}
+                  type="button"
+                  onClick={() => setSelectedPackType(size)}
+                  className={`rounded-md border px-2 py-1 ${selectedPackType === size ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-slate-200 bg-slate-50 text-slate-500'}`}
+                >
+                  {size}
+                </button>
+              ))}
+            </div>
+
+            <DistributionDonut
+              distribution={batteryPackDistribution}
+              ariaLabel="Battery pack model distribution"
+              showShare
+              large
+              compactLegend
+              showLegendValues
+              legendLabelClassName="text-[12px] text-slate-600"
+              stackLegend
+              legendMarginRight
+              donutMarginLeft
+              donutMarginTop
+              balancedVerticalMargin
+            />
+          </div>
+
+          <div className="order-5 xl:col-span-1 flex flex-col rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+            <div className="mb-2 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-50">
+                  <PackageCheck className="h-4 w-4 text-emerald-600" />
+                </div>
+                <div>
+                  <div className="text-[15px] font-bold text-slate-900">Modules</div>
+                  <div className="text-[11px] text-slate-400">Production &amp; status breakdown</div>
+                </div>
+              </div>
+              <div className="flex items-center gap-2"><div className="text-[18px] font-extrabold text-slate-900">{formatNumber(moduleCellTotal)}</div><button type="button" onClick={() => void exportModuleReport()} disabled={exportingModules} className="inline-flex items-center gap-1 rounded-md border border-emerald-200 bg-white px-2 py-1 text-[10px] font-bold text-emerald-700 hover:bg-emerald-50 disabled:cursor-wait disabled:opacity-60" title="Export module report"><Download className="h-3 w-3" />{exportingModules ? 'Exporting...' : 'Export Module Report'}</button></div>
+            </div>
+
+            <div className="mb-3 flex flex-wrap gap-2 text-[10px]">
+              {['All', ...moduleData.map((item) => item.label)].map((option) => (
+                <button
+                  key={option}
+                  type="button"
+                  onClick={() => setSelectedModuleConfig(option)}
+                  className={`rounded-md border px-2 py-1 ${selectedModuleConfig === option ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-slate-200 bg-slate-50 text-slate-500'}`}
+                >
+                  {option}
+                </button>
+              ))}
+            </div>
+
+            <DistributionDonut
+              distribution={moduleDistribution}
+              ariaLabel="Module distribution"
+              showShare
+              large
+              compactLegend
+              showLegendValues
+              legendLabelClassName="text-[12px] text-slate-600"
+              stackLegend
+              legendMarginRight
+              donutMarginLeft
+              donutMarginTop
+              balancedVerticalMargin
+            />
+          </div>
+
+          <div className="order-6 xl:col-span-1 flex flex-col rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+            <div className="mb-2 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-50">
+                  <Boxes className="h-4 w-4 text-emerald-600" />
+                </div>
+                <div>
+                  <div className="text-[15px] font-bold text-slate-900">Cells</div>
+                  <div className="text-[11px] text-slate-400">Inventory status distribution</div>
+                </div>
+              </div>
+              <div className="flex items-center gap-2"><div className="text-[18px] font-extrabold text-slate-900">{formatNumber(cellDistribution.total)}</div><button type="button" onClick={() => void exportCellReport()} disabled={exportingCells} className="inline-flex items-center gap-1 rounded-md border border-emerald-200 bg-white px-2 py-1 text-[10px] font-bold text-emerald-700 hover:bg-emerald-50 disabled:cursor-wait disabled:opacity-60" title="Export cell report"><Download className="h-3 w-3" />{exportingCells ? 'Exporting...' : 'Export Cell Report'}</button></div>
+            </div>
+
+            <div className="mb-3 flex flex-wrap gap-2 text-[10px] font-medium text-slate-500">
+              <button
+                type="button"
+                onClick={() => setSelectedCellStatus('All')}
+                className={`rounded-md border px-2 py-1 ${selectedCellStatus === 'All' ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-slate-200 bg-slate-50 text-slate-500'}`}
+              >
+                All cells
+              </button>
+              {['In Stock', 'Floor Stock', 'Damage', 'Recycle'].map((label) => (
+                <button
+                  key={label}
+                  type="button"
+                  onClick={() => setSelectedCellStatus(label)}
+                  className={`rounded-md border px-2 py-1 ${selectedCellStatus === label ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-slate-200 bg-slate-50 text-slate-500'}`}
+                >
+                  {label}
+                </button>
+              ))}
+              <div className="relative">
+                <button
+                  type="button"
+                  onClick={() => setOpenCellFilter(open => !open)}
+                  aria-expanded={openCellFilter}
+                  className={`inline-flex items-center gap-1 rounded-md border px-2 py-1 ${selectedCellStatus === 'All' || !['In Stock', 'Floor Stock', 'Damage', 'Recycle'].includes(selectedCellStatus) ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-slate-200 bg-slate-50 text-slate-500'}`}
+                >
+                  Other<ChevronDown className="h-3 w-3" />
+                </button>
+                {openCellFilter && <div className="absolute left-0 top-full z-20 mt-1 flex min-w-max flex-col gap-1 rounded-lg border border-slate-200 bg-white p-1.5 shadow-lg">
+                  {['In Module', 'In Pack', 'In Rack', 'Karachi Warehouse', 'Lahore Warehouse', 'Sold'].map((label) => (
+                    <button
+                      key={label}
+                      type="button"
+                      onClick={() => { setSelectedCellStatus(label); setOpenCellFilter(false); }}
+                      className={`whitespace-nowrap rounded-md px-2 py-1.5 text-left ${selectedCellStatus === label ? 'bg-emerald-50 text-emerald-700' : 'text-slate-600 hover:bg-slate-50'}`}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>}
+              </div>
+            </div>
+
+            <DistributionDonut
+              distribution={cellDistribution}
+              ariaLabel="Cells distribution"
+              showShare
+              large
+              compactLegend
+              showLegendValues
+              legendLabelClassName="text-[12px] text-slate-600"
+              stackLegend
+              legendMarginRight
+              donutMarginLeft
+              donutMarginTop
+              balancedVerticalMargin
+            />
+          </div>
+
+          <div className="order-7 xl:col-span-1 flex flex-col rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+            <div className="mb-2 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-red-50">
+                  <AlertTriangle className="h-4 w-4 text-red-600" />
+                </div>
+                <div>
+                  <div className="text-[15px] font-bold text-slate-900">Damage vs Reusable</div>
+                  <div className="text-[11px] text-slate-400">Damage review split</div>
+                </div>
+              </div>
+              <div className="text-[18px] font-extrabold text-slate-900">{formatNumber(damageReusableDistribution.total)}</div>
+            </div>
+
+            <DistributionDonut
+              distribution={damageReusableDistribution}
+              ariaLabel="Damage versus reusable split"
+              showShare
+              large
+              compactLegend
+              showLegendValues
+              legendLabelClassName="text-[12px] text-slate-600"
+              stackLegend
+              legendMarginRight
+              donutMarginLeft
+              donutMarginTop
+              balancedVerticalMargin
+            />
+          </div>
+
+          <div className="order-8 xl:col-span-1 flex flex-col rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+            <div className="mb-2 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-sky-50">
+                  <Cpu className="h-4 w-4 text-sky-600" />
+                </div>
+                <div>
+                  <div className="text-[15px] font-bold text-slate-900">BMS / BMU</div>
+                  <div className="text-[11px] text-slate-400">Controller inventory split</div>
+                </div>
+              </div>
+              <div className="text-[18px] font-extrabold text-slate-900">{formatNumber(controllerDistribution.total)}</div>
+            </div>
+
+            <DistributionDonut
+              distribution={controllerDistribution}
+              ariaLabel="BMS and BMU count distribution"
+              showShare
+              large
+              compactLegend
+              showLegendValues
+              legendLabelClassName="text-[12px] text-slate-600"
+              stackLegend
+              legendMarginRight
+              donutMarginLeft
+              donutMarginTop
+              balancedVerticalMargin
+            />
+          </div>
         </div>
 
         <div className="pb-6 text-center text-[11px] text-slate-400">Power2Go MES · CEO Dashboard · Data refreshes automatically</div>

@@ -54,7 +54,7 @@ export const QuarantineView: React.FC = () => {
       setRecords(normalized);
       setSelectedIds([]);
     } catch (err) {
-      console.error('Failed to load scrap items', err);
+      console.error('Failed to load damage items', err);
       setRecords([]);
     } finally {
       setLoading(false);
@@ -78,14 +78,14 @@ export const QuarantineView: React.FC = () => {
           itemId: entitySerial.trim(),
           reason: reason.trim(),
         });
-        addNotification('warning', 'Item Sent to Scrap Review', `${entityType} ${entitySerial} locked into scrap review`);
+        addNotification('warning', 'Item Sent to Damage Review', `${entityType} ${entitySerial} locked into damage review`);
       }
       setShowQuarantineModal(false);
       setEntitySerial('');
       setReason('');
       triggerRefresh();
     } catch (err: any) {
-      addNotification('error', 'Scrap Review Failed', err.message);
+      addNotification('error', 'Damage Review Failed', err.message);
     } finally {
       setActionLoading(false);
     }
@@ -119,7 +119,7 @@ export const QuarantineView: React.FC = () => {
         dispositionNotes,
       })));
       setSelectedIds([]);
-      addNotification('success', 'Scrap Review Updated', `${selectedRecords.length} item(s) marked as ${label}`);
+      addNotification('success', 'Damage Review Updated', `${selectedRecords.length} item(s) marked as ${label}`);
       triggerRefresh();
     } catch (err: any) {
       addNotification('error', 'Bulk Update Failed', err.message || 'Could not update selected items.');
@@ -148,7 +148,7 @@ export const QuarantineView: React.FC = () => {
             resolvedAt: new Date().toISOString(),
           }
         : record));
-      addNotification('success', 'Scrap Review Resolved', `${resolveTarget.entitySerial} marked as ${resolveDisposition}`);
+      addNotification('success', 'Damage Review Resolved', `${resolveTarget.entitySerial} marked as ${resolveDisposition}`);
       setResolveTarget(null);
       triggerRefresh();
     } catch (err: any) {
@@ -168,10 +168,10 @@ export const QuarantineView: React.FC = () => {
     setActionLoading(true);
     try {
       await api.removeQuarantineCell(record.id);
-      addNotification('success', isReusable ? 'Reusable Cell Removed' : 'Scrap Cell Deleted', `${record.entitySerial} was removed from scrap review.`);
+      addNotification('success', isReusable ? 'Reusable Cell Removed' : 'Damage Cell Deleted', `${record.entitySerial} was removed from damage review.`);
       triggerRefresh();
     } catch (err: any) {
-      addNotification('error', 'Remove Failed', err.message || 'Could not remove the cell from scrap review.');
+      addNotification('error', 'Remove Failed', err.message || 'Could not remove the cell from damage review.');
     } finally {
       setActionLoading(false);
     }
@@ -184,7 +184,7 @@ export const QuarantineView: React.FC = () => {
     const scrapSelected = selectedRecords.length - reusableSelected;
     const summary = [
       reusableSelected > 0 ? `${reusableSelected} reusable cell(s) from review` : '',
-      scrapSelected > 0 ? `${scrapSelected} scrap cell(s) permanently` : '',
+      scrapSelected > 0 ? `${scrapSelected} damaged cell(s) permanently` : '',
     ].filter(Boolean).join(' and ');
     if (!window.confirm(`Remove ${summary}?`)) return;
 
@@ -218,7 +218,7 @@ export const QuarantineView: React.FC = () => {
             </span>
             <div>
               <h1 className="text-lg sm:text-xl font-black text-slate-900 tracking-tight">
-                Scrap, Defect Isolation & Rework Management
+                Damage, Defect Isolation & Rework Management
               </h1>
               <p className="text-xs text-slate-500 mt-0.5">
                 Strict isolation barrier prevents any defective or unverified cell from progressing down the manufacturing line.
@@ -232,7 +232,7 @@ export const QuarantineView: React.FC = () => {
           className="px-4 py-2.5 bg-slate-600 hover:bg-slate-500 text-white text-xs font-bold rounded-xl flex items-center space-x-2 shadow-xs transition-colors"
         >
           <Plus className="w-4 h-4" />
-          <span>Manual Scrap Isolation</span>
+          <span>Manual Damage Isolation</span>
         </button>
       </div>
 
@@ -283,7 +283,7 @@ export const QuarantineView: React.FC = () => {
         </div>
       </div>
 
-      {/* Scrap Table */}
+      {/* Damage Table */}
       <div className="bg-white rounded-2xl shadow-xs border border-slate-200 overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-left text-xs font-mono">
@@ -294,7 +294,7 @@ export const QuarantineView: React.FC = () => {
                     type="checkbox"
                     checked={allVisibleSelected}
                     onChange={() => setSelectedIds(allVisibleSelected ? [] : filtered.map(record => record.id))}
-                    aria-label="Select all visible scrap records"
+                    aria-label="Select all visible damage records"
                     className="h-4 w-4 accent-emerald-600"
                   />
                 </th>
@@ -311,7 +311,7 @@ export const QuarantineView: React.FC = () => {
               {filtered.length === 0 ? (
                 <tr>
                   <td colSpan={8} className="text-center py-8 text-slate-400 font-sans">
-                    No items in this scrap status view.
+                    No items in this damage status view.
                   </td>
                 </tr>
               ) : (
@@ -423,7 +423,7 @@ export const QuarantineView: React.FC = () => {
                 <span className="text-xs font-bold uppercase tracking-wider">Quality Disposition Authority</span>
               </div>
               <h3 className="text-base font-black text-slate-900">
-                Resolve Scrap Review: {resolveTarget.entitySerial}
+                Resolve Damage Review: {resolveTarget.entitySerial}
               </h3>
               <p className="text-xs text-slate-500 mt-0.5">
                 Current Isolation Reason: <span className="font-semibold text-slate-900">{resolveTarget.reason}</span>
@@ -454,7 +454,7 @@ export const QuarantineView: React.FC = () => {
                         : 'border-slate-200 text-slate-600 hover:bg-slate-50'
                     }`}
                   >
-                    Damaged / Scrap
+                    Damaged / Damage
                   </button>
                 </div>
               </div>
@@ -464,7 +464,7 @@ export const QuarantineView: React.FC = () => {
                 <textarea
                   value={resolveNotes}
                   onChange={e => setResolveNotes(e.target.value)}
-                  placeholder="Explain why this unit is reusable or damaged and sent to scrap..."
+                  placeholder="Explain why this unit is reusable or damaged and sent to damage review..."
                   rows={3}
                   className="w-full px-3.5 py-2.5 text-xs bg-slate-50/70 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500"
                   required
@@ -497,7 +497,7 @@ export const QuarantineView: React.FC = () => {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-4 animate-fade-in">
           <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-6 space-y-4 border border-slate-200">
             <div>
-              <h3 className="text-base font-black text-slate-900">Scrap Item Isolation</h3>
+              <h3 className="text-base font-black text-slate-900">Damage Item Isolation</h3>
               <p className="text-xs text-slate-500 mt-0.5">
                 Immediately locks item from manufacturing progression across all production orders.
               </p>
@@ -567,7 +567,7 @@ export const QuarantineView: React.FC = () => {
                   disabled={actionLoading}
                   className="px-5 py-2 text-xs font-bold text-white bg-slate-600 hover:bg-slate-500 rounded-xl shadow-xs transition-colors"
                 >
-                  {entityType === 'CELL' ? 'Scrap Cells Now' : 'Lock for Scrap Review'}
+                  {entityType === 'CELL' ? 'Damage Cells Now' : 'Lock for Damage Review'}
                 </button>
               </div>
             </form>

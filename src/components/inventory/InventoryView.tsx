@@ -575,7 +575,7 @@ export const InventoryView: React.FC = () => {
                 <option value="IN_PACK">IN PACK</option>
                 <option value="IN_RACK">IN RACK</option>
                 <option value="SOLD">SOLD</option>
-                <option value="SCRAP">SCRAP</option>
+                <option value="SCRAP">DAMAGE</option>
                 <option value="AVAILABLE">AVAILABLE</option>
                 <option value="RESERVED">RESERVED</option>
                 <option value="IN_PROCESS">IN PROCESS</option>
@@ -587,7 +587,7 @@ export const InventoryView: React.FC = () => {
                 <option value="PASSED">PASSED</option>
                 <option value="ASSEMBLED">ASSEMBLED</option>
                 <option value="FINISHED">FINISHED</option>
-                <option value="QUARANTINED">SCRAP</option>
+                <option value="QUARANTINED">DAMAGE</option>
                 <option value="FAILED">FAILED</option>
               </>
             )}

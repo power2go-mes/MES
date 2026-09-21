@@ -123,148 +123,56 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
 
         {/* INVENTORY */}
         <div>
-          <button type="button" onClick={() => toggleSection('inventory')} aria-expanded={Boolean(openSections.inventory)} className="w-full flex items-center justify-between px-3 mb-1.5 text-left">
-            <span className="text-[9px] font-black uppercase tracking-widest text-slate-400">Inventory</span>
-            {openSections.inventory ? <ChevronDown className="w-3.5 h-3.5 text-slate-400" /> : <ChevronRight className="w-3.5 h-3.5 text-slate-400" />}
-          </button>
-          {openSections.inventory && <div className="space-y-0.5">
-            <button
-              onClick={() => handleInventoryClick('CELLS')}
-              className={`w-full flex items-center space-x-2.5 px-3 py-2 rounded-lg text-xs transition-all ${
-                isInventoryActive('CELLS')
-                  ? 'bg-slate-100 text-slate-900 font-bold'
-                  : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
-              }`}
-            >
-              <Cpu className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-              <span>Cell Inventory</span>
-            </button>
-
-            <button
-              onClick={() => handleInventoryClick('BMS')}
-              className={`w-full flex items-center space-x-2.5 px-3 py-2 rounded-lg text-xs transition-all ${
-                isInventoryActive('BMS')
-                  ? 'bg-slate-100 text-slate-900 font-bold'
-                  : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
-              }`}
-            >
-              <Activity className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-              <span>BMS Inventory</span>
-            </button>
-
-            <button
-              onClick={() => handleInventoryClick('BMU')}
-              className={`w-full flex items-center space-x-2.5 px-3 py-2 rounded-lg text-xs transition-all ${
-                isInventoryActive('BMU')
-                  ? 'bg-slate-100 text-slate-900 font-bold'
-                  : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
-              }`}
-            >
-              <Activity className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-              <span>BMU Inventory</span>
-            </button>
-
-            <button
-              onClick={() => handleInventoryClick('MODULES')}
-              className={`w-full flex items-center space-x-2.5 px-3 py-2 rounded-lg text-xs transition-all ${
-                isInventoryActive('MODULES')
-                  ? 'bg-slate-100 text-slate-900 font-bold'
-                  : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
-              }`}
-            >
-              <Layers className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-              <span>Module Inventory</span>
-            </button>
-
-            <button
-              onClick={() => handleInventoryClick('BATTERIES')}
-              className={`w-full flex items-center space-x-2.5 px-3 py-2 rounded-lg text-xs transition-all ${
-                isInventoryActive('BATTERIES')
-                  ? 'bg-slate-100 text-slate-900 font-bold'
-                  : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
-              }`}
-            >
-              <PackageCheck className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-              <span>Battery Inventory</span>
-            </button>
-            <button
-              onClick={() => handleInventoryClick('RACKS')}
-              className={`w-full flex items-center space-x-2.5 px-3 py-2 rounded-lg text-xs transition-all ${
-                isInventoryActive('RACKS')
-                  ? 'bg-slate-100 text-slate-900 font-bold'
-                  : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
-              }`}
-            >
-              <PackageCheck className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-              <span>Rack Inventory</span>
-            </button>
-            <button
-              onClick={() => setActiveView('warehouse')}
-              className={`w-full flex items-center space-x-2.5 px-3 py-2 rounded-lg text-xs transition-all ${
-                activeView === 'warehouse'
-                  ? 'bg-slate-100 text-slate-900 font-bold'
-                  : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
-              }`}
-            >
-              <PackageCheck className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-              <span>Warehouse</span>
-            </button>
-
-            <button
-              onClick={() => setActiveView('sold')}
-              className={`w-full flex items-center space-x-2.5 px-3 py-2 rounded-lg text-xs transition-all ${
-                activeView === 'sold'
-                  ? 'bg-slate-100 text-slate-900 font-bold'
-                  : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
-              }`}
-            >
-              <PackageCheck className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-              <span>Sold</span>
-            </button>
-          </div>}
+          {isCeo ? (
+            <div className="space-y-0.5">
+              <div className="mb-1.5 px-3 text-[9px] font-black uppercase tracking-widest text-slate-400">Inventory</div>
+              <button onClick={() => handleInventoryClick('CELLS')} className={`w-full flex items-center space-x-2.5 px-3 py-2 rounded-lg text-xs transition-all ${isInventoryActive('CELLS') ? 'bg-slate-100 text-slate-900 font-bold' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'}`}><Cpu className="w-3.5 h-3.5 text-slate-400 shrink-0" /><span>Cell Inventory</span></button>
+              <button onClick={() => handleInventoryClick('BMS')} className={`w-full flex items-center space-x-2.5 px-3 py-2 rounded-lg text-xs transition-all ${isInventoryActive('BMS') ? 'bg-slate-100 text-slate-900 font-bold' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'}`}><Activity className="w-3.5 h-3.5 text-slate-400 shrink-0" /><span>BMS Inventory</span></button>
+              <button onClick={() => handleInventoryClick('BMU')} className={`w-full flex items-center space-x-2.5 px-3 py-2 rounded-lg text-xs transition-all ${isInventoryActive('BMU') ? 'bg-slate-100 text-slate-900 font-bold' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'}`}><Activity className="w-3.5 h-3.5 text-slate-400 shrink-0" /><span>BMU Inventory</span></button>
+              <button onClick={() => handleInventoryClick('MODULES')} className={`w-full flex items-center space-x-2.5 px-3 py-2 rounded-lg text-xs transition-all ${isInventoryActive('MODULES') ? 'bg-slate-100 text-slate-900 font-bold' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'}`}><Layers className="w-3.5 h-3.5 text-slate-400 shrink-0" /><span>Module Inventory</span></button>
+              <button onClick={() => handleInventoryClick('BATTERIES')} className={`w-full flex items-center space-x-2.5 px-3 py-2 rounded-lg text-xs transition-all ${isInventoryActive('BATTERIES') ? 'bg-slate-100 text-slate-900 font-bold' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'}`}><PackageCheck className="w-3.5 h-3.5 text-slate-400 shrink-0" /><span>Battery Inventory</span></button>
+              <button onClick={() => handleInventoryClick('RACKS')} className={`w-full flex items-center space-x-2.5 px-3 py-2 rounded-lg text-xs transition-all ${isInventoryActive('RACKS') ? 'bg-slate-100 text-slate-900 font-bold' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'}`}><PackageCheck className="w-3.5 h-3.5 text-slate-400 shrink-0" /><span>Rack Inventory</span></button>
+            </div>
+          ) : (
+            <>
+              <button type="button" onClick={() => toggleSection('inventory')} aria-expanded={Boolean(openSections.inventory)} className="w-full flex items-center justify-between px-3 mb-1.5 text-left">
+                <span className="text-[9px] font-black uppercase tracking-widest text-slate-400">Inventory</span>
+                {openSections.inventory ? <ChevronDown className="w-3.5 h-3.5 text-slate-400" /> : <ChevronRight className="w-3.5 h-3.5 text-slate-400" />}
+              </button>
+              {openSections.inventory && <div className="space-y-0.5">
+                <button onClick={() => handleInventoryClick('CELLS')} className={`w-full flex items-center space-x-2.5 px-3 py-2 rounded-lg text-xs transition-all ${isInventoryActive('CELLS') ? 'bg-slate-100 text-slate-900 font-bold' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'}`}><Cpu className="w-3.5 h-3.5 text-slate-400 shrink-0" /><span>Cell Inventory</span></button>
+                <button onClick={() => handleInventoryClick('BMS')} className={`w-full flex items-center space-x-2.5 px-3 py-2 rounded-lg text-xs transition-all ${isInventoryActive('BMS') ? 'bg-slate-100 text-slate-900 font-bold' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'}`}><Activity className="w-3.5 h-3.5 text-slate-400 shrink-0" /><span>BMS Inventory</span></button>
+                <button onClick={() => handleInventoryClick('BMU')} className={`w-full flex items-center space-x-2.5 px-3 py-2 rounded-lg text-xs transition-all ${isInventoryActive('BMU') ? 'bg-slate-100 text-slate-900 font-bold' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'}`}><Activity className="w-3.5 h-3.5 text-slate-400 shrink-0" /><span>BMU Inventory</span></button>
+                <button onClick={() => handleInventoryClick('MODULES')} className={`w-full flex items-center space-x-2.5 px-3 py-2 rounded-lg text-xs transition-all ${isInventoryActive('MODULES') ? 'bg-slate-100 text-slate-900 font-bold' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'}`}><Layers className="w-3.5 h-3.5 text-slate-400 shrink-0" /><span>Module Inventory</span></button>
+                <button onClick={() => handleInventoryClick('BATTERIES')} className={`w-full flex items-center space-x-2.5 px-3 py-2 rounded-lg text-xs transition-all ${isInventoryActive('BATTERIES') ? 'bg-slate-100 text-slate-900 font-bold' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'}`}><PackageCheck className="w-3.5 h-3.5 text-slate-400 shrink-0" /><span>Battery Inventory</span></button>
+                <button onClick={() => handleInventoryClick('RACKS')} className={`w-full flex items-center space-x-2.5 px-3 py-2 rounded-lg text-xs transition-all ${isInventoryActive('RACKS') ? 'bg-slate-100 text-slate-900 font-bold' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'}`}><PackageCheck className="w-3.5 h-3.5 text-slate-400 shrink-0" /><span>Rack Inventory</span></button>
+                {!isCeo && <button onClick={() => setActiveView('warehouse')} className={`w-full flex items-center space-x-2.5 px-3 py-2 rounded-lg text-xs transition-all ${activeView === 'warehouse' ? 'bg-slate-100 text-slate-900 font-bold' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'}`}><PackageCheck className="w-3.5 h-3.5 text-slate-400 shrink-0" /><span>Warehouse</span></button>}
+                {!isCeo && <button onClick={() => setActiveView('sold')} className={`w-full flex items-center space-x-2.5 px-3 py-2 rounded-lg text-xs transition-all ${activeView === 'sold' ? 'bg-slate-100 text-slate-900 font-bold' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'}`}><PackageCheck className="w-3.5 h-3.5 text-slate-400 shrink-0" /><span>Sold</span></button>}
+              </div>}
+            </>
+          )}
         </div>
 
         {/* IMPORT & TRACE */}
         <div>
-          <button type="button" onClick={() => toggleSection('reports')} aria-expanded={Boolean(openSections.reports)} className="w-full flex items-center justify-between px-3 mb-1.5 text-left">
-            <span className="text-[9px] font-black uppercase tracking-widest text-slate-400">Import &amp; Trace</span>
-            {openSections.reports ? <ChevronDown className="w-3.5 h-3.5 text-slate-400" /> : <ChevronRight className="w-3.5 h-3.5 text-slate-400" />}
-          </button>
-          {openSections.reports && <div className="space-y-0.5">
-            {!isCeo && <button
-              onClick={() => setActiveView('supplier')}
-              className={`w-full flex items-center space-x-2.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
-                activeView === 'supplier'
-                  ? 'bg-slate-900 text-white shadow-xs'
-                  : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
-              }`}
-            >
-              <Truck className="w-3.5 h-3.5 text-slate-400" />
-              <span>Supplier Import</span>
-            </button>}
-
-            <button
-              onClick={() => setActiveView('traceability')}
-              className={`w-full flex items-center space-x-2.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
-                activeView === 'traceability'
-                  ? 'bg-slate-900 text-white shadow-xs'
-                  : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
-              }`}
-            >
-              <GitMerge className="w-3.5 h-3.5 text-slate-400" />
-              <span>Genealogy</span>
-            </button>
-
-            {!isCeo && <button
-              onClick={() => setActiveView('scrap')}
-              className={`w-full flex items-center space-x-2.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
-                activeView === 'scrap' ? 'bg-red-700 text-white shadow-xs' : 'text-slate-600 hover:bg-red-50 hover:text-red-800'
-              }`}
-            >
-              <Flame className="w-3.5 h-3.5 text-red-500" />
-              <span>Scrap</span>
-            </button>}
-          </div>}
+          {isCeo ? (
+            <div className="space-y-0.5">
+              <div className="mb-1.5 px-3 text-[9px] font-black uppercase tracking-widest text-slate-400">Import &amp; Trace</div>
+              <button onClick={() => setActiveView('traceability')} className={`w-full flex items-center space-x-2.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${activeView === 'traceability' ? 'bg-slate-900 text-white shadow-xs' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'}`}><GitMerge className="w-3.5 h-3.5 text-slate-400" /><span>Genealogy</span></button>
+            </div>
+          ) : (
+            <>
+              <button type="button" onClick={() => toggleSection('reports')} aria-expanded={Boolean(openSections.reports)} className="w-full flex items-center justify-between px-3 mb-1.5 text-left">
+                <span className="text-[9px] font-black uppercase tracking-widest text-slate-400">Import &amp; Trace</span>
+                {openSections.reports ? <ChevronDown className="w-3.5 h-3.5 text-slate-400" /> : <ChevronRight className="w-3.5 h-3.5 text-slate-400" />}
+              </button>
+              {openSections.reports && <div className="space-y-0.5">
+                <button onClick={() => setActiveView('supplier')} className={`w-full flex items-center space-x-2.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${activeView === 'supplier' ? 'bg-slate-900 text-white shadow-xs' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'}`}><Truck className="w-3.5 h-3.5 text-slate-400" /><span>Supplier Import</span></button>
+                <button onClick={() => setActiveView('traceability')} className={`w-full flex items-center space-x-2.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${activeView === 'traceability' ? 'bg-slate-900 text-white shadow-xs' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'}`}><GitMerge className="w-3.5 h-3.5 text-slate-400" /><span>Genealogy</span></button>
+                <button onClick={() => setActiveView('scrap')} className={`w-full flex items-center space-x-2.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${activeView === 'scrap' ? 'bg-red-700 text-white shadow-xs' : 'text-slate-600 hover:bg-red-50 hover:text-red-800'}`}><Flame className="w-3.5 h-3.5 text-red-500" /><span>Damage</span></button>
+              </div>}
+            </>
+          )}
         </div>
 
         {/* SETUPS */}

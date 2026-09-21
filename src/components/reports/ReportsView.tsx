@@ -222,7 +222,7 @@ export const ReportsView: React.FC = () => {
               <p className="mt-1 text-2xl font-black font-mono text-slate-900">{Number(stats?.reservedCells || 0).toLocaleString()}</p>
             </div>
             <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-              <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Scrap cells</p>
+              <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Damage cells</p>
               <p className="mt-1 text-2xl font-black font-mono text-slate-900">{scrapCellCount.toLocaleString()}</p>
               <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-slate-100"><div className="h-full rounded-full bg-rose-500" style={{ width: `${Math.min(100, (scrapCellCount / Math.max(1, Number(stats?.totalCells || 0))) * 100)}%` }} /></div>
             </div>
@@ -297,16 +297,16 @@ export const ReportsView: React.FC = () => {
               <div className="flex items-start justify-between gap-3">
                 <div><p className="text-[10px] font-bold uppercase tracking-[0.14em] text-rose-600">Quality isolation</p><h2 className="mt-1 text-sm font-bold text-slate-900">Defect Pareto Breakdown (Quality Isolation)</h2></div>
                 <span className="text-[10px] font-bold px-2.5 py-0.5 rounded-md bg-slate-50 text-slate-700 border border-slate-200 font-mono">
-                  Scrap Logs
+                  Damage Logs
                 </span>
               </div>
               <p className="mt-3 text-xs text-slate-500">
-                Isolated failure modes routed to scrap review ({stats?.quarantineOpen ?? 0} open, {stats?.quarantineResolved ?? 0} resolved).
+                Isolated failure modes routed to damage review ({stats?.quarantineOpen ?? 0} open, {stats?.quarantineResolved ?? 0} resolved).
               </p>
 
               {pareto.length === 0 ? (
                 <div className="py-10 text-center text-xs text-slate-400">
-                  Zero active scrap defects recorded.
+                  Zero active damage defects recorded.
                 </div>
               ) : (
                 <div className="space-y-4 pt-5">

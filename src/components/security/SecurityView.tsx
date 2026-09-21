@@ -45,7 +45,7 @@ const CUSTOM_PERMISSION_GROUPS = [
       { id: 'qc.perform', label: 'Perform QC' },
       { id: 'qc.approve', label: 'Approve QC' },
       { id: 'qc.reject', label: 'Reject QC' },
-      { id: 'inventory.quarantine', label: 'Scrap Component' },
+      { id: 'inventory.quarantine', label: 'Damage Component' },
       { id: 'inventory.rework', label: 'Rework Disposition' },
     ],
   },
