@@ -60,10 +60,12 @@ type ChartRow = DashboardChartRow;
 const DistributionDonut: React.FC<{ distribution: DashboardDistribution; ariaLabel: string; showShare?: boolean; extraRows?: ChartRow[]; large?: boolean; compactLegend?: boolean; legendBelow?: boolean; showSegmentLabels?: boolean; showSegmentLabelLines?: boolean; showLegendValues?: boolean; legendLabelClassName?: string; stackLegend?: boolean; legendMarginLeft?: boolean; legendMarginRight?: boolean; donutMarginLeft?: boolean; donutMarginTop?: boolean; balancedVerticalMargin?: boolean }> = ({ distribution, ariaLabel, showShare = true, extraRows = [], large = true, compactLegend = true, legendBelow = false, showSegmentLabels = false, showSegmentLabelLines = false, showLegendValues = true, legendLabelClassName = 'text-[12px] text-slate-600', stackLegend = false, legendMarginLeft = false, legendMarginRight = false, donutMarginLeft = false, donutMarginTop = false, balancedVerticalMargin = false }) => {
   const visible = distribution.rows.filter((row) => row.value > 0 && row.share > 0);
   const centerLabel = /cell inventory/i.test(ariaLabel) ? 'CELLS' : 'TOTAL';
+  const [hoveredRow, setHoveredRow] = useState<DashboardDistribution['rows'][number] | null>(null);
   let offset = 0;
   return (
-    <div className={`flex min-w-0 items-center gap-4 ${balancedVerticalMargin ? 'my-[24px]' : ''} ${legendBelow ? 'mt-auto min-h-[340px] flex-col justify-start' : 'flex-col sm:flex-row sm:gap-6'} ${large && !legendBelow ? 'sm:justify-center sm:gap-4' : ''}`}>
-      <div className={`shrink-0 ${donutMarginLeft ? 'sm:ml-[10mm]' : ''} ${donutMarginTop ? 'sm:translate-y-[10px]' : ''} ${large ? `${legendBelow ? 'h-[220px] w-[220px] sm:h-[250px] sm:w-[250px]' : 'flex h-[220px] w-[220px] items-center justify-center sm:h-[250px] sm:w-[52%]'}` : 'h-[160px] w-[160px] sm:h-[180px] sm:w-[180px]'}`}>
+    <div className={`flex min-w-0 items-center gap-2 ${balancedVerticalMargin ? 'my-[24px]' : ''} ${legendBelow ? 'mt-auto min-h-[340px] flex-col justify-start' : 'flex-col sm:flex-row sm:gap-2'} ${large && !legendBelow ? 'sm:justify-center sm:gap-2' : ''}`}>
+      <div className={`relative shrink-0 ${donutMarginLeft ? 'sm:ml-[10mm]' : ''} ${donutMarginTop ? 'sm:translate-y-[10px]' : ''} ${large ? `${legendBelow ? 'h-[220px] w-[220px] sm:h-[250px] sm:w-[250px]' : 'flex h-[220px] w-[220px] items-center justify-center sm:h-[250px] sm:w-[52%]'}` : 'h-[160px] w-[160px] sm:h-[180px] sm:w-[180px]'}`}>
+        {hoveredRow && <div className="pointer-events-none absolute left-1/2 top-0 z-10 -translate-x-1/2 -translate-y-full whitespace-nowrap rounded-md bg-slate-900 px-2.5 py-1.5 text-[11px] font-semibold text-white shadow-lg">{hoveredRow.label}: {formatNumber(hoveredRow.value)} ({hoveredRow.share.toFixed(2)}%)</div>}
         {distribution.total === 0 ? <div className="grid h-full place-items-center rounded-full border-[14px] border-slate-100 text-center"><span className="text-[11px] font-semibold text-slate-400">No recorded data</span></div> : <svg viewBox="0 0 100 100" className="h-full w-full" aria-label={ariaLabel}>
           <circle cx="50" cy="50" r="35" fill="none" stroke={reportColors.border} strokeWidth="14" />
           {visible.map((row) => {
@@ -81,7 +83,7 @@ const DistributionDonut: React.FC<{ distribution: DashboardDistribution; ariaLab
             const lineStartY = 50 + Math.sin(midAngle) * 38;
             const lineEndX = 50 + Math.cos(midAngle) * 44;
             const lineEndY = 50 + Math.sin(midAngle) * 44;
-            return <g key={row.label}><circle className="chart-donut-segment" cx="50" cy="50" r="35" fill="none" stroke={row.color} strokeWidth="14" strokeDasharray={`${segmentLength} ${circumference - segmentLength}`} strokeDashoffset={dashOffset} transform="rotate(-90 50 50)" strokeLinecap="butt"><title>{`${row.label}: ${formatNumber(row.value)}${showShare ? ` (${row.share.toFixed(2)}%)` : ''}`}</title></circle>{showSegmentLabels && <>{showSegmentLabelLines && <line x1={lineStartX} y1={lineStartY} x2={lineEndX} y2={lineEndY} stroke={reportColors.slate} strokeWidth="0.5" />}<text x={labelX} y={labelY} textAnchor={labelAnchor} dominantBaseline="middle" fontSize="3.8" fontWeight="700" fill={reportColors.navy}>{`${row.label.toUpperCase()} - ${row.share.toFixed(0)}% (${formatNumber(row.value)})`}</text></>}</g>;
+            return <g key={row.label}><circle className="chart-donut-segment" cx="50" cy="50" r="35" fill="none" stroke={row.color} strokeWidth={hoveredRow?.label === row.label ? '16' : '14'} strokeDasharray={`${segmentLength} ${circumference - segmentLength}`} strokeDashoffset={dashOffset} transform="rotate(-90 50 50)" strokeLinecap="butt" onMouseEnter={() => setHoveredRow(row)} onMouseLeave={() => setHoveredRow(null)}><title>{`${row.label}: ${formatNumber(row.value)}${showShare ? ` (${row.share.toFixed(2)}%)` : ''}`}</title></circle>{showSegmentLabels && <>{showSegmentLabelLines && <line x1={lineStartX} y1={lineStartY} x2={lineEndX} y2={lineEndY} stroke={reportColors.slate} strokeWidth="0.5" />}<text x={labelX} y={labelY} textAnchor={labelAnchor} dominantBaseline="middle" fontSize="3.8" fontWeight="700" fill={reportColors.navy}>{`${row.label.toUpperCase()} - ${row.share.toFixed(0)}% (${formatNumber(row.value)})`}</text></>}</g>;
           })}
           <circle cx="50" cy="50" r="22" fill={reportColors.white} />
           <text x="50" y="49" textAnchor="middle" fontSize="9" fontWeight="700" fill={reportColors.navy}>{formatNumber(distribution.total)}</text>
@@ -913,56 +915,7 @@ export const CEOMonitoringView: React.FC = () => {
                 title="Download the current CEO monitoring report as a PDF"
               >
                 <Download className="h-3.5 w-3.5" />
-                {exporting ? 'Exporting...' : 'Export Report'}
-              </button>
-              <button
-                type="button"
-                onClick={() => void exportCellReport()}
-                disabled={exportingCells}
-                className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-700 shadow-sm transition-colors hover:border-emerald-200 hover:bg-emerald-50 hover:text-emerald-700 disabled:cursor-wait disabled:opacity-60"
-                title="Export detailed cell inventory to Excel"
-              >
-                <Download className="h-3.5 w-3.5" />
-                {exportingCells ? 'Exporting Cells...' : 'Export Cell Report'}
-              </button>
-              <button
-                type="button"
-                onClick={() => void exportBatteryReport()}
-                disabled={exportingBatteryReport}
-                className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-700 shadow-sm transition-colors hover:border-emerald-200 hover:bg-emerald-50 hover:text-emerald-700 disabled:cursor-wait disabled:opacity-60"
-                title="Export battery inventory to Excel"
-              >
-                <Download className="h-3.5 w-3.5" />
-                {exportingBatteryReport ? 'Exporting Batteries...' : 'Export Battery Report'}
-              </button>
-              <button
-                type="button"
-                onClick={() => void exportRackReport()}
-                disabled={exportingRackReport}
-                className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-700 shadow-sm transition-colors hover:border-emerald-200 hover:bg-emerald-50 hover:text-emerald-700 disabled:cursor-wait disabled:opacity-60"
-                title="Export rack inventory to Excel"
-              >
-                <Download className="h-3.5 w-3.5" />
-                {exportingRackReport ? 'Exporting Racks...' : 'Export Rack Report'}
-              </button>
-              <button
-                type="button"
-                onClick={() => void exportWarehouseReport()}
-                disabled={exportingWarehouseReport}
-                className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-700 shadow-sm transition-colors hover:border-emerald-200 hover:bg-emerald-50 hover:text-emerald-700 disabled:cursor-wait disabled:opacity-60"
-                title="Export Karachi and Lahore warehouse inventory to Excel"
-              >
-                <Download className="h-3.5 w-3.5" />
-                {exportingWarehouseReport ? 'Exporting Warehouse...' : 'Export Warehouse Report'}
-              </button>
-              <button
-                type="button"
-                onClick={() => void exportSoldReport()}
-                disabled={exportingSoldReport}
-                className="inline-flex items-center gap-2 rounded-lg border border-emerald-200 bg-white px-3 py-2 text-xs font-bold text-emerald-700 hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                <Download className="h-4 w-4" />
-                {exportingSoldReport ? 'Exporting Sold...' : 'Export Sold Report'}
+                {exporting ? 'Exporting...' : 'Export Overview Report'}
               </button>
             </div>
           </div>
@@ -996,7 +949,7 @@ export const CEOMonitoringView: React.FC = () => {
                   <div className="text-[11px] text-slate-400">Karachi vs Lahore warehouse stock</div>
                 </div>
               </div>
-              <div className="text-[18px] font-extrabold text-slate-900">{formatNumber(warehouseCellTotal)}</div>
+              <div className="flex items-center gap-2"><div className="text-[18px] font-extrabold text-slate-900">{formatNumber(warehouseCellTotal)}</div><button type="button" onClick={() => void exportWarehouseReport()} disabled={exportingWarehouseReport} className="inline-flex items-center gap-1 rounded-md border border-emerald-200 bg-white px-2 py-1 text-[10px] font-bold text-emerald-700 hover:bg-emerald-50 disabled:cursor-wait disabled:opacity-60" title="Export warehouse report"><Download className="h-3 w-3" />{exportingWarehouseReport ? 'Exporting...' : 'Export Warehouse Report'}</button></div>
             </div>
             <div className="mb-3 flex flex-wrap gap-2 text-[10px] font-medium text-slate-500">
               <button type="button" onClick={() => { setSelectedWarehouseInventoryType('All'); setOpenWarehouseFilter(null); }} className={`rounded-md border px-2 py-1 ${selectedWarehouseInventoryType === 'All' ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-slate-200 bg-slate-50 text-slate-500'}`}>All</button>
@@ -1036,7 +989,7 @@ export const CEOMonitoringView: React.FC = () => {
                   <div className="text-[11px] text-slate-400">Inventory status distribution</div>
                 </div>
               </div>
-              <div className="text-[18px] font-extrabold text-slate-900">{formatNumber(cellDistribution.total)}</div>
+              <div className="flex items-center gap-2"><div className="text-[18px] font-extrabold text-slate-900">{formatNumber(cellDistribution.total)}</div><button type="button" onClick={() => void exportCellReport()} disabled={exportingCells} className="inline-flex items-center gap-1 rounded-md border border-emerald-200 bg-white px-2 py-1 text-[10px] font-bold text-emerald-700 hover:bg-emerald-50 disabled:cursor-wait disabled:opacity-60" title="Export cell report"><Download className="h-3 w-3" />{exportingCells ? 'Exporting...' : 'Export Cell Report'}</button></div>
             </div>
 
             <div className="mb-3 flex flex-wrap gap-2 text-[10px] font-medium text-slate-500">
@@ -1153,7 +1106,19 @@ export const CEOMonitoringView: React.FC = () => {
                   <div className="text-[11px] text-slate-400">Terminal sales by entity</div>
                 </div>
               </div>
-              <div className="text-[18px] font-extrabold text-slate-900">{formatNumber(soldCellTotal)}</div>
+              <div className="flex items-center gap-2">
+                <div className="text-[18px] font-extrabold text-slate-900">{formatNumber(soldCellTotal)}</div>
+                <button
+                  type="button"
+                  onClick={() => void exportSoldReport()}
+                  disabled={exportingSoldReport}
+                  className="inline-flex items-center gap-1 rounded-md border border-emerald-200 bg-white px-2 py-1 text-[10px] font-bold text-emerald-700 hover:bg-emerald-50 disabled:cursor-wait disabled:opacity-60"
+                  title="Export sold report"
+                >
+                  <Download className="h-3 w-3" />
+                  {exportingSoldReport ? 'Exporting...' : 'Export Sold Report'}
+                </button>
+              </div>
             </div>
 
             <div className="mb-3 flex flex-wrap gap-2 text-[10px]">
@@ -1198,7 +1163,7 @@ export const CEOMonitoringView: React.FC = () => {
                   <div className="text-[11px] text-slate-400">Status by model</div>
                 </div>
               </div>
-              <div className="text-[18px] font-extrabold text-slate-900">{formatNumber(batteryPackCellTotal)}</div>
+              <div className="flex items-center gap-2"><div className="text-[18px] font-extrabold text-slate-900">{formatNumber(batteryPackCellTotal)}</div><button type="button" onClick={() => void exportBatteryReport()} disabled={exportingBatteryReport} className="inline-flex items-center gap-1 rounded-md border border-emerald-200 bg-white px-2 py-1 text-[10px] font-bold text-emerald-700 hover:bg-emerald-50 disabled:cursor-wait disabled:opacity-60" title="Export battery report"><Download className="h-3 w-3" />{exportingBatteryReport ? 'Exporting...' : 'Export Battery Report'}</button></div>
             </div>
 
             <div className="mb-3 flex flex-wrap gap-2 text-[10px]">
@@ -1241,7 +1206,7 @@ export const CEOMonitoringView: React.FC = () => {
                   <div className="text-[11px] text-slate-400">Deployment &amp; status overview</div>
                 </div>
               </div>
-              <div className="text-[18px] font-extrabold text-slate-900">{formatNumber(rackCellTotal || rackTotal)}</div>
+              <div className="flex items-center gap-2"><div className="text-[18px] font-extrabold text-slate-900">{formatNumber(rackCellTotal || rackTotal)}</div><button type="button" onClick={() => void exportRackReport()} disabled={exportingRackReport} className="inline-flex items-center gap-1 rounded-md border border-emerald-200 bg-white px-2 py-1 text-[10px] font-bold text-emerald-700 hover:bg-emerald-50 disabled:cursor-wait disabled:opacity-60" title="Export rack report"><Download className="h-3 w-3" />{exportingRackReport ? 'Exporting...' : 'Export Rack Report'}</button></div>
             </div>
 
             <div className="mb-3 flex flex-wrap gap-2 text-[10px]">
