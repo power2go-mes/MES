@@ -57,13 +57,13 @@ const rackPowerColors: Record<string, string> = {
 };
 type ChartRow = DashboardChartRow;
 
-const DistributionDonut: React.FC<{ distribution: DashboardDistribution; ariaLabel: string; showShare?: boolean; extraRows?: ChartRow[]; large?: boolean; compactLegend?: boolean; legendBelow?: boolean }> = ({ distribution, ariaLabel, showShare = true, extraRows = [], large = true, compactLegend = true, legendBelow = false }) => {
+const DistributionDonut: React.FC<{ distribution: DashboardDistribution; ariaLabel: string; showShare?: boolean; extraRows?: ChartRow[]; large?: boolean; compactLegend?: boolean; legendBelow?: boolean; showSegmentLabels?: boolean; showSegmentLabelLines?: boolean; showLegendValues?: boolean; legendLabelClassName?: string; stackLegend?: boolean; legendMarginLeft?: boolean; legendMarginRight?: boolean; donutMarginLeft?: boolean; donutMarginTop?: boolean; balancedVerticalMargin?: boolean }> = ({ distribution, ariaLabel, showShare = true, extraRows = [], large = true, compactLegend = true, legendBelow = false, showSegmentLabels = false, showSegmentLabelLines = false, showLegendValues = true, legendLabelClassName = 'text-[12px] text-slate-600', stackLegend = false, legendMarginLeft = false, legendMarginRight = false, donutMarginLeft = false, donutMarginTop = false, balancedVerticalMargin = false }) => {
   const visible = distribution.rows.filter((row) => row.value > 0 && row.share > 0);
   const centerLabel = /cell inventory/i.test(ariaLabel) ? 'CELLS' : 'TOTAL';
   let offset = 0;
   return (
-    <div className={`flex min-w-0 items-center gap-4 ${legendBelow ? 'mt-auto min-h-[340px] flex-col justify-start' : 'flex-col sm:flex-row sm:gap-6'} ${large && !legendBelow ? 'sm:justify-center sm:gap-4' : ''}`}>
-      <div className={`shrink-0 ${large ? `${legendBelow ? 'h-[220px] w-[220px] sm:h-[250px] sm:w-[250px]' : 'flex h-[220px] w-[220px] items-center justify-center sm:h-[250px] sm:w-[52%]'}` : 'h-[160px] w-[160px] sm:h-[180px] sm:w-[180px]'}`}>
+    <div className={`flex min-w-0 items-center gap-4 ${balancedVerticalMargin ? 'my-[24px]' : ''} ${legendBelow ? 'mt-auto min-h-[340px] flex-col justify-start' : 'flex-col sm:flex-row sm:gap-6'} ${large && !legendBelow ? 'sm:justify-center sm:gap-4' : ''}`}>
+      <div className={`shrink-0 ${donutMarginLeft ? 'sm:ml-[10mm]' : ''} ${donutMarginTop ? 'sm:translate-y-[10px]' : ''} ${large ? `${legendBelow ? 'h-[220px] w-[220px] sm:h-[250px] sm:w-[250px]' : 'flex h-[220px] w-[220px] items-center justify-center sm:h-[250px] sm:w-[52%]'}` : 'h-[160px] w-[160px] sm:h-[180px] sm:w-[180px]'}`}>
         {distribution.total === 0 ? <div className="grid h-full place-items-center rounded-full border-[14px] border-slate-100 text-center"><span className="text-[11px] font-semibold text-slate-400">No recorded data</span></div> : <svg viewBox="0 0 100 100" className="h-full w-full" aria-label={ariaLabel}>
           <circle cx="50" cy="50" r="35" fill="none" stroke={reportColors.border} strokeWidth="14" />
           {visible.map((row) => {
@@ -73,16 +73,24 @@ const DistributionDonut: React.FC<{ distribution: DashboardDistribution; ariaLab
             const gap = visible.length > 1 ? 1.8 : 0;
             const segmentLength = Math.max(0, (row.share / 100) * circumference - gap);
             const dashOffset = -((start / 100) * circumference + gap / 2);
-            return <circle className="chart-donut-segment" key={row.label} cx="50" cy="50" r="35" fill="none" stroke={row.color} strokeWidth="14" strokeDasharray={`${segmentLength} ${circumference - segmentLength}`} strokeDashoffset={dashOffset} transform="rotate(-90 50 50)" strokeLinecap="butt"><title>{`${row.label}: ${formatNumber(row.value)}${showShare ? ` (${row.share.toFixed(2)}%)` : ''}`}</title></circle>;
+            const midAngle = ((start + row.share / 2) * 3.6 - 90) * (Math.PI / 180);
+            const labelX = 50 + Math.cos(midAngle) * 48;
+            const labelY = 50 + Math.sin(midAngle) * 48;
+            const labelAnchor = Math.cos(midAngle) >= 0 ? 'start' : 'end';
+            const lineStartX = 50 + Math.cos(midAngle) * 38;
+            const lineStartY = 50 + Math.sin(midAngle) * 38;
+            const lineEndX = 50 + Math.cos(midAngle) * 44;
+            const lineEndY = 50 + Math.sin(midAngle) * 44;
+            return <g key={row.label}><circle className="chart-donut-segment" cx="50" cy="50" r="35" fill="none" stroke={row.color} strokeWidth="14" strokeDasharray={`${segmentLength} ${circumference - segmentLength}`} strokeDashoffset={dashOffset} transform="rotate(-90 50 50)" strokeLinecap="butt"><title>{`${row.label}: ${formatNumber(row.value)}${showShare ? ` (${row.share.toFixed(2)}%)` : ''}`}</title></circle>{showSegmentLabels && <>{showSegmentLabelLines && <line x1={lineStartX} y1={lineStartY} x2={lineEndX} y2={lineEndY} stroke={reportColors.slate} strokeWidth="0.5" />}<text x={labelX} y={labelY} textAnchor={labelAnchor} dominantBaseline="middle" fontSize="3.8" fontWeight="700" fill={reportColors.navy}>{`${row.label.toUpperCase()} - ${row.share.toFixed(0)}% (${formatNumber(row.value)})`}</text></>}</g>;
           })}
           <circle cx="50" cy="50" r="22" fill={reportColors.white} />
           <text x="50" y="49" textAnchor="middle" fontSize="9" fontWeight="700" fill={reportColors.navy}>{formatNumber(distribution.total)}</text>
           <text x="50" y="57" textAnchor="middle" fontSize="4.5" fill={reportColors.slate}>{centerLabel}</text>
         </svg>}
       </div>
-      <div className={`min-w-0 grid grid-cols-[max-content_auto] items-center gap-y-2.5 gap-x-[20px] py-2 ${legendBelow ? 'w-full' : 'w-full flex-1 sm:w-auto'}`}>
-        {distribution.rows.map((row) => <div key={row.label} className="contents"><div className="flex items-center gap-2 whitespace-nowrap text-[12px] text-slate-600"><span className="h-2.5 w-2.5 shrink-0 rounded-sm" style={{ backgroundColor: row.color }} />{row.label}</div><span className="whitespace-nowrap text-[12px] font-semibold text-slate-900">{formatNumber(row.value)}{showShare && <span className="font-normal text-slate-400"> ({row.share.toFixed(2)}%)</span>}</span></div>)}
-        {extraRows.map((row) => <div key={row.label} className="contents"><div className="flex items-center gap-2 whitespace-nowrap text-[12px] text-slate-600"><span className="h-2.5 w-2.5 shrink-0 rounded-sm" style={{ backgroundColor: row.color }} />{row.label}</div><span className="whitespace-nowrap text-[12px] font-semibold text-slate-900">{formatNumber(row.value)}</span></div>)}
+      <div className={`min-w-0 grid ${stackLegend ? 'grid-cols-1' : 'grid-cols-[max-content_auto]'} items-center gap-y-2.5 gap-x-[20px] py-2 ${legendMarginLeft ? 'sm:ml-[15mm]' : ''} ${legendMarginRight ? 'sm:mr-[18mm]' : ''} ${legendBelow ? 'w-full' : 'w-full flex-1 sm:w-auto'}`}>
+        {distribution.rows.map((row) => <div key={row.label} className={stackLegend ? 'flex items-center justify-between gap-3' : 'contents'}><div className={`flex items-center gap-2 whitespace-nowrap ${legendLabelClassName}`}><span className="h-2.5 w-2.5 shrink-0 rounded-sm" style={{ backgroundColor: row.color }} />{row.label}</div>{showLegendValues && <span className="whitespace-nowrap text-[12px] font-semibold text-slate-900">{formatNumber(row.value)}{showShare && <span className="font-normal text-slate-400"> ({row.share.toFixed(2)}%)</span>}</span>}</div>)}
+        {extraRows.map((row) => <div key={row.label} className={stackLegend ? 'flex items-center justify-between gap-3' : 'contents'}><div className={`flex items-center gap-2 whitespace-nowrap ${legendLabelClassName}`}><span className="h-2.5 w-2.5 shrink-0 rounded-sm" style={{ backgroundColor: row.color }} />{row.label}</div>{showLegendValues && <span className="whitespace-nowrap text-[12px] font-semibold text-slate-900">{formatNumber(row.value)}</span>}</div>)}
       </div>
     </div>
   );
@@ -613,7 +621,7 @@ export const CEOMonitoringView: React.FC = () => {
         doc.text(subtitle, margin, 18);
         doc.setTextColor(...ink);
       };
-      const drawDonut = (x: number, y: number, radius: number, rows: { label: string; value: number; capacityKwh: number; color: string }[], title: string, legendOnRight = false, legendRightX = pageWidth - margin, showShare = true, capacityFormatter = formatMwh, includeValueInLegend = false, rightLegendOffset = -25) => {
+      const drawDonut = (x: number, y: number, radius: number, rows: { label: string; value: number; capacityKwh: number; color: string }[], title: string, legendOnRight = false, legendRightX = pageWidth - margin, showShare = true, capacityFormatter = formatMwh, includeValueInLegend = false, rightLegendOffset: number | undefined = undefined, legendRowGap = 10) => {
         const total = rows.reduce((sum, row) => sum + row.value, 0);
         const totalCapacityKwh = rows.reduce((sum, row) => sum + row.capacityKwh, 0);
         if (total === 0) {
@@ -656,10 +664,11 @@ export const CEOMonitoringView: React.FC = () => {
         doc.text(title === 'CELL INVENTORY' ? 'CELLS' : 'TOTAL', x, y + 7, { align: 'center' });
         reportFontSize(5);
         doc.text(capacityFormatter(totalCapacityKwh), x, y + 25, { align: 'center' });
+        const centeredLegendOffset = rightLegendOffset ?? -((rows.length - 1) * legendRowGap) / 2;
         rows.forEach((row, index) => {
           if (legendOnRight) {
             const legendX = x + radius + 4;
-            const legendY = y + rightLegendOffset + index * 10;
+            const legendY = y + centeredLegendOffset + index * legendRowGap;
             doc.setFillColor(...hexRgb(row.color));
             doc.roundedRect(legendX, legendY - 4.35, 2.5, 2.5, 0.5, 0.5, 'F');
             doc.setFont('helvetica', includeValueInLegend ? 'bold' : 'normal');
@@ -828,10 +837,10 @@ export const CEOMonitoringView: React.FC = () => {
       doc.setFont('helvetica', 'bold');
       reportFontSize(9);
       doc.setTextColor(...green);
-      drawDonut(leftChartX + 23, 158, 20, cellReportRows, 'CELL INVENTORY', true, leftChartX + chartWidth, false, formatCellTotalMwh, true);
-      drawBars(rightChartX, 144, chartWidth, 36, moduleReportRows, 'MODULE CONFIGURATION');
-      drawBars(leftChartX, 240, chartWidth, 36, batteryReportRows, 'BATTERY PACK MODEL');
-      drawDonut(rightChartX + 23, 254, 20, rackReportRows, 'RACK/CABINET STATUS', true, rightChartX + chartWidth, false, formatMwh, true, -10);
+      drawDonut(leftChartX + 23, 158, 20, cellReportRows, 'CELL INVENTORY', true, leftChartX + chartWidth, false, formatCellTotalMwh, true, undefined, 7);
+      drawDonut(rightChartX + 23, 158, 20, moduleReportRows, 'MODULE CONFIGURATION', true, rightChartX + chartWidth, false, formatMwh, true, undefined, 7);
+      drawDonut(leftChartX + 23, 254, 20, batteryReportRows, 'BATTERY PACK MODEL', true, leftChartX + chartWidth, false, formatMwh, true, undefined, 7);
+      drawDonut(rightChartX + 23, 254, 20, rackReportRows, 'RACK/CABINET STATUS', true, rightChartX + chartWidth, false, formatMwh, true, undefined, 7);
       doc.addPage();
       drawTitle('POWER2GO MES | CEO PERFORMANCE REPORT', `Operational detail   |   ${rangeLabel}   |   ${reportDate}`);
       drawSingleKpi(leftChartX, 70, chartWidth, cabinetReportRows, 'CABINET STATUS');
@@ -1003,9 +1012,16 @@ export const CEOMonitoringView: React.FC = () => {
             <DistributionDonut
               distribution={warehouseDistribution}
               ariaLabel="Warehouse distribution"
-              large={false}
+              showShare
+              large
               compactLegend
-              legendBelow
+              showLegendValues
+              legendLabelClassName="text-[12px] text-slate-600"
+              stackLegend
+              legendMarginRight
+              donutMarginLeft
+              donutMarginTop
+              balancedVerticalMargin
             />
           </div>
 
@@ -1068,9 +1084,16 @@ export const CEOMonitoringView: React.FC = () => {
             <DistributionDonut
               distribution={cellDistribution}
               ariaLabel="Cells distribution"
-              showShare={false}
-              large={false}
-              legendBelow
+              showShare
+              large
+              compactLegend
+              showLegendValues
+              legendLabelClassName="text-[12px] text-slate-600"
+              stackLegend
+              legendMarginRight
+              donutMarginLeft
+              donutMarginTop
+              balancedVerticalMargin
             />
           </div>
         </div>
@@ -1106,9 +1129,16 @@ export const CEOMonitoringView: React.FC = () => {
             <DistributionDonut
               distribution={moduleDistribution}
               ariaLabel="Module distribution"
-              large={false}
+              showShare
+              large
               compactLegend
-              legendBelow
+              showLegendValues
+              legendLabelClassName="text-[12px] text-slate-600"
+              stackLegend
+              legendMarginRight
+              donutMarginLeft
+              donutMarginTop
+              balancedVerticalMargin
             />
           </div>
 
@@ -1142,10 +1172,16 @@ export const CEOMonitoringView: React.FC = () => {
             <DistributionDonut
               distribution={soldDistribution}
               ariaLabel="Sold entity distribution"
-              showShare={false}
-              large={false}
+              showShare
+              large
               compactLegend
-              legendBelow
+              showLegendValues
+              legendLabelClassName="text-[12px] text-slate-600"
+              stackLegend
+              legendMarginRight
+              donutMarginLeft
+              donutMarginTop
+              balancedVerticalMargin
             />
           </div>
         </div>
@@ -1181,9 +1217,16 @@ export const CEOMonitoringView: React.FC = () => {
             <DistributionDonut
               distribution={batteryPackDistribution}
               ariaLabel="Battery pack model distribution"
-              large={false}
+              showShare
+              large
               compactLegend
-              legendBelow
+              showLegendValues
+              legendLabelClassName="text-[12px] text-slate-600"
+              stackLegend
+              legendMarginRight
+              donutMarginLeft
+              donutMarginTop
+              balancedVerticalMargin
             />
           </div>
 
@@ -1217,9 +1260,16 @@ export const CEOMonitoringView: React.FC = () => {
             <DistributionDonut
               distribution={rackDistribution}
               ariaLabel="Rack status distribution"
-              large={false}
+              showShare
+              large
               compactLegend
-              legendBelow
+              showLegendValues
+              legendLabelClassName="text-[12px] text-slate-600"
+              stackLegend
+              legendMarginRight
+              donutMarginLeft
+              donutMarginTop
+              balancedVerticalMargin
             />
           </div>
         </div>
