@@ -62,8 +62,8 @@ const DistributionDonut: React.FC<{ distribution: DashboardDistribution; ariaLab
   const centerLabel = /cell inventory/i.test(ariaLabel) ? 'CELLS' : 'TOTAL';
   let offset = 0;
   return (
-    <div className={`flex min-w-0 flex-col items-center gap-4 sm:flex-row sm:gap-6 ${large ? 'sm:gap-4' : ''}`}>
-      <div className={`shrink-0 ${large ? 'h-[220px] w-[220px] sm:h-[250px] sm:w-[250px]' : 'h-[185px] w-[185px] sm:h-[220px] sm:w-[220px]'}`}>
+    <div className={`flex min-w-0 flex-col items-center gap-4 sm:flex-row sm:gap-6 ${large ? 'sm:justify-center sm:gap-4' : ''}`}>
+      <div className={`shrink-0 ${large ? 'flex items-center justify-center h-[220px] w-[220px] sm:h-[250px] sm:w-[52%]' : 'h-[185px] w-[185px] sm:h-[220px] sm:w-[220px]'}`}>
         {distribution.total === 0 ? <div className="grid h-full place-items-center rounded-full border-[14px] border-slate-100 text-center"><span className="text-[11px] font-semibold text-slate-400">No recorded data</span></div> : <svg viewBox="0 0 100 100" className="h-full w-full" aria-label={ariaLabel}>
           <circle cx="50" cy="50" r="35" fill="none" stroke={reportColors.border} strokeWidth="14" />
           {visible.map((row) => {
