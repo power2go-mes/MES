@@ -40,6 +40,8 @@ const statusColors: Record<string, string> = {
   Recycle: reportColors.green,
 };
 const packColors = [reportColors.blue, reportColors.green];
+const ceoDonutPalette = ['#245501', '#538D22', '#1A4301', '#73A942', '#143601', '#AAD576'];
+const applyPalette = <T extends { color?: string }>(rows: T[], palette = ceoDonutPalette) => rows.map((row, index) => ({ ...row, color: palette[index % palette.length] }));
 const packColorByModel: Record<string, string> = {
   'WallMount 5kWh': reportColors.blue,
   '5 kWh Battery Pack': reportColors.blue,
@@ -272,7 +274,10 @@ export const CEOMonitoringView: React.FC = () => {
   const filteredCellRows = selectedCellStatus === 'All' ? cellRows : cellRows.filter((row) => row.label === selectedCellStatus);
   const cellDistribution = useMemo(() => buildDashboardDistribution(
     filteredCellRows,
-    Object.entries(statusColors).map(([label, color]) => ({ label, color })),
+    Object.entries(statusColors).map(([label], index) => ({
+      label,
+      color: label === 'Damage' ? ceoDonutPalette[0] : ceoDonutPalette[(index + 1) % ceoDonutPalette.length],
+    })),
     selectedCellStatus === 'All' ? source.cellTotal : undefined,
   ), [cellRows, filteredCellRows, selectedCellStatus, source.cellTotal]);
   const warehouseRows = useMemo<ChartRow[]>(() => {
@@ -286,22 +291,22 @@ export const CEOMonitoringView: React.FC = () => {
     const batteryLahore = selectedWarehouseBatteryType === 'All' ? numberOr(source.inventory?.lahoreWarehouseBatteries, 0) : numberOr(selectedBatteryType?.LAHORE, 0);
     const rows: ChartRow[] = selectedWarehouseInventoryType === 'Racks'
       ? [
-        { label: 'Karachi Racks', value: rackKarachi, color: reportColors.green },
-        { label: 'Lahore Racks', value: rackLahore, color: reportColors.green },
+        { label: 'Karachi Racks', value: rackKarachi, color: ceoDonutPalette[0] },
+        { label: 'Lahore Racks', value: rackLahore, color: ceoDonutPalette[1] },
       ]
       : selectedWarehouseInventoryType === 'Battery Packs'
         ? [
-          { label: 'Karachi Battery Packs', value: batteryKarachi, color: reportColors.green },
-          { label: 'Lahore Battery Packs', value: batteryLahore, color: reportColors.green },
+          { label: 'Karachi Battery Packs', value: batteryKarachi, color: ceoDonutPalette[2] },
+          { label: 'Lahore Battery Packs', value: batteryLahore, color: ceoDonutPalette[3] },
         ]
         : [
-          { label: 'Karachi Racks', value: rackKarachi, color: reportColors.green },
-          { label: 'Lahore Racks', value: rackLahore, color: reportColors.green },
-          { label: 'Karachi Battery Packs', value: batteryKarachi, color: reportColors.green },
-          { label: 'Lahore Battery Packs', value: batteryLahore, color: reportColors.green },
+          { label: 'Karachi Racks', value: rackKarachi, color: ceoDonutPalette[0] },
+          { label: 'Lahore Racks', value: rackLahore, color: ceoDonutPalette[1] },
+          { label: 'Karachi Battery Packs', value: batteryKarachi, color: ceoDonutPalette[2] },
+          { label: 'Lahore Battery Packs', value: batteryLahore, color: ceoDonutPalette[3] },
         ];
 
-    return rows.filter((row) => row.value > 0 || (source.inventory && (source.inventory.karachiWarehouseRacks !== undefined || source.inventory.lahoreWarehouseRacks !== undefined)));
+    return applyPalette(rows.filter((row) => row.value > 0 || (source.inventory && (source.inventory.karachiWarehouseRacks !== undefined || source.inventory.lahoreWarehouseRacks !== undefined))));
   }, [source.inventory, selectedWarehouseInventoryType, selectedWarehouseRackType, selectedWarehouseBatteryType]);
 
   const warehouseRackTypeOptions = useMemo(() => {
@@ -342,8 +347,8 @@ export const CEOMonitoringView: React.FC = () => {
     const damageValue = numberOr(source.cellBuckets?.find((row: any) => ['DAMAGE', 'SCRAP'].includes(String(row.label || '').toUpperCase()))?.value);
     const reusableValue = numberOr(source.cellBuckets?.find((row: any) => ['RECYCLE', 'REUSABLE'].includes(String(row.label || '').toUpperCase()))?.value);
     const rows: ChartRow[] = [
-      { label: 'Damage', value: damageValue, color: reportColors.red },
-      { label: 'Reusable', value: reusableValue, color: reportColors.green },
+      { label: 'Damage', value: damageValue, color: ceoDonutPalette[0] },
+      { label: 'Reusable', value: reusableValue, color: ceoDonutPalette[5] },
     ];
     return rows.filter(row => row.value > 0 || damageValue > 0 || reusableValue > 0);
   }, [source.cellBuckets]);
@@ -356,8 +361,8 @@ export const CEOMonitoringView: React.FC = () => {
     const bmsTotal = numberOr(controllerInventory.totalBms ?? source.totalBms ?? 0);
     const bmuTotal = numberOr(controllerInventory.totalBmu ?? source.totalBmu ?? 0);
     const rows: ChartRow[] = [
-      { label: 'BMS', value: bmsTotal, color: reportColors.green },
-      { label: 'BMU', value: bmuTotal, color: reportColors.green },
+      { label: 'BMS', value: bmsTotal, color: ceoDonutPalette[0] },
+      { label: 'BMU', value: bmuTotal, color: ceoDonutPalette[1] },
     ];
     return rows.filter((row) => row.value > 0 || bmsTotal > 0 || bmuTotal > 0);
   }, [controllerInventory, source.totalBms, source.totalBmu]);
@@ -370,13 +375,13 @@ export const CEOMonitoringView: React.FC = () => {
   const moduleCellTotal = cellBucketTotal('IN MODULE');
   const batteryPackCellTotal = cellBucketTotal('IN PACK');
   const rackCellTotal = numberOr(source.inventory?.rackCellCount, cellBucketTotal('IN RACK'));
-  const moduleData = useMemo<ChartRow[]>(() => (source.moduleTypeBuckets || source.moduleStatusBuckets || [])
+  const moduleData = useMemo<ChartRow[]>(() => applyPalette((source.moduleTypeBuckets || source.moduleStatusBuckets || [])
     .map((row: any) => ({ label: String(row.label || ''), value: numberOr(row.value), color: reportColors.blue }))
-    .sort((left, right) => Number(right.label.match(/\d+/)?.[0] || 0) - Number(left.label.match(/\d+/)?.[0] || 0)), [source.moduleTypeBuckets, source.moduleStatusBuckets]);
+    .sort((left, right) => Number(right.label.match(/\d+/)?.[0] || 0) - Number(left.label.match(/\d+/)?.[0] || 0))), [source.moduleTypeBuckets, source.moduleStatusBuckets]);
   const filteredModuleRows = selectedModuleConfig === 'All' ? moduleData : moduleData.filter((row) => row.label === selectedModuleConfig);
   const moduleDistribution = useMemo(() => buildDashboardDistribution(
     filteredModuleRows,
-    [{ label: '8S', color: reportColors.green }, { label: '12S', color: reportColors.green }],
+    [{ label: '8S', color: ceoDonutPalette[0] }, { label: '12S', color: ceoDonutPalette[5] }],
     selectedModuleConfig === 'All' ? source.moduleTotal : undefined,
   ), [filteredModuleRows, selectedModuleConfig, source.moduleTotal]);
   const soldData = useMemo<ChartRow[]>(() => {
@@ -384,10 +389,10 @@ export const CEOMonitoringView: React.FC = () => {
     const soldRacks = (source.rackStatusBuckets || [])
       .filter((row: any) => String(row.label || row.status || '').toUpperCase().replace(/_/g, ' ') === 'SOLD')
       .reduce((total: number, row: any) => total + numberOr(row.value), 0);
-    return [
-      { label: 'Racks', value: soldRacks, color: reportColors.green },
-      { label: 'Battery Packs', value: soldBatteries, color: reportColors.green },
-    ];
+    return applyPalette([
+      { label: 'Racks', value: soldRacks, color: ceoDonutPalette[0] },
+      { label: 'Battery Packs', value: soldBatteries, color: ceoDonutPalette[1] },
+    ]);
   }, [source.batteryStatusBuckets, source.rackStatusBuckets]);
   const soldCellTotal = numberOr(inventory.soldCells ?? source.cellBuckets?.find((row: any) => row.label === 'Sold')?.value);
   const filteredSoldRows = selectedSoldEntity === 'All' ? soldData : soldData.filter(row => row.label === selectedSoldEntity);
@@ -396,13 +401,13 @@ export const CEOMonitoringView: React.FC = () => {
     soldData.map(row => ({ label: row.label, color: row.color })),
     selectedSoldEntity === 'All' ? undefined : filteredSoldRows.reduce((total, row) => total + row.value, 0),
   ), [filteredSoldRows, selectedSoldEntity, soldData]);
-  const batteryPackData = useMemo<ChartRow[]>(() => (source.batteryPackBuckets || [])
+  const batteryPackData = useMemo<ChartRow[]>(() => applyPalette((source.batteryPackBuckets || [])
     .map((row: any) => ({
       label: String(row.label || 'Unnamed Pack'),
       value: numberOr(row.value),
       color: reportColors.green,
     }))
-    .sort((left, right) => Number(right.label.match(/\d+(?:\.\d+)?/)?.[0] || 0) - Number(left.label.match(/\d+(?:\.\d+)?/)?.[0] || 0)), [source.batteryPackBuckets]);
+    .sort((left, right) => Number(right.label.match(/\d+(?:\.\d+)?/)?.[0] || 0) - Number(left.label.match(/\d+(?:\.\d+)?/)?.[0] || 0))), [source.batteryPackBuckets]);
   const filteredBatteryPackRows = selectedPackType === 'All' ? batteryPackData : batteryPackData.filter((row) => row.label === selectedPackType);
   const batteryPackDistribution = useMemo(() => buildDashboardDistribution(
     filteredBatteryPackRows,
@@ -425,14 +430,14 @@ export const CEOMonitoringView: React.FC = () => {
         if (match) totals.set(match[1], (totals.get(match[1]) || 0) + numberOr(type.value));
       });
     });
-    return Array.from(totals.entries())
+    return applyPalette(Array.from(totals.entries())
       .filter(([, value]) => value > 0)
       .sort(([left], [right]) => Number(right) - Number(left))
       .map(([power, value]) => ({
         label: `${power === '70' ? '67.9' : power} kWh ${power === '25' ? 'Rack' : 'Cabinet'}`,
         value,
         color: reportColors.green,
-      }));
+      })));
   }, [source.rackStatusBuckets]);
   const filteredRackRows = selectedRackType === 'All' ? rackData : rackData.filter((row) => row.label === selectedRackType);
   const rackDistribution = useMemo(() => buildDashboardDistribution(
@@ -486,11 +491,14 @@ export const CEOMonitoringView: React.FC = () => {
       return normalized === '7.5kwhbatterypack' || normalized === '7kwhbatterypack' ? sum + numberOr(row.value) : sum;
     }, 0);
 
+    const combinedLv = lv + wallMount;
+
     return {
       lv,
       wallMount,
       hv,
-      label: `${formatNumber(lv)} (5kWh) / ${formatNumber(wallMount)} (WallMount)`,
+      combinedLv,
+      label: `${formatNumber(combinedLv)} (5kWh) / ${formatNumber(hv)} (7.5kWh)`,
     };
   }, [batteryPackData]);
 
@@ -506,13 +514,8 @@ export const CEOMonitoringView: React.FC = () => {
       detail: (
         <div className="mt-1 text-[10px] font-medium text-emerald-600">
           <span className="inline-block text-[10px] text-emerald-600">
-            <span className="text-[13px] font-bold text-emerald-700">{formatNumber(batteryPackModelSummary.lv)}</span>
+            <span className="text-[13px] font-bold text-emerald-700">{formatNumber(batteryPackModelSummary.combinedLv)}</span>
             <span className="text-[9px] text-emerald-600"> (5kWh)</span>
-          </span>
-          <span className="inline-block px-1 text-[10px] text-emerald-600">/</span>
-          <span className="inline-block text-[10px] text-emerald-600">
-            <span className="text-[13px] font-bold text-emerald-700">{formatNumber(batteryPackModelSummary.wallMount || 0)}</span>
-            <span className="text-[9px] text-emerald-600"> (WallMount)</span>
           </span>
           <span className="inline-block px-1 text-[10px] text-emerald-600">/</span>
           <span className="inline-block text-[10px] text-emerald-600">
