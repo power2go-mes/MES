@@ -972,9 +972,9 @@ export const CEOMonitoringView: React.FC = () => {
           ))}
         </div>
 
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-2">
         <div className="contents">
-          <div className="order-2 xl:col-span-2 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+          <div className="order-2 xl:col-span-1 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
             <div className="mb-2 flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-50">
@@ -1074,7 +1074,7 @@ export const CEOMonitoringView: React.FC = () => {
             />
           </div>
 
-          <div className="order-1 xl:col-span-2 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+          <div className="order-1 xl:col-span-1 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
             <div className="mb-2 flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-50">
