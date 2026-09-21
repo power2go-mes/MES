@@ -268,7 +268,13 @@ export const CEOMonitoringView: React.FC = () => {
   };
   const warehouseBatteryTypeOptions = useMemo(() => {
     const types = Array.isArray(source.inventory?.warehouseBatteryTypeCounts) ? source.inventory.warehouseBatteryTypeCounts.map((row: any) => String(row.type || '')) : [];
-    return ['All', ...types.filter(Boolean)];
+    return ['All', ...types
+      .filter(Boolean)
+      .sort((left, right) => {
+        const leftPower = Number(left.match(/(\d+(?:\.\d+)?)\s*KWH/i)?.[1] || 0);
+        const rightPower = Number(right.match(/(\d+(?:\.\d+)?)\s*KWH/i)?.[1] || 0);
+        return rightPower - leftPower;
+      })];
   }, [source.inventory]);
 
   const warehouseDistribution = useMemo(() => buildDashboardDistribution(
