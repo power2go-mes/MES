@@ -1,13 +1,15 @@
 import React, { useState } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { useApp } from '../../context/AppContext';
-import { Search, RefreshCw, Bell, ChevronDown, LogOut, Menu, ArrowLeft } from 'lucide-react';
+import { Search, RefreshCw, Bell, ChevronDown, LogOut, Menu, ArrowLeft, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
 
 type HeaderProps = {
   onOpenNavigation: () => void;
+  onToggleSidebar: () => void;
+  isSidebarOpen: boolean;
 };
 
-export const Header: React.FC<HeaderProps> = ({ onOpenNavigation }) => {
+export const Header: React.FC<HeaderProps> = ({ onOpenNavigation, onToggleSidebar, isSidebarOpen }) => {
   const { currentUser, profile, logout } = useAuth();
   const { setActiveView, goBack, canGoBack, quickSearchQuery, setQuickSearchQuery, triggerRefresh, notifications } = useApp();
 
@@ -54,11 +56,11 @@ export const Header: React.FC<HeaderProps> = ({ onOpenNavigation }) => {
       <div className="mx-auto flex h-full w-full max-w-[1600px] items-center gap-6">
         <button
           type="button"
-          onClick={onOpenNavigation}
-          aria-label="Open navigation"
-          className="mobile-nav-button flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 md:hidden"
+          onClick={isSidebarOpen ? onToggleSidebar : onOpenNavigation}
+          aria-label={isSidebarOpen ? 'Close navigation' : 'Open navigation'}
+          className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50"
         >
-          <Menu className="h-4 w-4" />
+          {isSidebarOpen ? <PanelLeftClose className="h-4 w-4" /> : <PanelLeftOpen className="h-4 w-4" />}
         </button>
         <button
           type="button"

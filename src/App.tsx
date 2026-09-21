@@ -36,7 +36,16 @@ const AppContent: React.FC = () => {
   const { activeView, setActiveView, notifications, dismissNotification } = useApp();
   const { isAuthenticated, authLoading, currentUser } = useAuth();
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(true);
   const [postLoginReady, setPostLoginReady] = useState(false);
+  const openSidebar = () => {
+    setSidebarOpen(true);
+    setMobileNavOpen(true);
+  };
+  const closeSidebar = () => {
+    setSidebarOpen(false);
+    setMobileNavOpen(false);
+  };
   const canManageUsers = currentUser?.roleId === 'role-admin' || currentUser?.role === 'admin';
   const isCeo = currentUser?.roleId === 'role-ceo' || currentUser?.role === 'ceo';
   const ceoViews = new Set(['ceo-monitoring', 'inventory', 'traceability']);
@@ -138,17 +147,17 @@ const AppContent: React.FC = () => {
   return (
     <div className="app-shell flex flex-col h-screen w-screen overflow-hidden bg-slate-50 font-sans text-slate-900 antialiased select-none">
       <div className="flex flex-1 overflow-hidden">
-        <Sidebar isOpen={mobileNavOpen} onClose={() => setMobileNavOpen(false)} />
-        {mobileNavOpen && (
+        {sidebarOpen && <Sidebar isOpen={sidebarOpen} onClose={closeSidebar} />}
+        {mobileNavOpen && sidebarOpen && (
           <button
             type="button"
             aria-label="Close navigation"
             className="mobile-nav-backdrop fixed inset-0 z-40 bg-black/30 md:hidden"
-            onClick={() => setMobileNavOpen(false)}
+            onClick={closeSidebar}
           />
         )}
         <main className="flex-1 flex flex-col overflow-y-auto overflow-x-hidden relative bg-slate-50">
-          <Header onOpenNavigation={() => setMobileNavOpen(true)} />
+          <Header onOpenNavigation={openSidebar} onToggleSidebar={() => setSidebarOpen(open => !open)} isSidebarOpen={sidebarOpen} />
           <Suspense fallback={<div className="grid flex-1 place-items-center bg-slate-50 text-xs font-bold uppercase tracking-[0.18em] text-slate-500">Loading workspace</div>}>
             {renderActiveView()}
           </Suspense>

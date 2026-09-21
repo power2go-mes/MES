@@ -20,7 +20,8 @@ import {
   FileSpreadsheet,
   Settings,
   ChevronDown,
-  ChevronRight
+  ChevronRight,
+  PanelLeftClose
 } from 'lucide-react';
 
 type SidebarProps = {
@@ -59,6 +60,16 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
       <div className="shrink-0 p-4 border-b border-slate-100 bg-slate-50/60">
         <div className="flex min-h-8 items-center justify-between gap-2 mb-3">
           <Logo size="sm" className="max-w-[106px]" />
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Close sidebar"
+            className="flex h-7 w-7 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-700"
+          >
+            <PanelLeftClose className="h-3.5 w-3.5" />
+          </button>
+        </div>
+        <div className="flex items-center justify-between gap-2">
           <span className="font-mono text-emerald-600 font-bold text-[10px] bg-emerald-50 px-2 py-0.5 rounded border border-emerald-100">
             LINE-01-MES
           </span>
