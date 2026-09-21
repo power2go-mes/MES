@@ -990,12 +990,15 @@ export const CEOMonitoringView: React.FC = () => {
             <div className="mb-3 flex flex-wrap gap-2 text-[10px] font-medium text-slate-500">
               {(['All', 'Racks', 'Battery Packs'] as const).map(type => <button key={type} type="button" onClick={() => setSelectedWarehouseInventoryType(type)} className={`rounded-md border px-2 py-1 ${selectedWarehouseInventoryType === type ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-slate-200 bg-slate-50 text-slate-500'}`}>{type}</button>)}
             </div>
-            {selectedWarehouseInventoryType !== 'Battery Packs' && <div className="mb-3 flex flex-wrap gap-2 text-[10px] font-medium text-slate-500">
-              {warehouseRackTypeOptions.map(type => <button key={type} type="button" onClick={() => setSelectedWarehouseRackType(type)} className={`rounded-md border px-2 py-1 ${selectedWarehouseRackType === type ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-slate-200 bg-slate-50 text-slate-500'}`}>{type === 'All' ? 'All racks' : warehouseRackTypeLabel(type)}</button>)}
-            </div>
-            }
-            {selectedWarehouseInventoryType !== 'Racks' && <div className="mb-3 flex flex-wrap gap-2 text-[10px] font-medium text-slate-500">
-              {warehouseBatteryTypeOptions.map(type => <button key={type} type="button" onClick={() => setSelectedWarehouseBatteryType(type)} className={`rounded-md border px-2 py-1 ${selectedWarehouseBatteryType === type ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-slate-200 bg-slate-50 text-slate-500'}`}>{type === 'All' ? 'All battery packs' : type}</button>)}
+            {selectedWarehouseInventoryType !== 'Battery Packs' && <div className="mb-3">
+              <select value={selectedWarehouseRackType} onChange={event => setSelectedWarehouseRackType(event.target.value)} aria-label="Filter warehouse racks" className="w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-[11px] font-medium text-slate-600">
+                {warehouseRackTypeOptions.map(type => <option key={type} value={type}>{type === 'All' ? 'All racks' : warehouseRackTypeLabel(type)}</option>)}
+              </select>
+            </div>}
+            {selectedWarehouseInventoryType !== 'Racks' && <div className="mb-3">
+              <select value={selectedWarehouseBatteryType} onChange={event => setSelectedWarehouseBatteryType(event.target.value)} aria-label="Filter warehouse battery packs" className="w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-[11px] font-medium text-slate-600">
+                {warehouseBatteryTypeOptions.map(type => <option key={type} value={type}>{type === 'All' ? 'All battery packs' : type}</option>)}
+              </select>
             </div>}
             <DistributionDonut
               distribution={warehouseDistribution}
