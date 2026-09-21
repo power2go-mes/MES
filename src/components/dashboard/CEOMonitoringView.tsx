@@ -223,6 +223,9 @@ export const CEOMonitoringView: React.FC = () => {
     });
     return Array.from(totals, ([label, value]) => ({ label, value, color: statusColors[label] || reportColors.slate }));
   }, [source.cellBuckets]);
+  const cellBucketTotal = (...labels: string[]) => (source.cellBuckets || [])
+    .filter((row: any) => labels.includes(String(row.label || '').toUpperCase()))
+    .reduce((total: number, row: any) => total + numberOr(row.value), 0);
   const filteredCellRows = selectedCellStatus === 'All' ? cellRows : cellRows.filter((row) => row.label === selectedCellStatus);
   const cellDistribution = useMemo(() => buildDashboardDistribution(
     filteredCellRows,
@@ -292,6 +295,10 @@ export const CEOMonitoringView: React.FC = () => {
     warehouseRows.map(row => ({ label: row.label, color: row.color })),
     warehouseRows.reduce((sum, row) => sum + row.value, 0),
   ), [warehouseRows]);
+  const warehouseCellTotal = cellBucketTotal('KARACHI WAREHOUSE', 'LAHORE WAREHOUSE');
+  const moduleCellTotal = cellBucketTotal('IN MODULE');
+  const batteryPackCellTotal = cellBucketTotal('IN PACK');
+  const rackCellTotal = cellBucketTotal('IN RACK');
   const moduleData = useMemo<ChartRow[]>(() => (source.moduleTypeBuckets || source.moduleStatusBuckets || [])
     .map((row: any) => ({ label: String(row.label || ''), value: numberOr(row.value), color: reportColors.blue }))
     .sort((left, right) => Number(right.label.match(/\d+/)?.[0] || 0) - Number(left.label.match(/\d+/)?.[0] || 0)), [source.moduleTypeBuckets, source.moduleStatusBuckets]);
@@ -978,7 +985,7 @@ export const CEOMonitoringView: React.FC = () => {
                   <div className="text-[11px] text-slate-400">Karachi vs Lahore warehouse stock</div>
                 </div>
               </div>
-              <div className="text-[18px] font-extrabold text-slate-900">{formatNumber(warehouseDistribution.total)}</div>
+              <div className="text-[18px] font-extrabold text-slate-900">{formatNumber(warehouseCellTotal)}</div>
             </div>
             <div className="mb-3 flex flex-wrap gap-2 text-[10px] font-medium text-slate-500">
               {(['All', 'Racks', 'Battery Packs'] as const).map(type => <button key={type} type="button" onClick={() => setSelectedWarehouseInventoryType(type)} className={`rounded-md border px-2 py-1 ${selectedWarehouseInventoryType === type ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-slate-200 bg-slate-50 text-slate-500'}`}>{type}</button>)}
@@ -1042,7 +1049,7 @@ export const CEOMonitoringView: React.FC = () => {
                   <div className="text-[11px] text-slate-400">Production &amp; status breakdown</div>
                 </div>
               </div>
-              <div className="text-[18px] font-extrabold text-slate-900">{formatNumber(moduleDistribution.total)}</div>
+              <div className="text-[18px] font-extrabold text-slate-900">{formatNumber(moduleCellTotal)}</div>
             </div>
 
             <div className="mb-3 flex flex-wrap gap-2 text-[10px]">
@@ -1104,7 +1111,7 @@ export const CEOMonitoringView: React.FC = () => {
                   <div className="text-[11px] text-slate-400">Status by model</div>
                 </div>
               </div>
-              <div className="text-[18px] font-extrabold text-slate-900">{formatNumber(batteryPackDistribution.total)}</div>
+              <div className="text-[18px] font-extrabold text-slate-900">{formatNumber(batteryPackCellTotal)}</div>
             </div>
 
             <div className="mb-3 flex flex-wrap gap-2 text-[10px]">
@@ -1140,7 +1147,7 @@ export const CEOMonitoringView: React.FC = () => {
                   <div className="text-[11px] text-slate-400">Deployment &amp; status overview</div>
                 </div>
               </div>
-              <div className="text-[18px] font-extrabold text-slate-900">{formatNumber(rackTotal)}</div>
+              <div className="text-[18px] font-extrabold text-slate-900">{formatNumber(rackCellTotal)}</div>
             </div>
 
             <div className="mb-3 flex flex-wrap gap-2 text-[10px]">
