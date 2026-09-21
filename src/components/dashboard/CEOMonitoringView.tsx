@@ -240,8 +240,8 @@ export const CEOMonitoringView: React.FC = () => {
     const batteryLahore = selectedWarehouseBatteryType === 'All' ? numberOr(source.inventory?.lahoreWarehouseBatteries, 0) : numberOr(selectedBatteryType?.LAHORE, 0);
     const rows: ChartRow[] = selectedWarehouseInventoryType === 'Racks'
       ? [
-        { label: 'Karachi Racks', value: rackKarachi, color: reportColors.blue },
-        { label: 'Lahore Racks', value: rackLahore, color: reportColors.blue },
+        { label: 'Karachi Racks', value: rackKarachi, color: reportColors.green },
+        { label: 'Lahore Racks', value: rackLahore, color: reportColors.green },
       ]
       : selectedWarehouseInventoryType === 'Battery Packs'
         ? [
@@ -249,8 +249,8 @@ export const CEOMonitoringView: React.FC = () => {
           { label: 'Lahore Battery Packs', value: batteryLahore, color: reportColors.green },
         ]
         : [
-          { label: 'Karachi Racks', value: rackKarachi, color: reportColors.blue },
-          { label: 'Lahore Racks', value: rackLahore, color: reportColors.blue },
+          { label: 'Karachi Racks', value: rackKarachi, color: reportColors.green },
+          { label: 'Lahore Racks', value: rackLahore, color: reportColors.green },
           { label: 'Karachi Battery Packs', value: batteryKarachi, color: reportColors.green },
           { label: 'Lahore Battery Packs', value: batteryLahore, color: reportColors.green },
         ];
