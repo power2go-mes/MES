@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { buildDashboardDistribution } from './dashboardCharts';
+import { buildDashboardDistribution, normalizeCellBucketLabels } from './dashboardCharts';
 import { normalizeBatteryRecord } from '../services/api';
 
 const labels = [
@@ -42,6 +42,23 @@ test('dashboard distributions preserve three populated battery models', () => {
   assert.equal(distribution.rows.filter(row => row.value > 0).length, 3);
   assert.equal(distribution.percentageTotal, 100);
   assert.equal(distribution.reconciles, true);
+});
+
+test('cell bucket normalization merges recycle and scrap aliases without inflating totals', () => {
+  const normalized = normalizeCellBucketLabels([
+    { label: 'In Stock', value: 9800 },
+    { label: 'Reusable', value: 54 },
+    { label: 'Recycle', value: 54 },
+    { label: 'Damage', value: 62 },
+    { label: 'Scrap', value: 30 },
+  ]);
+
+  const reusable = normalized.find(row => row.label === 'Reusable');
+  const damage = normalized.find(row => row.label === 'Damage');
+
+  assert.equal(reusable?.value, 108);
+  assert.equal(damage?.value, 92);
+  assert.equal(normalized.some(row => row.label === 'Recycle'), false);
 });
 
 test('battery normalization prevents blank-screen crashes on incomplete records', () => {

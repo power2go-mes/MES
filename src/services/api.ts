@@ -217,19 +217,50 @@ function moduleSerialSequence(serial: unknown, prefix: string): number {
 
 function reconcileDashboardCellBuckets(buckets: any[], totalCells: any): any[] {
   if (!Array.isArray(buckets)) return [];
-  const rows = buckets.map(row => ({ ...row, label: String(row.label), value: Math.max(0, Number(row.value) || 0) }));
-  const total = Math.max(0, Number(totalCells) || 0);
-  const stockRows = rows.filter(row => row.label === 'In Stock' || row.label === 'Floor Stock');
-  const nonStockTotal = rows
-    .filter(row => row.label !== 'In Stock' && row.label !== 'Floor Stock')
-    .reduce((sum, row) => sum + row.value, 0);
-  const remainingStock = Math.max(0, total - nonStockTotal);
-  const currentStock = stockRows.reduce((sum, row) => sum + row.value, 0);
 
-  if (currentStock <= 0 || total <= 0 || remainingStock >= currentStock) return rows;
+  const normalizeBucketLabel = (label: string) => {
+    const trimmed = String(label || '').trim();
+    if (!trimmed) return '';
+    const normalized = trimmed.replace(/_/g, ' ').toLowerCase();
+    if (['scrap', 'damage'].includes(normalized)) return 'Damage';
+    if (['recycle', 'reusable'].includes(normalized)) return 'Reusable';
+    return trimmed;
+  };
 
-  // Preserve the stock bucket values when the source summary overlaps lifecycle states.
-  // The authoritative database classification is the final source of truth for the dashboard totals.
+  const merged = new Map<string, number>();
+  for (const row of buckets) {
+    const label = normalizeBucketLabel(String(row?.label || ''));
+    if (!label) continue;
+    merged.set(label, (merged.get(label) || 0) + Math.max(0, Number(row?.value) || 0));
+  }
+
+  const rows = Array.from(merged.entries()).map(([label, value]) => ({ label, value }));
+  const total = Math.max(0, Number(totalCells) || rows.reduce((sum, row) => sum + row.value, 0));
+  const currentTotal = rows.reduce((sum, row) => sum + row.value, 0);
+
+  if (total <= 0) return rows;
+
+  if (currentTotal > total) {
+    let remaining = currentTotal - total;
+    const sorted = [...rows].sort((left, right) => right.value - left.value);
+    for (const row of sorted) {
+      if (remaining <= 0) break;
+      const reduction = Math.min(row.value, remaining);
+      row.value -= reduction;
+      remaining -= reduction;
+    }
+    return rows.filter(row => row.value > 0);
+  }
+
+  if (currentTotal < total) {
+    const stockRow = rows.find(row => row.label === 'In Stock');
+    if (stockRow) {
+      stockRow.value += total - currentTotal;
+    } else {
+      rows.push({ label: 'In Stock', value: total - currentTotal });
+    }
+  }
+
   return rows;
 }
 
@@ -791,17 +822,84 @@ async getUsers(): Promise<User[]> {
         throw new Error(`Dashboard summary unavailable: ${error.message}`);
       }
 
-      const [{ data: liveModules }, { data: liveBatteries }, { data: liveRacks }, { data: liveRackPacks }, { data: soldBatteries }, { data: soldRacks }, { data: soldCells }, { data: soldModuleCells }, { data: soldRackPacks }] = await Promise.all([
-        applyDateRange(rawSupabase.from('modules').select('module_type,status,created_at,battery:batteries(product_templates(capacity_kwh,num_modules))')),
-        applyDateRange(rawSupabase.from('batteries').select('id,bms_id,bmu_id,progress_percent,status,lifecycle_status,created_at,product_id,product_templates(name,capacity_kwh)')),
-        applyDateRange(rawSupabase.from('racks').select('id,status,rack_template_code,required_pack_count,required_pack_template_code,created_at')),
+      const [{ data: liveModules }, { data: liveBatteries }, { data: liveRacks }, { data: liveRackPacks }, { data: soldBatteries }, { data: soldRacks }, { data: soldCells }, { data: soldModuleCells }, { data: soldRackPacks }, { data: liveCells }, { data: liveBms }, { data: liveBmus }] = await Promise.all([
+        applyDateRange(rawSupabase.from('modules').select('id,module_type,status,created_at,serial_number,battery:batteries(product_templates(capacity_kwh,num_modules))')),
+        applyDateRange(rawSupabase.from('batteries').select('id,bms_id,bmu_id,progress_percent,status,lifecycle_status,created_at,product_id,serial_number,product_templates(name,capacity_kwh)')),
+        applyDateRange(rawSupabase.from('racks').select('id,status,rack_template_code,required_pack_count,required_pack_template_code,created_at,serial_number')),
         rawSupabase.from('rack_packs').select('rack_id,battery:batteries(product_templates(capacity_kwh))'),
-        applyDateRange(rawSupabase.from('batteries').select('id,status,lifecycle_status,product_templates(capacity_kwh)').or('lifecycle_status.eq.SOLD,status.eq.DISPATCHED')),
-        applyDateRange(rawSupabase.from('racks').select('id,status,rack_template_code').eq('status', 'SOLD')),
+        applyDateRange(rawSupabase.from('batteries').select('id,status,lifecycle_status,serial_number,product_templates(capacity_kwh)').or('lifecycle_status.eq.SOLD,status.eq.DISPATCHED')),
+        applyDateRange(rawSupabase.from('racks').select('id,status,rack_template_code,serial_number').eq('status', 'SOLD')),
         applyDateRange(rawSupabase.from('cells').select('id,reserved_for_battery_id').eq('lifecycle_status', 'SOLD')),
         rawSupabase.from('module_cells').select('cell_id,module:modules(battery_id)'),
         rawSupabase.from('rack_packs').select('battery_id,rack:racks(status)'),
+        rawSupabase.from('cells').select('id,status,lifecycle_status,internal_serial,serial_number,supplier_barcode,production_grade,disposition,created_at'),
+        rawSupabase.from('bms_units').select('id,status,serial_number,serialNumber'),
+        rawSupabase.from('bmu_units').select('id,status,serial_number,serialNumber'),
       ]);
+      const extractSerial = (...values: any[]) => {
+        for (const value of values) {
+          const candidate = String(value ?? '').trim();
+          if (candidate && candidate !== 'null' && candidate !== 'undefined') return candidate;
+        }
+        return '';
+      };
+      const moduleSerialNumbersByLabel: Record<string, string[]> = {};
+      (liveModules || []).forEach((module: any) => {
+        const type = String(module.module_type || '8S').toUpperCase() === '12S' ? '12S' : '8S';
+        const serial = extractSerial(module.serial_number, module.serialNumber);
+        if (!serial) return;
+        moduleSerialNumbersByLabel[type] = [...(moduleSerialNumbersByLabel[type] || []), serial];
+      });
+      const cellStatusSerialNumbersByLabel: Record<string, string[]> = {};
+      const pushCellSerial = (label: string, row: any) => {
+        const serial = extractSerial(row.internal_serial, row.internalSerial, row.supplier_barcode, row.supplierBarcode, row.serial_number, row.serialNumber, row.id);
+        if (!serial) return;
+        cellStatusSerialNumbersByLabel[label] = [...(cellStatusSerialNumbersByLabel[label] || []), serial];
+        if (label === 'Damage') cellStatusSerialNumbersByLabel.Scrap = [...(cellStatusSerialNumbersByLabel.Scrap || []), serial];
+        if (label === 'Reusable') cellStatusSerialNumbersByLabel.Recycle = [...(cellStatusSerialNumbersByLabel.Recycle || []), serial];
+        if (label === 'Recycle') cellStatusSerialNumbersByLabel.Reusable = [...(cellStatusSerialNumbersByLabel.Reusable || []), serial];
+      };
+      (liveCells || []).forEach((cell: any) => {
+        const lifecycleStatus = String(cell.lifecycle_status || cell.status || '').toUpperCase();
+        const disposition = String(cell.disposition || '').toUpperCase();
+        const productionGrade = String(cell.production_grade || '').toUpperCase();
+        const warehouseLocation = String(latestByEntity.get(`CELL:${cell.id}`) || '').toUpperCase();
+        let label = 'In Stock';
+        if (['SOLD', 'DISPATCHED'].includes(lifecycleStatus)) label = 'Sold';
+        else if (['DAMAGE', 'DAMAGED', 'SCRAP', 'QUARANTINED'].includes(lifecycleStatus) || ['DAMAGE', 'DAMAGED', 'SCRAP', 'QUARANTINED'].includes(productionGrade)) label = 'Damage';
+        else if (['REUSABLE', 'REWORK', 'RELEASE_APPROVED'].includes(lifecycleStatus) || ['REUSABLE', 'REWORK', 'RELEASE_APPROVED'].includes(disposition)) label = 'Reusable';
+        else if (lifecycleStatus === 'IN_RACK') label = 'In Rack';
+        else if (lifecycleStatus === 'IN_PACK') label = 'In Pack';
+        else if (lifecycleStatus === 'IN_MODULE') label = 'In Module';
+        else if (warehouseLocation === 'KARACHI') label = 'Karachi Warehouse';
+        else if (warehouseLocation === 'LAHORE') label = 'Lahore Warehouse';
+        pushCellSerial(label, cell);
+      });
+      const damageReusableSerialNumbers: Record<string, string[]> = {};
+      (liveCells || []).forEach((cell: any) => {
+        const lifecycleStatus = String(cell.lifecycle_status || cell.status || '').toUpperCase();
+        const disposition = String(cell.disposition || '').toUpperCase();
+        const productionGrade = String(cell.production_grade || '').toUpperCase();
+        const serial = extractSerial(cell.internal_serial, cell.internalSerial, cell.supplier_barcode, cell.supplierBarcode, cell.serial_number, cell.serialNumber, cell.id);
+        if (!serial) return;
+        if (['DAMAGE', 'DAMAGED', 'SCRAP', 'QUARANTINED'].includes(lifecycleStatus) || ['DAMAGE', 'DAMAGED', 'SCRAP', 'QUARANTINED'].includes(productionGrade)) {
+          damageReusableSerialNumbers.Damage = [...(damageReusableSerialNumbers.Damage || []), serial];
+          damageReusableSerialNumbers.Scrap = [...(damageReusableSerialNumbers.Scrap || []), serial];
+        }
+        if (['REUSABLE', 'REWORK', 'RELEASE_APPROVED'].includes(lifecycleStatus) || ['REUSABLE', 'REWORK', 'RELEASE_APPROVED'].includes(disposition)) {
+          damageReusableSerialNumbers.Reusable = [...(damageReusableSerialNumbers.Reusable || []), serial];
+          damageReusableSerialNumbers.Recycle = [...(damageReusableSerialNumbers.Recycle || []), serial];
+        }
+      });
+      const controllerSerialNumbersByLabel: Record<string, string[]> = { BMS: [], BMU: [] };
+      (liveBms || []).forEach((controller: any) => {
+        const serial = extractSerial(controller.serial_number, controller.serialNumber);
+        if (serial) controllerSerialNumbersByLabel.BMS = [...controllerSerialNumbersByLabel.BMS, serial];
+      });
+      (liveBmus || []).forEach((controller: any) => {
+        const serial = extractSerial(controller.serial_number, controller.serialNumber);
+        if (serial) controllerSerialNumbersByLabel.BMU = [...controllerSerialNumbersByLabel.BMU, serial];
+      });
       const moduleTypeCounts = new Map<string, number>();
       const moduleTypeCapacity = new Map<string, number>();
       (liveModules || []).forEach((module: any) => {
@@ -921,10 +1019,6 @@ async getUsers(): Promise<User[]> {
         label,
         series: Array.from(livePackCounts.keys()).map(name => ({ name, value: batteryTrendCounts.get(label)?.get(name) || 0 })),
       }));
-      const [{ data: liveBms }, { data: liveBmus }] = await Promise.all([
-        rawSupabase.from('bms_units').select('id,status,reserved_for_battery_id'),
-        rawSupabase.from('bmu_units').select('id,status,reserved_for_battery_id'),
-      ]);
       const linkedBmsIds = new Set<string>((liveBatteries || []).map((battery: any) => String(battery.bms_id || battery.bmsId || '')).filter(Boolean));
       const linkedBmuIds = new Set<string>((liveBatteries || []).map((battery: any) => String(battery.bmu_id || battery.bmuId || '')).filter(Boolean));
       const isAvailableController = (controller: any, linkedIds: Set<string>, id: string) => (
@@ -945,11 +1039,37 @@ async getUsers(): Promise<User[]> {
         assignedBms: (liveBms || []).filter((controller: any) => isAssignedController(controller, linkedBmsIds, controller.id)).length,
         assignedBmu: (liveBmus || []).filter((controller: any) => isAssignedController(controller, linkedBmuIds, controller.id)).length,
       };
-      const { locationByCell: warehouseCellLocations, lifecycleByCellId, warehouseRackCounts, warehouseRackTypeCounts, warehouseBatteryCounts, warehouseBatteryTypeCounts, rackCellCount } = await warehouseLocationPromise;
+      const { locationByCell: warehouseCellLocations, lifecycleByCellId, warehouseRackCounts, warehouseRackTypeCounts, warehouseBatteryCounts, warehouseBatteryTypeCounts, rackCellCount, latestByEntity } = await warehouseLocationPromise;
       const normalizedCellBuckets = reconcileDashboardCellBuckets(data?.cellBuckets, data?.inventory?.totalCells);
       const warehouseAwareCellBuckets = buildWarehouseLocationBuckets(normalizedCellBuckets, warehouseCellLocations, lifecycleByCellId);
       const karachiWarehouseCells = Array.from(warehouseCellLocations.values()).filter(location => location === 'KARACHI').length;
       const lahoreWarehouseCells = Array.from(warehouseCellLocations.values()).filter(location => location === 'LAHORE').length;
+      const warehouseStatusSerialNumbers = {
+        'Karachi Racks': (liveRacks || []).filter((rack: any) => String(latestByEntity.get(`RACK:${rack.id}`) || '').toUpperCase() === 'KARACHI').map((rack: any) => String(rack.serial_number || rack.serialNumber || '')).filter(Boolean),
+        'Lahore Racks': (liveRacks || []).filter((rack: any) => String(latestByEntity.get(`RACK:${rack.id}`) || '').toUpperCase() === 'LAHORE').map((rack: any) => String(rack.serial_number || rack.serialNumber || '')).filter(Boolean),
+        'Karachi Battery Packs': (liveBatteries || []).filter((battery: any) => String(latestByEntity.get(`BATTERY:${battery.id}`) || '').toUpperCase() === 'KARACHI').map((battery: any) => String(battery.serial_number || battery.serialNumber || '')).filter(Boolean),
+        'Lahore Battery Packs': (liveBatteries || []).filter((battery: any) => String(latestByEntity.get(`BATTERY:${battery.id}`) || '').toUpperCase() === 'LAHORE').map((battery: any) => String(battery.serial_number || battery.serialNumber || '')).filter(Boolean),
+      };
+      const rackTypeSerialNumbers = new Map<string, string[]>();
+      (liveRacks || []).forEach((rack: any) => {
+        const rackType = String(rack.rack_template_code || 'UNKNOWN_RACK');
+        const powerMatch = rackType.match(/RACK_(\d+(?:\.\d+)?)KWH/i);
+        const capacityValue = powerMatch ? powerMatch[1] : '0';
+        const label = `${capacityValue === '70' ? '67.9' : capacityValue} kWh ${capacityValue === '25' ? 'Rack' : 'Cabinet'}`;
+        const serial = String(rack.serial_number || rack.serialNumber || '');
+        if (!serial) return;
+        const values = rackTypeSerialNumbers.get(label) || [];
+        values.push(serial);
+        rackTypeSerialNumbers.set(label, values);
+      });
+      const batteryPackSerialNumbersByLabel: Record<string, string[]> = {};
+      (liveBatteries || []).forEach((battery: any) => {
+        const name = battery.product_templates?.name || 'Unnamed Pack';
+        const serial = String(battery.serial_number || battery.serialNumber || '');
+        if (!serial) return;
+        const labelKey = String(name || 'Unnamed Pack');
+        batteryPackSerialNumbersByLabel[labelKey] = [...(batteryPackSerialNumbersByLabel[labelKey] || []), serial];
+      });
       const rackStatusMap = (liveRacks || []).reduce((counts: Map<string, { value: number; capacityKwh: number; rackTypes: Map<string, { value: number; capacityKwh: number }> }>, rack: any) => {
         const status = String(rack.status || 'UNKNOWN').replace(/_/g, ' ');
         const rackType = String(rack.rack_template_code || 'UNKNOWN_RACK');
@@ -1038,6 +1158,15 @@ async getUsers(): Promise<User[]> {
           ? liveBatteryPackTrend
           : (Array.isArray(data?.batteryPackTrend) ? data.batteryPackTrend : []),
         moduleTypeTrend,
+        soldRackSerialNumbers: (soldRacks || []).map((rack: any) => String(rack.serial_number || rack.serialNumber || '')).filter(Boolean),
+        soldBatterySerialNumbers: (soldBatteries || []).map((battery: any) => String(battery.serial_number || battery.serialNumber || '')).filter(Boolean),
+        warehouseStatusSerialNumbers,
+        rackStatusSerialNumbersByType: Object.fromEntries(rackTypeSerialNumbers.entries()),
+        batteryPackSerialNumbersByLabel,
+        moduleSerialNumbersByLabel,
+        cellStatusSerialNumbersByLabel,
+        damageReusableSerialNumbers,
+        controllerSerialNumbersByLabel,
         rackTotal: liveRacks?.length || 0,
         rackStatusBuckets: rackStatusEntries.map(([label, values]) => ({
           label,

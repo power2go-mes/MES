@@ -16,6 +16,28 @@ const toCount = (value: unknown) => {
   return Number.isFinite(count) ? Math.max(0, Math.round(count)) : 0;
 };
 
+export const normalizeCellBucketLabels = (
+  rows: Array<{ label?: unknown; value?: unknown }>,
+): Array<{ label: string; value: number }> => {
+  const totals = new Map<string, number>();
+
+  for (const row of Array.isArray(rows) ? rows : []) {
+    const rawLabel = String(row.label ?? '').trim();
+    if (!rawLabel) continue;
+
+    const label = (() => {
+      const normalized = rawLabel.replace(/_/g, ' ').toLowerCase();
+      if (['scrap', 'damage'].includes(normalized)) return 'Damage';
+      if (['recycle', 'reusable'].includes(normalized)) return 'Reusable';
+      return rawLabel;
+    })();
+
+    totals.set(label, (totals.get(label) || 0) + toCount(row.value));
+  }
+
+  return Array.from(totals.entries()).map(([label, value]) => ({ label, value }));
+};
+
 export const buildDashboardDistribution = (
   rows: Array<{ label?: unknown; value?: unknown; color?: string }>,
   labels: Array<{ label: string; color: string }>,

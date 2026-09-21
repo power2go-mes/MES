@@ -4,7 +4,7 @@ import { Activity, AlertTriangle, Boxes, ChevronDown, Cpu, Download, Factory, Pa
 import { useApp } from '../../context/AppContext';
 import { api } from '../../services/api';
 import { downloadBatteryReport, downloadCellReport, downloadModuleReport, downloadRackReport, downloadSoldReport, downloadWarehouseReport } from '../../lib/cellReportExport';
-import { buildDashboardDistribution, DashboardDistribution, DashboardChartRow } from '../../lib/dashboardCharts';
+import { buildDashboardDistribution, DashboardDistribution, DashboardChartRow, normalizeCellBucketLabels } from '../../lib/dashboardCharts';
 
 const numberOr = (value: any, fallback = 0) => {
   const num = Number(value ?? fallback);
@@ -37,7 +37,7 @@ const statusColors: Record<string, string> = {
   'Lahore Warehouse': reportColors.green,
   Sold: reportColors.silver,
   Damage: reportColors.red,
-  Recycle: reportColors.green,
+  Reusable: reportColors.green,
 };
 const packColors = [reportColors.blue, reportColors.green];
 const ceoDonutPalette = ['#245501', '#538D22', '#1A4301', '#73A942', '#143601', '#AAD576'];
@@ -59,7 +59,7 @@ const rackPowerColors: Record<string, string> = {
 };
 type ChartRow = DashboardChartRow;
 
-const DistributionDonut: React.FC<{ distribution: DashboardDistribution; ariaLabel: string; showShare?: boolean; extraRows?: ChartRow[]; large?: boolean; compactLegend?: boolean; legendBelow?: boolean; showSegmentLabels?: boolean; showSegmentLabelLines?: boolean; showLegendValues?: boolean; legendLabelClassName?: string; stackLegend?: boolean; legendMarginLeft?: boolean; legendMarginRight?: boolean; donutMarginLeft?: boolean; donutMarginTop?: boolean; balancedVerticalMargin?: boolean }> = ({ distribution, ariaLabel, showShare = true, extraRows = [], large = true, compactLegend = true, legendBelow = false, showSegmentLabels = false, showSegmentLabelLines = false, showLegendValues = true, legendLabelClassName = 'text-[12px] text-slate-600', stackLegend = false, legendMarginLeft = false, legendMarginRight = false, donutMarginLeft = false, donutMarginTop = false, balancedVerticalMargin = false }) => {
+const DistributionDonut: React.FC<{ distribution: DashboardDistribution; ariaLabel: string; showShare?: boolean; extraRows?: ChartRow[]; large?: boolean; compactLegend?: boolean; legendBelow?: boolean; showSegmentLabels?: boolean; showSegmentLabelLines?: boolean; showLegendValues?: boolean; legendLabelClassName?: string; stackLegend?: boolean; legendMarginLeft?: boolean; legendMarginRight?: boolean; donutMarginLeft?: boolean; donutMarginTop?: boolean; balancedVerticalMargin?: boolean; dropdowns?: Array<{ label: string; open: boolean; onToggle: () => void; serials: string[] }> }> = ({ distribution, ariaLabel, showShare = true, extraRows = [], large = true, compactLegend = true, legendBelow = false, showSegmentLabels = false, showSegmentLabelLines = false, showLegendValues = true, legendLabelClassName = 'text-[12px] text-slate-600', stackLegend = false, legendMarginLeft = false, legendMarginRight = false, donutMarginLeft = false, donutMarginTop = false, balancedVerticalMargin = false, dropdowns = [] }) => {
   const visible = distribution.rows.filter((row) => row.value > 0 && row.share > 0);
   const centerLabel = /cell inventory/i.test(ariaLabel) ? 'CELLS' : 'TOTAL';
   const [hoveredRow, setHoveredRow] = useState<DashboardDistribution['rows'][number] | null>(null);
@@ -94,20 +94,49 @@ const DistributionDonut: React.FC<{ distribution: DashboardDistribution; ariaLab
       </div>
       <div className={`min-w-0 py-2 ${legendMarginLeft ? 'sm:ml-[15mm]' : ''} ${legendMarginRight ? 'sm:mr-[18mm]' : ''} ${legendBelow ? 'w-full' : 'w-full flex-1 sm:w-auto'}`}>
         <div className="grid gap-y-2" style={{ gridTemplateColumns: 'minmax(0, 1fr) 46px 5mm', columnGap: '0.15rem' }}>
-          {distribution.rows.map((row) => (
-            <React.Fragment key={row.label}>
-              <div className={`flex min-w-0 items-center gap-2 ${legendLabelClassName}`} style={{ marginLeft: '-10mm' }}>
-                <span className="h-2.5 w-2.5 shrink-0 rounded-sm" style={{ backgroundColor: row.color }} aria-hidden="true" />
-                <span className="truncate">{row.label}</span>
-              </div>
-              {showLegendValues ? (
-                <span className="whitespace-nowrap text-right text-[12px] font-semibold text-slate-900" style={{ marginLeft: '5mm' }}>{formatNumber(row.value)}</span>
-              ) : <span />}
-              {showLegendValues && showShare ? (
-                <span className="whitespace-nowrap text-right text-[12px] font-normal text-slate-400" style={{ marginLeft: '3mm', marginRight: '5mm' }}>({row.share.toFixed(2)}%)</span>
-              ) : showLegendValues ? <span className="text-right text-[12px] font-normal text-slate-400" style={{ marginLeft: '3mm', marginRight: '5mm' }} /> : <span />}
-            </React.Fragment>
-          ))}
+          {distribution.rows.map((row) => {
+            const dropdown = dropdowns.find((item) => item.label === row.label);
+            const isDropdownOpen = Boolean(dropdown?.open);
+            return (
+              <React.Fragment key={row.label}>
+                <div className={`relative flex min-w-0 items-center gap-2 ${legendLabelClassName}`} style={{ marginLeft: '-10mm' }}>
+                  <span className="h-2.5 w-2.5 shrink-0 rounded-sm" style={{ backgroundColor: row.color }} aria-hidden="true" />
+                  <span className="truncate">{row.label}</span>
+                  {dropdown && (
+                    <button
+                      type="button"
+                      onClick={dropdown.onToggle}
+                      className="inline-flex h-4 w-4 items-center justify-center rounded-sm border border-slate-200 bg-white text-slate-500 transition-colors hover:border-emerald-200 hover:text-emerald-700"
+                      aria-label={`Toggle ${dropdown.label} sold serial numbers`}
+                    >
+                      <ChevronDown className={`h-2.5 w-2.5 transition-transform ${isDropdownOpen ? 'rotate-180' : ''}`} />
+                    </button>
+                  )}
+                  {isDropdownOpen && dropdown && (
+                    <div className="absolute left-0 top-full z-30 mt-2 w-[220px] max-w-[220px] rounded-md border border-slate-200 bg-white p-2 shadow-lg">
+                      {dropdown.serials.length > 0 ? (
+                        <div className="flex max-h-36 flex-wrap gap-1.5 overflow-auto">
+                          {dropdown.serials.map((serial) => (
+                            <span key={serial} className="rounded-full border border-slate-200 bg-slate-50 px-2 py-1 font-mono text-[10px] text-slate-700">
+                              {serial}
+                            </span>
+                          ))}
+                        </div>
+                      ) : (
+                        <div className="text-[10px] text-slate-400">No sold serial numbers available.</div>
+                      )}
+                    </div>
+                  )}
+                </div>
+                {showLegendValues ? (
+                  <span className="whitespace-nowrap text-right text-[12px] font-semibold text-slate-900" style={{ marginLeft: '5mm' }}>{formatNumber(row.value)}</span>
+                ) : <span />}
+                {showLegendValues && showShare ? (
+                  <span className="whitespace-nowrap text-right text-[12px] font-normal text-slate-400" style={{ marginLeft: '3mm', marginRight: '5mm' }}>({row.share.toFixed(2)}%)</span>
+                ) : showLegendValues ? <span className="text-right text-[12px] font-normal text-slate-400" style={{ marginLeft: '3mm', marginRight: '5mm' }} /> : <span />}
+              </React.Fragment>
+            );
+          })}
           {extraRows.map((row) => (
             <React.Fragment key={row.label}>
               <div className={`flex min-w-0 items-center gap-2 ${legendLabelClassName}`} style={{ marginLeft: '-10mm' }}>
@@ -179,6 +208,31 @@ export const CEOMonitoringView: React.FC = () => {
   const [openCellFilter, setOpenCellFilter] = useState(false);
   const [selectedModuleConfig, setSelectedModuleConfig] = useState('All');
   const [selectedSoldEntity, setSelectedSoldEntity] = useState('All');
+  const [openSoldDetail, setOpenSoldDetail] = useState<'Racks' | 'Battery Packs' | null>(null);
+  const [openDonutDetail, setOpenDonutDetail] = useState<Record<string, boolean>>({});
+  const normalizeDonutLabel = (label: string) => String(label || '').trim().replace(/[_-]+/g, ' ').replace(/\s+/g, ' ').toLowerCase();
+  const resolveDonutSerials = (rowLabel: string, serialMap: Record<string, string[]> = {}) => {
+    const direct = serialMap[rowLabel] || serialMap[String(rowLabel).replace(/_/g, ' ')] || [];
+    if (direct.length > 0) return direct;
+    const key = normalizeDonutLabel(rowLabel);
+    for (const [candidateLabel, serials] of Object.entries(serialMap)) {
+      const candidateKey = normalizeDonutLabel(candidateLabel);
+      if (candidateKey === key ||
+          (candidateKey === 'reusable' && (key === 'recycle' || key === 'reusable')) ||
+          (candidateKey === 'recycle' && (key === 'reusable' || key === 'recycle')) ||
+          (candidateKey === 'damage' && (key === 'scrap' || key === 'damage')) ||
+          (candidateKey === 'scrap' && (key === 'damage' || key === 'scrap'))) {
+        if (serials.length > 0) return serials;
+      }
+    }
+    return [];
+  };
+  const makeDonutDropdowns = (rows: Array<{ label: string; value: number; color: string }>, serialMap: Record<string, string[]> = {}) => rows.map((row) => ({
+    label: row.label,
+    open: !!openDonutDetail[row.label],
+    onToggle: () => setOpenDonutDetail((current) => ({ ...current, [row.label]: !current[row.label] })),
+    serials: resolveDonutSerials(row.label, serialMap),
+  }));
   useEffect(() => {
     let cancelled = false;
 
@@ -196,14 +250,18 @@ export const CEOMonitoringView: React.FC = () => {
           return entityType === 'CELL' && entityId && ['RELEASE_APPROVED', 'REWORK'].includes(disposition);
         }).map((record: any) => String(record.entityId || record.entity_id)));
 
-        const scrapCellCount = numberOr(res.cellBuckets?.find((row: any) => ['SCRAP', 'DAMAGE'].includes(String(row.label || '').toUpperCase()))?.value);
-        const reusableCount = reusableCellIds.size || numberOr(res.cellBuckets?.find((row: any) => ['RECYCLE', 'REUSABLE'].includes(String(row.label || '').toUpperCase()))?.value);
-        const patchedBuckets = (res.cellBuckets || [])
-          .filter((row: any) => !['SCRAP', 'DAMAGE', 'RECYCLE', 'REUSABLE'].includes(String(row.label || '').toUpperCase()))
-          .concat([
-            { label: 'Damage', value: scrapCellCount },
-            { label: 'Reusable', value: reusableCount },
-          ]);
+        const existingDamageValue = numberOr(res.cellBuckets?.find((row: any) => ['SCRAP', 'DAMAGE'].includes(String(row.label || '').toUpperCase()))?.value);
+        const existingReusableValue = numberOr(res.cellBuckets?.find((row: any) => ['RECYCLE', 'REUSABLE'].includes(String(row.label || '').toUpperCase()))?.value);
+        const scrapCellCount = existingDamageValue || 0;
+        const reusableCount = existingReusableValue > 0 ? existingReusableValue : reusableCellIds.size;
+        const patchedBuckets = normalizeCellBucketLabels(
+          (res.cellBuckets || [])
+            .filter((row: any) => !['SCRAP', 'DAMAGE', 'RECYCLE', 'REUSABLE'].includes(String(row.label || '').toUpperCase()))
+            .concat([
+              { label: 'Damage', value: scrapCellCount },
+              { label: 'Reusable', value: reusableCount },
+            ]),
+        );
 
         if (!cancelled) {
           setStats({ ...res, cellBuckets: patchedBuckets });
@@ -260,14 +318,13 @@ export const CEOMonitoringView: React.FC = () => {
   const remainingOrders = Math.max(0, totalOrders - completedOrders);
   const orderCompletion = totalOrders > 0 ? clamp((completedOrders / totalOrders) * 100, 0, 100) : 0;
 
-  const cellRows = useMemo<ChartRow[]>(() => {
-    const totals = new Map<string, number>();
-    (source.cellBuckets || []).forEach((row: any) => {
-      const label = String(row.label || '');
-      totals.set(label, (totals.get(label) || 0) + numberOr(row.value));
-    });
-    return Array.from(totals, ([label, value]) => ({ label, value, color: statusColors[label] || reportColors.slate }));
-  }, [source.cellBuckets]);
+  const cellRows = useMemo<ChartRow[]>(() => normalizeCellBucketLabels((source.cellBuckets || []) as Array<{ label?: unknown; value?: unknown }>)
+    .filter((row) => !['Reusable', 'Recycle'].includes(row.label))
+    .map((row) => ({
+      label: row.label,
+      value: row.value,
+      color: statusColors[row.label] || reportColors.slate,
+    })), [source.cellBuckets]);
   const cellBucketTotal = (...labels: string[]) => (source.cellBuckets || [])
     .filter((row: any) => labels.includes(String(row.label || '').toUpperCase()))
     .reduce((total: number, row: any) => total + numberOr(row.value), 0);
@@ -394,6 +451,80 @@ export const CEOMonitoringView: React.FC = () => {
       { label: 'Battery Packs', value: soldBatteries, color: ceoDonutPalette[1] },
     ]);
   }, [source.batteryStatusBuckets, source.rackStatusBuckets]);
+  const soldRackSerialNumbers = useMemo(() => {
+    const values = Array.isArray(source.soldRackSerialNumbers) ? source.soldRackSerialNumbers : [];
+    return values.filter((value: unknown) => String(value || '').trim().length > 0);
+  }, [source.soldRackSerialNumbers]);
+  const soldBatterySerialNumbers = useMemo(() => {
+    const values = Array.isArray(source.soldBatterySerialNumbers) ? source.soldBatterySerialNumbers : [];
+    return values.filter((value: unknown) => String(value || '').trim().length > 0);
+  }, [source.soldBatterySerialNumbers]);
+  const warehouseSerialDetails = useMemo(() => ({
+    'Karachi Racks': Array.isArray(source.warehouseStatusSerialNumbers?.['Karachi Racks']) ? source.warehouseStatusSerialNumbers['Karachi Racks'] : [],
+    'Lahore Racks': Array.isArray(source.warehouseStatusSerialNumbers?.['Lahore Racks']) ? source.warehouseStatusSerialNumbers['Lahore Racks'] : [],
+    'Karachi Battery Packs': Array.isArray(source.warehouseStatusSerialNumbers?.['Karachi Battery Packs']) ? source.warehouseStatusSerialNumbers['Karachi Battery Packs'] : [],
+    'Lahore Battery Packs': Array.isArray(source.warehouseStatusSerialNumbers?.['Lahore Battery Packs']) ? source.warehouseStatusSerialNumbers['Lahore Battery Packs'] : [],
+  }), [source.warehouseStatusSerialNumbers]);
+  const rackSerialDetailMap = useMemo(() => {
+    const entries = source.rackStatusSerialNumbersByType || {};
+    return Object.fromEntries(Object.entries(entries).map(([label, serials]) => [String(label), Array.isArray(serials) ? serials.filter(Boolean) : []]));
+  }, [source.rackStatusSerialNumbersByType]);
+  const batterySerialDetailMap = useMemo(() => {
+    const entries = source.batteryPackSerialNumbersByLabel || {};
+    return Object.fromEntries(Object.entries(entries).map(([label, serials]) => [String(label), Array.isArray(serials) ? serials.filter(Boolean) : []]));
+  }, [source.batteryPackSerialNumbersByLabel]);
+  const moduleSerialDetailMap = useMemo(() => {
+    const entries = source.moduleSerialNumbersByLabel || {};
+    return Object.fromEntries(Object.entries(entries).map(([label, serials]) => [String(label), Array.isArray(serials) ? serials.filter(Boolean) : []]));
+  }, [source.moduleSerialNumbersByLabel]);
+  const aliasMap = (obj: Record<string, string[]> = {}, aliases: Record<string, string[]>) => {
+    const merged: Record<string, string[]> = {};
+    for (const [key, values] of Object.entries(obj)) {
+      merged[key] = Array.isArray(values) ? values.filter(Boolean) : [];
+    }
+    for (const [key, values] of Object.entries(aliases)) {
+      merged[key] = [...(merged[key] || []), ...(Array.isArray(values) ? values.filter(Boolean) : [])];
+    }
+    return merged;
+  };
+  const cellSerialDetailMap = useMemo(() => {
+    const entries = source.cellStatusSerialNumbersByLabel || {};
+    const result: Record<string, string[]> = {};
+    const addKey = (label: string, ...extraLabels: string[]) => {
+      const serials = [...new Set([
+        ...(entries[label] || []),
+        ...extraLabels.flatMap((extraLabel) => entries[extraLabel] || []),
+      ].filter(Boolean))];
+      if (serials.length > 0) result[label] = serials;
+    };
+    cellRows.forEach((row) => {
+      const label = row.label;
+      if (label === 'Damage') addKey(label, 'Scrap');
+      else if (label === 'Reusable') addKey(label, 'Recycle');
+      else if (label === 'Recycle') addKey(label, 'Reusable');
+      else if (label === 'Sold') addKey(label);
+      else addKey(label);
+    });
+    return result;
+  }, [cellRows, source.cellStatusSerialNumbersByLabel]);
+  const damageReusableSerialDetailMap = useMemo(() => {
+    const entries = source.damageReusableSerialNumbers || {};
+    const aliasEntries: Record<string, string[]> = {
+      Damage: [...(entries.Damage || []), ...(entries.Scrap || [])],
+      Reusable: [...(entries.Reusable || []), ...(entries.Recycle || [])],
+      Recycle: [...(entries.Recycle || []), ...(entries.Reusable || [])],
+      Scrap: [...(entries.Scrap || []), ...(entries.Damage || [])],
+    };
+    return aliasMap(entries, aliasEntries);
+  }, [source.damageReusableSerialNumbers]);
+  const controllerSerialDetailMap = useMemo(() => {
+    const entries = source.controllerSerialNumbersByLabel || {};
+    const aliasEntries: Record<string, string[]> = {
+      BMS: entries.BMS || [],
+      BMU: entries.BMU || [],
+    };
+    return aliasMap(entries, aliasEntries);
+  }, [source.controllerSerialNumbersByLabel]);
   const soldCellTotal = numberOr(inventory.soldCells ?? source.cellBuckets?.find((row: any) => row.label === 'Sold')?.value);
   const filteredSoldRows = selectedSoldEntity === 'All' ? soldData : soldData.filter(row => row.label === selectedSoldEntity);
   const soldDistribution = useMemo(() => buildDashboardDistribution(
@@ -1152,6 +1283,15 @@ export const CEOMonitoringView: React.FC = () => {
               donutMarginLeft
               donutMarginTop
               balancedVerticalMargin
+              dropdowns={soldData.map((row) => {
+                const serials = row.label === 'Racks' ? soldRackSerialNumbers : row.label === 'Battery Packs' ? soldBatterySerialNumbers : [];
+                return {
+                  label: row.label,
+                  open: openSoldDetail === row.label,
+                  onToggle: () => setOpenSoldDetail((current) => current === row.label ? null : row.label as 'Racks' | 'Battery Packs'),
+                  serials,
+                };
+              })}
             />
           </div>
 
@@ -1192,6 +1332,7 @@ export const CEOMonitoringView: React.FC = () => {
               donutMarginLeft
               donutMarginTop
               balancedVerticalMargin
+              dropdowns={makeDonutDropdowns(warehouseDistribution.rows, warehouseSerialDetails)}
             />
           </div>
 
@@ -1235,6 +1376,7 @@ export const CEOMonitoringView: React.FC = () => {
               donutMarginLeft
               donutMarginTop
               balancedVerticalMargin
+              dropdowns={makeDonutDropdowns(rackDistribution.rows, rackSerialDetailMap)}
             />
           </div>
 
@@ -1278,6 +1420,7 @@ export const CEOMonitoringView: React.FC = () => {
               donutMarginLeft
               donutMarginTop
               balancedVerticalMargin
+              dropdowns={makeDonutDropdowns(batteryPackDistribution.rows, batterySerialDetailMap)}
             />
           </div>
 
@@ -1321,6 +1464,7 @@ export const CEOMonitoringView: React.FC = () => {
               donutMarginLeft
               donutMarginTop
               balancedVerticalMargin
+              dropdowns={makeDonutDropdowns(moduleDistribution.rows, moduleSerialDetailMap)}
             />
           </div>
 
@@ -1346,7 +1490,7 @@ export const CEOMonitoringView: React.FC = () => {
               >
                 All cells
               </button>
-              {['In Stock', 'Floor Stock', 'Damage', 'Recycle'].map((label) => (
+              {['In Stock', 'Floor Stock', 'Damage', 'Reusable'].map((label) => (
                 <button
                   key={label}
                   type="button"
@@ -1361,7 +1505,7 @@ export const CEOMonitoringView: React.FC = () => {
                   type="button"
                   onClick={() => setOpenCellFilter(open => !open)}
                   aria-expanded={openCellFilter}
-                  className={`inline-flex items-center gap-1 rounded-md border px-2 py-1 ${selectedCellStatus === 'All' || !['In Stock', 'Floor Stock', 'Damage', 'Recycle'].includes(selectedCellStatus) ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-slate-200 bg-slate-50 text-slate-500'}`}
+                  className={`inline-flex items-center gap-1 rounded-md border px-2 py-1 ${selectedCellStatus === 'All' || !['In Stock', 'Floor Stock', 'Damage', 'Reusable'].includes(selectedCellStatus) ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-slate-200 bg-slate-50 text-slate-500'}`}
                 >
                   Other<ChevronDown className="h-3 w-3" />
                 </button>
@@ -1393,6 +1537,7 @@ export const CEOMonitoringView: React.FC = () => {
               donutMarginLeft
               donutMarginTop
               balancedVerticalMargin
+              dropdowns={[]}
             />
           </div>
 
@@ -1423,6 +1568,7 @@ export const CEOMonitoringView: React.FC = () => {
               donutMarginLeft
               donutMarginTop
               balancedVerticalMargin
+              dropdowns={makeDonutDropdowns(damageReusableDistribution.rows, damageReusableSerialDetailMap)}
             />
           </div>
 
@@ -1453,6 +1599,7 @@ export const CEOMonitoringView: React.FC = () => {
               donutMarginLeft
               donutMarginTop
               balancedVerticalMargin
+              dropdowns={makeDonutDropdowns(controllerDistribution.rows, controllerSerialDetailMap)}
             />
           </div>
         </div>
