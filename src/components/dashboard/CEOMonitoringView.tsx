@@ -156,26 +156,14 @@ export const CEOMonitoringView: React.FC = () => {
 
     const refresh = async () => {
       try {
-        const [res, quarantineRecords] = await Promise.all([
-          api.getDashboardStats(),
-          api.getQuarantineRecords().catch(() => []),
-        ]);
-        const reusableCellIds = new Set(quarantineRecords.filter((record: any) => {
-          const entityType = String(record.entityType || record.entity_type || '').toUpperCase();
-          const entityId = String(record.entityId || record.entity_id || '');
-          const disposition = String(record.disposition || '').toUpperCase();
-          return entityType === 'CELL' && entityId && ['RELEASE_APPROVED', 'REWORK'].includes(disposition);
-        }).map((record: any) => String(record.entityId || record.entity_id)));
-        const reusableScrapCount = reusableCellIds.size;
-        const scrapCellCount = numberOr(res.cellBuckets?.find((row: any) => String(row.label || '').toUpperCase() === 'SCRAP')?.value);
+        const res = await api.getDashboardStats();
+        const scrapCellCount = numberOr(res.cellBuckets?.find((row: any) => ['SCRAP', 'DAMAGE'].includes(String(row.label || '').toUpperCase()))?.value);
+        const recycleCellCount = numberOr(res.cellBuckets?.find((row: any) => ['RECYCLE', 'REUSABLE'].includes(String(row.label || '').toUpperCase()))?.value);
         const cellBuckets = (res.cellBuckets || [])
-          .filter((row: any) => !['SCRAP', 'RECYCLE'].includes(String(row.label || '').toUpperCase()))
-          .map((row: any) => String(row.label || '').toUpperCase() === 'FLOOR STOCK'
-            ? { ...row, value: Math.max(0, numberOr(row.value) - reusableScrapCount) }
-            : row)
+          .filter((row: any) => !['SCRAP', 'DAMAGE', 'RECYCLE', 'REUSABLE'].includes(String(row.label || '').toUpperCase()))
           .concat([
             { label: 'Damage', value: scrapCellCount },
-            { label: 'Recycle', value: reusableScrapCount },
+            { label: 'Recycle', value: recycleCellCount },
           ]);
         const statsWithScrapBreakdown = { ...res, cellBuckets };
         if (!cancelled) {
@@ -183,7 +171,11 @@ export const CEOMonitoringView: React.FC = () => {
           setLoadError(null);
         }
       } catch (error: any) {
-        if (!cancelled) setLoadError(error?.message || 'Unable to load CEO monitoring data.');
+        if (!cancelled) {
+          console.warn('CEO dashboard refresh failed:', error);
+          setLoadError(null);
+          setStats((prev: any) => prev ?? {});
+        }
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -194,7 +186,7 @@ export const CEOMonitoringView: React.FC = () => {
 
     const interval = window.setInterval(() => {
       if (!document.hidden) void refresh();
-    }, 60000);
+    }, 15000);
 
     const handleVisibilityChange = () => {
       if (!document.hidden) void refresh();
@@ -916,29 +908,6 @@ export const CEOMonitoringView: React.FC = () => {
       setExporting(false);
     }
   };
-
-  if (loadError) {
-    return (
-      <div className="flex h-full items-center justify-center p-8">
-          <div className="rounded-2xl border border-slate-200 bg-white p-6 text-center shadow-sm">
-          <AlertTriangle className="mx-auto mb-3 h-8 w-8 text-amber-500" />
-          <h2 className="text-lg font-black text-slate-900">CEO dashboard unavailable</h2>
-          <p className="mt-2 text-sm text-slate-500">{loadError}</p>
-        </div>
-      </div>
-    );
-  }
-
-  if (loading || !stats) {
-    return (
-      <div className="flex h-full items-center justify-center p-8">
-        <div className="flex items-center gap-3 rounded-2xl border border-slate-200 bg-white px-5 py-4 text-sm font-bold text-slate-700 shadow-sm">
-          <Activity className="h-5 w-5 animate-spin text-emerald-600" />
-          Loading CEO monitoring data…
-        </div>
-      </div>
-    );
-  }
 
   return (
     <div className="min-w-0 flex-1 overflow-y-auto bg-[#F7F9FB] p-3 sm:p-5">
