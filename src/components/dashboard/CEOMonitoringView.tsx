@@ -57,13 +57,13 @@ const rackPowerColors: Record<string, string> = {
 };
 type ChartRow = DashboardChartRow;
 
-const DistributionDonut: React.FC<{ distribution: DashboardDistribution; ariaLabel: string; showShare?: boolean; extraRows?: ChartRow[] }> = ({ distribution, ariaLabel, showShare = true, extraRows = [] }) => {
+const DistributionDonut: React.FC<{ distribution: DashboardDistribution; ariaLabel: string; showShare?: boolean; extraRows?: ChartRow[]; large?: boolean; compactLegend?: boolean }> = ({ distribution, ariaLabel, showShare = true, extraRows = [], large = false, compactLegend = false }) => {
   const visible = distribution.rows.filter((row) => row.value > 0 && row.share > 0);
   const centerLabel = /cell inventory/i.test(ariaLabel) ? 'CELLS' : 'TOTAL';
   let offset = 0;
   return (
-    <div className="flex min-w-0 flex-col items-center gap-4 sm:flex-row sm:gap-6">
-      <div className="h-[185px] w-[185px] shrink-0 sm:h-[220px] sm:w-[220px]">
+    <div className={`flex min-w-0 flex-col items-center gap-4 sm:flex-row sm:gap-6 ${large ? 'sm:gap-4' : ''}`}>
+      <div className={`shrink-0 ${large ? 'h-[220px] w-[220px] sm:h-[250px] sm:w-[250px]' : 'h-[185px] w-[185px] sm:h-[220px] sm:w-[220px]'}`}>
         {distribution.total === 0 ? <div className="grid h-full place-items-center rounded-full border-[14px] border-slate-100 text-center"><span className="text-[11px] font-semibold text-slate-400">No recorded data</span></div> : <svg viewBox="0 0 100 100" className="h-full w-full" aria-label={ariaLabel}>
           <circle cx="50" cy="50" r="35" fill="none" stroke={reportColors.border} strokeWidth="14" />
           {visible.map((row) => {
@@ -81,8 +81,8 @@ const DistributionDonut: React.FC<{ distribution: DashboardDistribution; ariaLab
         </svg>}
       </div>
       <div className="min-w-0 w-full flex-1 space-y-2.5 py-2 sm:w-auto">
-        {distribution.rows.map((row) => <div key={row.label} className="flex items-center justify-between gap-3 text-[12px]"><div className="flex items-center gap-2 text-slate-600"><span className="h-2.5 w-2.5 rounded-sm" style={{ backgroundColor: row.color }} />{row.label}</div><span className="font-semibold text-slate-900">{formatNumber(row.value)}{showShare && <span className="font-normal text-slate-400"> ({row.share.toFixed(2)}%)</span>}</span></div>)}
-        {extraRows.map((row) => <div key={row.label} className="flex items-center justify-between gap-3 text-[12px]"><div className="flex items-center gap-2 text-slate-600"><span className="h-2.5 w-2.5 rounded-sm" style={{ backgroundColor: row.color }} />{row.label}</div><span className="font-semibold text-slate-900">{formatNumber(row.value)}</span></div>)}
+        {distribution.rows.map((row) => <div key={row.label} className={`flex items-center gap-3 text-[12px] ${compactLegend ? 'justify-start' : 'justify-between'}`}><div className="flex items-center gap-2 text-slate-600"><span className="h-2.5 w-2.5 rounded-sm" style={{ backgroundColor: row.color }} />{row.label}</div><span className="font-semibold text-slate-900">{formatNumber(row.value)}{showShare && <span className="font-normal text-slate-400"> ({row.share.toFixed(2)}%)</span>}</span></div>)}
+        {extraRows.map((row) => <div key={row.label} className={`flex items-center gap-3 text-[12px] ${compactLegend ? 'justify-start' : 'justify-between'}`}><div className="flex items-center gap-2 text-slate-600"><span className="h-2.5 w-2.5 rounded-sm" style={{ backgroundColor: row.color }} />{row.label}</div><span className="font-semibold text-slate-900">{formatNumber(row.value)}</span></div>)}
       </div>
     </div>
   );
@@ -1119,7 +1119,12 @@ export const CEOMonitoringView: React.FC = () => {
               ))}
             </div>
 
-            <DistributionDonut distribution={batteryPackDistribution} ariaLabel="Battery pack model distribution" />
+            <DistributionDonut
+              distribution={batteryPackDistribution}
+              ariaLabel="Battery pack model distribution"
+              large
+              compactLegend
+            />
           </div>
 
           <div className="order-3 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
