@@ -1025,6 +1025,7 @@ export const CEOMonitoringView: React.FC = () => {
               distribution={cellDistribution}
               ariaLabel="Cells distribution"
               showShare={false}
+              large={false}
               legendBelow
             />
           </div>
@@ -1123,7 +1124,7 @@ export const CEOMonitoringView: React.FC = () => {
             <DistributionDonut
               distribution={batteryPackDistribution}
               ariaLabel="Battery pack model distribution"
-              large
+              large={false}
               compactLegend
               legendBelow
             />
