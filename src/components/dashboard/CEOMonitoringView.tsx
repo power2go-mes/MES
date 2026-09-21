@@ -90,9 +90,35 @@ const DistributionDonut: React.FC<{ distribution: DashboardDistribution; ariaLab
           <text x="50" y="57" textAnchor="middle" fontSize="4.5" fill={reportColors.slate}>{centerLabel}</text>
         </svg>}
       </div>
-      <div className={`min-w-0 grid ${stackLegend ? 'grid-cols-1' : 'grid-cols-[max-content_auto]'} items-center gap-y-2.5 gap-x-[20px] py-2 ${legendMarginLeft ? 'sm:ml-[15mm]' : ''} ${legendMarginRight ? 'sm:mr-[18mm]' : ''} ${legendBelow ? 'w-full' : 'w-full flex-1 sm:w-auto'}`}>
-        {distribution.rows.map((row) => <div key={row.label} className={stackLegend ? 'flex items-center justify-between gap-3' : 'contents'}><div className={`flex items-center gap-2 whitespace-nowrap ${legendLabelClassName}`}><span className="h-2.5 w-2.5 shrink-0 rounded-sm" style={{ backgroundColor: row.color }} />{row.label}</div>{showLegendValues && <span className="whitespace-nowrap text-[12px] font-semibold text-slate-900">{formatNumber(row.value)}{showShare && <span className="font-normal text-slate-400"> ({row.share.toFixed(2)}%)</span>}</span>}</div>)}
-        {extraRows.map((row) => <div key={row.label} className={stackLegend ? 'flex items-center justify-between gap-3' : 'contents'}><div className={`flex items-center gap-2 whitespace-nowrap ${legendLabelClassName}`}><span className="h-2.5 w-2.5 shrink-0 rounded-sm" style={{ backgroundColor: row.color }} />{row.label}</div>{showLegendValues && <span className="whitespace-nowrap text-[12px] font-semibold text-slate-900">{formatNumber(row.value)}</span>}</div>)}
+      <div className={`min-w-0 py-2 ${legendMarginLeft ? 'sm:ml-[15mm]' : ''} ${legendMarginRight ? 'sm:mr-[18mm]' : ''} ${legendBelow ? 'w-full' : 'w-full flex-1 sm:w-auto'}`}>
+        <div className="grid gap-y-2" style={{ gridTemplateColumns: 'minmax(0, 1fr) 46px 5mm', columnGap: '0.15rem' }}>
+          {distribution.rows.map((row) => (
+            <React.Fragment key={row.label}>
+              <div className={`flex min-w-0 items-center gap-2 ${legendLabelClassName}`} style={{ marginLeft: '-10mm' }}>
+                <span className="h-2.5 w-2.5 shrink-0 rounded-sm" style={{ backgroundColor: row.color }} aria-hidden="true" />
+                <span className="truncate">{row.label}</span>
+              </div>
+              {showLegendValues ? (
+                <span className="whitespace-nowrap text-right text-[12px] font-semibold text-slate-900" style={{ marginLeft: '5mm' }}>{formatNumber(row.value)}</span>
+              ) : <span />}
+              {showLegendValues && showShare ? (
+                <span className="whitespace-nowrap text-right text-[12px] font-normal text-slate-400" style={{ marginLeft: '3mm', marginRight: '5mm' }}>({row.share.toFixed(2)}%)</span>
+              ) : showLegendValues ? <span className="text-right text-[12px] font-normal text-slate-400" style={{ marginLeft: '3mm', marginRight: '5mm' }} /> : <span />}
+            </React.Fragment>
+          ))}
+          {extraRows.map((row) => (
+            <React.Fragment key={row.label}>
+              <div className={`flex min-w-0 items-center gap-2 ${legendLabelClassName}`} style={{ marginLeft: '-10mm' }}>
+                <span className="h-2.5 w-2.5 shrink-0 rounded-sm" style={{ backgroundColor: row.color }} aria-hidden="true" />
+                <span className="truncate">{row.label}</span>
+              </div>
+              {showLegendValues ? (
+                <span className="whitespace-nowrap text-right text-[12px] font-semibold text-slate-900" style={{ marginLeft: '5mm' }}>{formatNumber(row.value)}</span>
+              ) : <span />}
+              <span className="text-right text-[12px] font-normal text-slate-400" style={{ marginLeft: '3mm', marginRight: '5mm' }} />
+            </React.Fragment>
+          ))}
+        </div>
       </div>
     </div>
   );
@@ -418,12 +444,123 @@ export const CEOMonitoringView: React.FC = () => {
   const producedCategoryBuckets = Array.isArray(source.producedCategoryBuckets) ? source.producedCategoryBuckets : [];
   const cabinetProduced = numberOr(producedCategoryBuckets.find((row: any) => row.label === 'Cabinet')?.value);
   const rackProduced = numberOr(producedCategoryBuckets.find((row: any) => row.label === 'Rack')?.value);
+  const cabinetDistributionSummary = useMemo(() => {
+    const totals = new Map<string, number>();
+    (source.rackStatusBuckets || []).forEach((status: any) => {
+      (status.rackTypes || []).forEach((rackTypeInfo: any) => {
+        const rackType = String(rackTypeInfo.rackType || '').toUpperCase();
+        const match = rackType.match(/RACK_(\d+(?:\.\d+)?)KWH/i);
+        if (!match) return;
+        const capacityValue = Number(match[1]);
+        if (capacityValue >= 45 && capacityValue <= 75 && capacityValue !== 25) {
+          const normalizedKey = capacityValue === 70 ? '69.7' : String(capacityValue);
+          totals.set(normalizedKey, (totals.get(normalizedKey) || 0) + numberOr(rackTypeInfo.value));
+        }
+      });
+    });
+
+    const distribution = [
+      { key: '69.7', label: '69.7kWh', value: totals.get('69.7') || 0 },
+      { key: '60', label: '60kWh', value: totals.get('60') || 0 },
+      { key: '45', label: '45kWh', value: totals.get('45') || 0 },
+    ].filter((entry) => entry.value > 0);
+
+    return distribution.length > 0 ? distribution.map((entry) => `${entry.value} (${entry.label})`).join(' / ') : '0 (0kWh)';
+  }, [source.rackStatusBuckets]);
+
+  const batteryPackModelSummary = useMemo(() => {
+    const normalizeLabel = (label: string) => String(label || '').toLowerCase().replace(/[^a-z0-9.]/g, '');
+
+    const lv = batteryPackData.reduce((sum: number, row: any) => {
+      const normalized = normalizeLabel(row.label);
+      return normalized === '5kwhbatterypack' ? sum + numberOr(row.value) : sum;
+    }, 0);
+
+    const wallMount = batteryPackData.reduce((sum: number, row: any) => {
+      const normalized = normalizeLabel(row.label);
+      return normalized === 'wallmount5kwh' ? sum + numberOr(row.value) : sum;
+    }, 0);
+
+    const hv = batteryPackData.reduce((sum: number, row: any) => {
+      const normalized = normalizeLabel(row.label);
+      return normalized === '7.5kwhbatterypack' || normalized === '7kwhbatterypack' ? sum + numberOr(row.value) : sum;
+    }, 0);
+
+    return {
+      lv,
+      wallMount,
+      hv,
+      label: `${formatNumber(lv)} (5kWh) / ${formatNumber(wallMount)} (WallMount)`,
+    };
+  }, [batteryPackData]);
 
   const kpiCards = [
     { label: 'Nominal Capacity Produced', value: `${formatNumber(capacityProduced)} kWh`, delta: '', positive: true, icon: <Zap className="h-5 w-5 text-emerald-600" />, bg: reportColors.card },
-    { label: 'Battery Packs Produced', value: formatNumber(scaleValue(completedBatteries)), delta: '', positive: releaseTrendChange === null || releaseTrendChange >= 0, icon: <Factory className="h-5 w-5 text-blue-600" />, bg: reportColors.card },
-    { label: 'Cabinet Produced', value: formatNumber(scaleValue(cabinetProduced)), delta: '', positive: true, icon: <PackageCheck className="h-5 w-5 text-blue-600" />, bg: reportColors.card },
-    { label: 'Rack Produced', value: formatNumber(scaleValue(rackProduced)), delta: '', positive: true, icon: <PackageCheck className="h-5 w-5 text-blue-600" />, bg: reportColors.card },
+    {
+      label: 'Battery Packs Produced',
+      value: formatNumber(batteryPackModelSummary.lv + batteryPackModelSummary.wallMount + batteryPackModelSummary.hv),
+      delta: '',
+      positive: releaseTrendChange === null || releaseTrendChange >= 0,
+      icon: <Factory className="h-5 w-5 text-blue-600" />,
+      bg: reportColors.card,
+      detail: (
+        <div className="mt-1 text-[10px] font-medium text-emerald-600">
+          <span className="inline-block text-[10px] text-emerald-600">
+            <span className="text-[13px] font-bold text-emerald-700">{formatNumber(batteryPackModelSummary.lv)}</span>
+            <span className="text-[9px] text-emerald-600"> (5kWh)</span>
+          </span>
+          <span className="inline-block px-1 text-[10px] text-emerald-600">/</span>
+          <span className="inline-block text-[10px] text-emerald-600">
+            <span className="text-[13px] font-bold text-emerald-700">{formatNumber(batteryPackModelSummary.wallMount || 0)}</span>
+            <span className="text-[9px] text-emerald-600"> (WallMount)</span>
+          </span>
+          <span className="inline-block px-1 text-[10px] text-emerald-600">/</span>
+          <span className="inline-block text-[10px] text-emerald-600">
+            <span className="text-[13px] font-bold text-emerald-700">{formatNumber(batteryPackModelSummary.hv)}</span>
+            <span className="text-[9px] text-emerald-600"> (7.5kWh)</span>
+          </span>
+        </div>
+      ),
+    },
+    {
+      label: 'Cabinet Produced',
+      value: formatNumber(scaleValue(cabinetProduced)),
+      delta: '',
+      positive: true,
+      icon: <PackageCheck className="h-5 w-5 text-blue-600" />,
+      bg: reportColors.card,
+      detail: (
+        <div className="mt-1 text-[10px] font-medium text-emerald-600">
+          {cabinetDistributionSummary.split(' / ').map((part) => {
+            const match = part.match(/^(\d+)\s*\(([^)]+)\)$/);
+            if (!match) return <span key={part} className="text-[10px] text-emerald-600">{part}</span>;
+            const [, count, capacity] = match;
+            return (
+              <span key={part} className="mr-1 inline-block text-[10px] text-emerald-600">
+                <span className="text-[13px] font-bold text-emerald-700">{count}</span>
+                <span className="text-[9px] text-emerald-600"> ({capacity})</span>
+              </span>
+            );
+          })}
+        </div>
+      ),
+    },
+    {
+      label: 'Rack Produced',
+      value: formatNumber(scaleValue(rackProduced)),
+      delta: '',
+      positive: true,
+      icon: <PackageCheck className="h-5 w-5 text-blue-600" />,
+      bg: reportColors.card,
+      detail: (
+        <div className="mt-1 text-[10px] font-medium text-emerald-600">
+          <span className="mr-1 inline-block text-[10px] text-emerald-600">
+            <span className="text-[13px] font-bold text-emerald-700">{scaleValue(rackProduced)}</span>
+            <span className="text-[9px] text-emerald-600"> (25kWh)</span>
+          </span>
+        </div>
+      ),
+    },
     { label: 'In Stock Cells', value: formatNumber(inStockCells), delta: '', positive: true, icon: <Boxes className="h-5 w-5 text-emerald-600" />, bg: reportColors.card },
     { label: 'Floor Stock Cells', value: formatNumber(floorStockCells), delta: '', positive: true, icon: <Boxes className="h-5 w-5 text-amber-600" />, bg: '#FFF7E8' },
   ];
@@ -954,7 +1091,7 @@ export const CEOMonitoringView: React.FC = () => {
                 <span className="text-[11px] font-medium text-slate-500">{card.label}</span>
               </div>
               <div className="text-[24px] font-extrabold tracking-[-0.04em] text-slate-900">{card.value}</div>
-              {card.delta ? <div className={`mt-1 text-[11px] font-semibold ${card.positive ? 'text-emerald-600' : 'text-red-500'}`}>{card.delta}</div> : <div className="mt-1 h-[14px]" />}
+              {'detail' in card && card.detail ? card.detail : (card.delta ? <div className={`mt-1 text-[11px] font-semibold ${card.positive ? 'text-emerald-600' : 'text-red-500'}`}>{card.delta}</div> : <div className="mt-1 h-[14px]" />)}
             </div>
           ))}
         </div>
