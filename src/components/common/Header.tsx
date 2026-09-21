@@ -66,9 +66,10 @@ export const Header: React.FC<HeaderProps> = ({ onOpenNavigation }) => {
           disabled={!canGoBack}
           aria-label="Go back to the previous page"
           title="Go back to the previous page"
-          className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-slate-200 text-slate-600 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-35"
+          className="flex h-10 shrink-0 items-center justify-center gap-2 rounded-lg border border-slate-200 px-3 text-slate-600 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-35"
         >
           <ArrowLeft className="h-4 w-4" />
+          <span className="text-xs font-semibold">Back</span>
         </button>
         <div className="hidden md:flex min-w-0 flex-1 max-w-xl">
           <form onSubmit={handleSearch} className="relative w-full">
