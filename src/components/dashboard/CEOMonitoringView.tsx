@@ -62,7 +62,7 @@ const DistributionDonut: React.FC<{ distribution: DashboardDistribution; ariaLab
   const centerLabel = /cell inventory/i.test(ariaLabel) ? 'CELLS' : 'TOTAL';
   let offset = 0;
   return (
-    <div className={`flex min-w-0 items-center gap-4 ${legendBelow ? 'flex-col' : 'flex-col sm:flex-row sm:gap-6'} ${large && !legendBelow ? 'sm:justify-center sm:gap-4' : ''}`}>
+    <div className={`flex min-w-0 items-center gap-4 ${legendBelow ? 'mt-auto min-h-[340px] flex-col justify-start' : 'flex-col sm:flex-row sm:gap-6'} ${large && !legendBelow ? 'sm:justify-center sm:gap-4' : ''}`}>
       <div className={`shrink-0 ${large ? `${legendBelow ? 'h-[220px] w-[220px] sm:h-[250px] sm:w-[250px]' : 'flex h-[220px] w-[220px] items-center justify-center sm:h-[250px] sm:w-[52%]'}` : 'h-[160px] w-[160px] sm:h-[180px] sm:w-[180px]'}`}>
         {distribution.total === 0 ? <div className="grid h-full place-items-center rounded-full border-[14px] border-slate-100 text-center"><span className="text-[11px] font-semibold text-slate-400">No recorded data</span></div> : <svg viewBox="0 0 100 100" className="h-full w-full" aria-label={ariaLabel}>
           <circle cx="50" cy="50" r="35" fill="none" stroke={reportColors.border} strokeWidth="14" />
@@ -298,7 +298,7 @@ export const CEOMonitoringView: React.FC = () => {
   const warehouseCellTotal = cellBucketTotal('KARACHI WAREHOUSE', 'LAHORE WAREHOUSE');
   const moduleCellTotal = cellBucketTotal('IN MODULE');
   const batteryPackCellTotal = cellBucketTotal('IN PACK');
-  const rackCellTotal = cellBucketTotal('IN RACK');
+  const rackCellTotal = numberOr(source.inventory?.rackCellCount, cellBucketTotal('IN RACK'));
   const moduleData = useMemo<ChartRow[]>(() => (source.moduleTypeBuckets || source.moduleStatusBuckets || [])
     .map((row: any) => ({ label: String(row.label || ''), value: numberOr(row.value), color: reportColors.blue }))
     .sort((left, right) => Number(right.label.match(/\d+/)?.[0] || 0) - Number(left.label.match(/\d+/)?.[0] || 0)), [source.moduleTypeBuckets, source.moduleStatusBuckets]);
@@ -1000,7 +1000,7 @@ export const CEOMonitoringView: React.FC = () => {
             <DistributionBars distribution={warehouseDistribution} ariaLabel="Warehouse distribution" />
           </div>
 
-          <div className="order-6 xl:col-span-1 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+          <div className="order-6 xl:col-span-1 flex flex-col rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
             <div className="mb-2 flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-50">
@@ -1038,7 +1038,7 @@ export const CEOMonitoringView: React.FC = () => {
         </div>
 
         <div className="contents">
-          <div className="order-5 xl:col-span-1 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+          <div className="order-5 xl:col-span-1 flex flex-col rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
             <div className="mb-2 flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-50">
@@ -1106,7 +1106,7 @@ export const CEOMonitoringView: React.FC = () => {
         </div>
 
         <div className="contents">
-          <div className="order-4 xl:col-span-1 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+          <div className="order-4 xl:col-span-1 flex flex-col rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
             <div className="mb-2 flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-50">
@@ -1142,7 +1142,7 @@ export const CEOMonitoringView: React.FC = () => {
             />
           </div>
 
-          <div className="order-3 xl:col-span-1 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+          <div className="order-3 xl:col-span-1 flex flex-col rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
             <div className="mb-2 flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-50">

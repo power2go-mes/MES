@@ -288,7 +288,7 @@ async function loadModuleCellAssignments(moduleIds: string[]): Promise<any[]> {
 }
 
 async function loadWarehouseLocationSnapshot() {
-  if (!rawSupabase) return { locationByCell: new Map<string, string>(), latestByEntity: new Map<string, string>(), warehouseRackCounts: { KARACHI: 0, LAHORE: 0 }, warehouseRackTypeCounts: [], warehouseBatteryCounts: { KARACHI: 0, LAHORE: 0 }, warehouseBatteryTypeCounts: [] };
+  if (!rawSupabase) return { locationByCell: new Map<string, string>(), latestByEntity: new Map<string, string>(), warehouseRackCounts: { KARACHI: 0, LAHORE: 0 }, warehouseRackTypeCounts: [], warehouseBatteryCounts: { KARACHI: 0, LAHORE: 0 }, warehouseBatteryTypeCounts: [], rackCellCount: 0 };
   const warehouseSupabase = rawSupabase;
 
   const normalizeWarehouseLocation = (value: unknown): 'KARACHI' | 'LAHORE' | '' => {
@@ -405,6 +405,12 @@ async function loadWarehouseLocationSnapshot() {
     rackIdsByBattery.set(batteryId, current);
   }
 
+  const rackCellIds = new Set<string>();
+  (rackPacks || []).forEach((row: any) => {
+    const moduleIds = moduleIdsByBattery.get(String(row?.battery_id || '')) || [];
+    moduleIds.forEach(moduleId => (cellIdsByModule.get(moduleId) || []).forEach(cellId => rackCellIds.add(cellId)));
+  });
+
   const locationByCell = new Map<string, string>();
 
   const assignCellLocation = (cellId: string, location: string) => {
@@ -504,6 +510,7 @@ async function loadWarehouseLocationSnapshot() {
     warehouseRackTypeCounts: Array.from(warehouseRackTypeCounts.entries()).map(([type, counts]) => ({ type, ...counts })),
     warehouseBatteryCounts,
     warehouseBatteryTypeCounts: Array.from(warehouseBatteryTypeCounts.entries()).map(([type, counts]) => ({ type, ...counts })),
+    rackCellCount: rackCellIds.size,
     lifecycleByCellId,
   };
 }
@@ -938,7 +945,7 @@ async getUsers(): Promise<User[]> {
         assignedBms: (liveBms || []).filter((controller: any) => isAssignedController(controller, linkedBmsIds, controller.id)).length,
         assignedBmu: (liveBmus || []).filter((controller: any) => isAssignedController(controller, linkedBmuIds, controller.id)).length,
       };
-      const { locationByCell: warehouseCellLocations, lifecycleByCellId, warehouseRackCounts, warehouseRackTypeCounts, warehouseBatteryCounts, warehouseBatteryTypeCounts } = await warehouseLocationPromise;
+      const { locationByCell: warehouseCellLocations, lifecycleByCellId, warehouseRackCounts, warehouseRackTypeCounts, warehouseBatteryCounts, warehouseBatteryTypeCounts, rackCellCount } = await warehouseLocationPromise;
       const normalizedCellBuckets = reconcileDashboardCellBuckets(data?.cellBuckets, data?.inventory?.totalCells);
       const warehouseAwareCellBuckets = buildWarehouseLocationBuckets(normalizedCellBuckets, warehouseCellLocations, lifecycleByCellId);
       const karachiWarehouseCells = Array.from(warehouseCellLocations.values()).filter(location => location === 'KARACHI').length;
@@ -973,6 +980,7 @@ async getUsers(): Promise<User[]> {
           karachiWarehouseBatteries: warehouseBatteryCounts.KARACHI,
           lahoreWarehouseBatteries: warehouseBatteryCounts.LAHORE,
           warehouseBatteryTypeCounts,
+          rackCellCount,
         },
         quality: data?.quality || { firstPassYieldPercent: 0, quarantinedCount: 0 },
         orders: data?.orders || { total: 0, inProcess: 0, completed: 0, planned: 0 },
