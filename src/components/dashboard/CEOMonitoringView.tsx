@@ -237,13 +237,22 @@ export const CEOMonitoringView: React.FC = () => {
     const rackLahore = selectedWarehouseRackType === 'All' ? numberOr(source.inventory?.lahoreWarehouseRacks, 0) : numberOr(selectedType?.LAHORE, 0);
     const batteryKarachi = selectedWarehouseBatteryType === 'All' ? numberOr(source.inventory?.karachiWarehouseBatteries, 0) : numberOr(selectedBatteryType?.KARACHI, 0);
     const batteryLahore = selectedWarehouseBatteryType === 'All' ? numberOr(source.inventory?.lahoreWarehouseBatteries, 0) : numberOr(selectedBatteryType?.LAHORE, 0);
-    const karachiValue = selectedWarehouseInventoryType === 'Racks' ? rackKarachi : selectedWarehouseInventoryType === 'Battery Packs' ? batteryKarachi : rackKarachi + batteryKarachi;
-    const lahoreValue = selectedWarehouseInventoryType === 'Racks' ? rackLahore : selectedWarehouseInventoryType === 'Battery Packs' ? batteryLahore : rackLahore + batteryLahore;
-
-    const rows: ChartRow[] = [
-      { label: 'Karachi Warehouse', value: karachiValue, color: statusColors['Karachi Warehouse'] || reportColors.blue },
-      { label: 'Lahore Warehouse', value: lahoreValue, color: statusColors['Lahore Warehouse'] || reportColors.blue },
-    ];
+    const rows: ChartRow[] = selectedWarehouseInventoryType === 'Racks'
+      ? [
+        { label: 'Karachi Racks', value: rackKarachi, color: reportColors.blue },
+        { label: 'Lahore Racks', value: rackLahore, color: reportColors.blue },
+      ]
+      : selectedWarehouseInventoryType === 'Battery Packs'
+        ? [
+          { label: 'Karachi Battery Packs', value: batteryKarachi, color: reportColors.green },
+          { label: 'Lahore Battery Packs', value: batteryLahore, color: reportColors.green },
+        ]
+        : [
+          { label: 'Karachi Racks', value: rackKarachi, color: reportColors.blue },
+          { label: 'Lahore Racks', value: rackLahore, color: reportColors.blue },
+          { label: 'Karachi Battery Packs', value: batteryKarachi, color: reportColors.green },
+          { label: 'Lahore Battery Packs', value: batteryLahore, color: reportColors.green },
+        ];
 
     return rows.filter((row) => row.value > 0 || (source.inventory && (source.inventory.karachiWarehouseRacks !== undefined || source.inventory.lahoreWarehouseRacks !== undefined)));
   }, [source.inventory, selectedWarehouseInventoryType, selectedWarehouseRackType, selectedWarehouseBatteryType]);
