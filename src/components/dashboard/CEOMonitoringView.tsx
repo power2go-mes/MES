@@ -63,7 +63,7 @@ const DistributionDonut: React.FC<{ distribution: DashboardDistribution; ariaLab
   let offset = 0;
   return (
     <div className={`flex min-w-0 items-center gap-4 ${legendBelow ? 'flex-col' : 'flex-col sm:flex-row sm:gap-6'} ${large && !legendBelow ? 'sm:justify-center sm:gap-4' : ''}`}>
-      <div className={`shrink-0 ${large ? `${legendBelow ? 'h-[220px] w-[220px] sm:h-[250px] sm:w-[250px]' : 'flex h-[220px] w-[220px] items-center justify-center sm:h-[250px] sm:w-[52%]'}` : 'h-[185px] w-[185px] sm:h-[220px] sm:w-[220px]'}`}>
+      <div className={`shrink-0 ${large ? `${legendBelow ? 'h-[220px] w-[220px] sm:h-[250px] sm:w-[250px]' : 'flex h-[220px] w-[220px] items-center justify-center sm:h-[250px] sm:w-[52%]'}` : 'h-[160px] w-[160px] sm:h-[180px] sm:w-[180px]'}`}>
         {distribution.total === 0 ? <div className="grid h-full place-items-center rounded-full border-[14px] border-slate-100 text-center"><span className="text-[11px] font-semibold text-slate-400">No recorded data</span></div> : <svg viewBox="0 0 100 100" className="h-full w-full" aria-label={ariaLabel}>
           <circle cx="50" cy="50" r="35" fill="none" stroke={reportColors.border} strokeWidth="14" />
           {visible.map((row) => {
@@ -1065,7 +1065,13 @@ export const CEOMonitoringView: React.FC = () => {
               ))}
             </div>
 
-            <DistributionBars distribution={moduleDistribution} ariaLabel="Module distribution" large />
+            <DistributionDonut
+              distribution={moduleDistribution}
+              ariaLabel="Module distribution"
+              large={false}
+              compactLegend
+              legendBelow
+            />
           </div>
 
           <div className="order-1 xl:col-span-2 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
@@ -1147,7 +1153,7 @@ export const CEOMonitoringView: React.FC = () => {
                   <div className="text-[11px] text-slate-400">Deployment &amp; status overview</div>
                 </div>
               </div>
-              <div className="text-[18px] font-extrabold text-slate-900">{formatNumber(rackCellTotal)}</div>
+              <div className="text-[18px] font-extrabold text-slate-900">{formatNumber(rackCellTotal || rackTotal)}</div>
             </div>
 
             <div className="mb-3 flex flex-wrap gap-2 text-[10px]">
@@ -1163,7 +1169,13 @@ export const CEOMonitoringView: React.FC = () => {
               ))}
             </div>
 
-            <DistributionBars distribution={rackDistribution} ariaLabel="Rack status distribution" large />
+            <DistributionDonut
+              distribution={rackDistribution}
+              ariaLabel="Rack status distribution"
+              large={false}
+              compactLegend
+              legendBelow
+            />
           </div>
         </div>
         </div>
