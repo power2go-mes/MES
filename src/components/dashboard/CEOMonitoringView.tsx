@@ -966,9 +966,9 @@ export const CEOMonitoringView: React.FC = () => {
           ))}
         </div>
 
-        <div className="grid gap-4 lg:grid-cols-2 xl:grid-cols-4">
+        <div className="grid gap-4 lg:grid-cols-4">
         <div className="contents">
-          <div className="order-2 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+          <div className="order-2 lg:col-span-2 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
             <div className="mb-2 flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-50">
@@ -994,7 +994,7 @@ export const CEOMonitoringView: React.FC = () => {
             <DistributionBars distribution={warehouseDistribution} ariaLabel="Warehouse distribution" />
           </div>
 
-          <div className="order-6 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+          <div className="order-6 lg:col-span-1 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
             <div className="mb-2 flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-50">
@@ -1030,7 +1030,7 @@ export const CEOMonitoringView: React.FC = () => {
         </div>
 
         <div className="contents">
-          <div className="order-5 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+          <div className="order-5 lg:col-span-1 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
             <div className="mb-2 flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-50">
@@ -1060,7 +1060,7 @@ export const CEOMonitoringView: React.FC = () => {
             <DistributionBars distribution={moduleDistribution} ariaLabel="Module distribution" />
           </div>
 
-          <div className="order-1 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+          <div className="order-1 lg:col-span-2 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
             <div className="mb-2 flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-50">
@@ -1092,7 +1092,7 @@ export const CEOMonitoringView: React.FC = () => {
         </div>
 
         <div className="contents">
-          <div className="order-4 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+          <div className="order-4 lg:col-span-1 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
             <div className="mb-2 flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-50">
@@ -1127,7 +1127,7 @@ export const CEOMonitoringView: React.FC = () => {
             />
           </div>
 
-          <div className="order-3 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+          <div className="order-3 lg:col-span-1 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
             <div className="mb-2 flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-50">
