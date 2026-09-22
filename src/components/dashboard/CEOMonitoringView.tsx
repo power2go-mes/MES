@@ -274,7 +274,7 @@ export const CEOMonitoringView: React.FC = () => {
       } catch (error: any) {
         if (!cancelled) {
           console.warn('CEO dashboard refresh failed:', error);
-          setLoadError(null);
+          setLoadError(error?.message || 'Dashboard data could not be loaded.');
           setStats((prev: any) => prev ?? {});
         }
       } finally {
