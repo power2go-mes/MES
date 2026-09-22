@@ -821,6 +821,9 @@ async getUsers(): Promise<User[]> {
         console.warn('Dashboard RPC error:', error.message);
         throw new Error(`Dashboard summary unavailable: ${error.message}`);
       }
+      if (!data) {
+        throw new Error('Dashboard summary returned no data. Verify the signed-in user has an active MES read permission.');
+      }
 
       const [{ data: liveModules }, { data: liveBatteries }, { data: liveRacks }, { data: liveRackPacks }, { data: soldBatteries }, { data: soldRacks }, { data: soldCells }, { data: soldModuleCells }, { data: soldRackPacks }, { data: liveCells }, { data: liveBms }, { data: liveBmus }] = await Promise.all([
         applyDateRange(rawSupabase.from('modules').select('id,module_type,status,created_at,serial_number,battery:batteries(product_templates(capacity_kwh,num_modules))')),
