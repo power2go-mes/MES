@@ -331,7 +331,6 @@ export const CEOMonitoringView: React.FC = () => {
   const orderCompletion = totalOrders > 0 ? clamp((completedOrders / totalOrders) * 100, 0, 100) : 0;
 
   const cellRows = useMemo<ChartRow[]>(() => normalizeCellBucketLabels((source.cellBuckets || []) as Array<{ label?: unknown; value?: unknown }>)
-    .filter((row) => !['Reusable', 'Recycle'].includes(row.label))
     .map((row) => ({
       label: row.label,
       value: row.value,
