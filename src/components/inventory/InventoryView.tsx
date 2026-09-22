@@ -493,7 +493,7 @@ export const InventoryView: React.FC = () => {
   return (
     <div className="flex-1 p-6 space-y-6 overflow-y-auto max-w-7xl mx-auto">
       {/* Header */}
-      <div className="bg-white rounded-2xl shadow-xs border border-slate-200 p-6 flex flex-col md:flex-row md:items-center justify-between gap-4">
+      <div className="inventory-header bg-white rounded-2xl shadow-xs border border-slate-200 p-6 flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <div className="flex items-center space-x-3">
             <span className="p-2.5 bg-emerald-50 border border-emerald-100 text-emerald-700 rounded-xl">
@@ -509,7 +509,7 @@ export const InventoryView: React.FC = () => {
         </div>
       </div>
       </div>
-        <div className="flex bg-slate-100/80 p-1.5 rounded-xl text-xs font-semibold border border-slate-200">
+        <div className="inventory-tab-strip flex bg-slate-100/80 p-1.5 rounded-xl text-xs font-semibold border border-slate-200">
           <button onClick={() => { setActiveTab('CELLS'); setStatusFilter(''); }} className={`px-3.5 py-1.5 rounded-lg transition-all ${activeTab === 'CELLS' ? 'bg-white text-slate-900 shadow-2xs font-bold' : 'text-slate-600 hover:text-slate-900'}`}>Cells ({cells.length})</button>
           <button onClick={() => { setActiveTab('BMS'); setStatusFilter(''); }} className={`px-3.5 py-1.5 rounded-lg transition-all ${activeTab === 'BMS' ? 'bg-white text-slate-900 shadow-2xs font-bold' : 'text-slate-600 hover:text-slate-900'}`}>BMS ({bmsUnits.length})</button>
           <button onClick={() => { setActiveTab('BMU'); setStatusFilter(''); }} className={`px-3.5 py-1.5 rounded-lg transition-all ${activeTab === 'BMU' ? 'bg-white text-slate-900 shadow-2xs font-bold' : 'text-slate-600 hover:text-slate-900'}`}>BMU ({bmuUnits.length})</button>
