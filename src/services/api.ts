@@ -356,7 +356,7 @@ async function loadWarehouseLocationSnapshot() {
     rawSupabase.from('batteries').select('id, serial_number, product_templates(name, capacity_kwh)'),
     rawSupabase.from('rack_packs').select('battery_id, rack_id'),
     rawSupabase.from('racks').select('id, serial_number, qr_code, rack_template_code, location'),
-    fetchAllRows('cells', 'id, lifecycle_status, status'),
+    fetchAllRows('cells', 'id, lifecycle_status, status, internal_serial, supplier_barcode, grade, created_at'),
   ]);
   const warehouseMoves = warehouseResult.data || [];
   const modules = modulesResult.data || [];
@@ -543,6 +543,7 @@ async function loadWarehouseLocationSnapshot() {
     warehouseBatteryTypeCounts: Array.from(warehouseBatteryTypeCounts.entries()).map(([type, counts]) => ({ type, ...counts })),
     rackCellCount: rackCellIds.size,
     lifecycleByCellId,
+    cells: cellsResult || [],
   };
 }
 
@@ -826,7 +827,6 @@ async getUsers(): Promise<User[]> {
         applyDateRange(rawSupabase.from('cells').select('id,reserved_for_battery_id').eq('lifecycle_status', 'SOLD')),
         rawSupabase.from('module_cells').select('cell_id,module:modules(battery_id)'),
         rawSupabase.from('rack_packs').select('battery_id,rack:racks(status)'),
-        rawSupabase.from('cells').select('id,status,lifecycle_status,internal_serial,supplier_barcode,grade,created_at'),
         rawSupabase.from('bms_units').select('id,status,serial_number'),
         rawSupabase.from('bmu_units').select('id,status,serial_number'),
       ]);
@@ -840,9 +840,10 @@ async getUsers(): Promise<User[]> {
         throw new Error('Dashboard summary returned no data. Verify the signed-in user has an active MES read permission.');
       }
 
-      const [{ data: liveModules }, { data: liveBatteries }, { data: liveRacks }, { data: liveRackPacks }, { data: soldBatteries }, { data: soldRacks }, { data: soldCells }, { data: soldModuleCells }, { data: soldRackPacks }, { data: liveCells }, { data: liveBms }, { data: liveBmus }] = detailData;
       const warehouseLocations = await warehouseLocationPromise;
       const { latestByEntity } = warehouseLocations;
+      const liveCells = warehouseLocations.cells || [];
+      const [{ data: liveModules }, { data: liveBatteries }, { data: liveRacks }, { data: liveRackPacks }, { data: soldBatteries }, { data: soldRacks }, { data: soldCells }, { data: soldModuleCells }, { data: soldRackPacks }, { data: liveBms }, { data: liveBmus }] = detailData;
       const extractSerial = (...values: any[]) => {
         for (const value of values) {
           const candidate = String(value ?? '').trim();
