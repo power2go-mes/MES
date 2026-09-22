@@ -65,7 +65,7 @@ const DistributionDonut: React.FC<{ distribution: DashboardDistribution; ariaLab
   const [hoveredRow, setHoveredRow] = useState<DashboardDistribution['rows'][number] | null>(null);
   let offset = 0;
   return (
-    <div className={`flex min-w-0 items-center gap-2 ${balancedVerticalMargin ? 'my-[24px]' : ''} ${legendBelow ? 'mt-auto min-h-[340px] flex-col justify-start' : 'flex-col sm:flex-row sm:gap-2'} ${large && !legendBelow ? 'sm:justify-center sm:gap-2' : ''}`}>
+    <div className={`ceo-donut-layout flex min-w-0 items-center gap-2 ${balancedVerticalMargin ? 'my-[24px]' : ''} ${legendBelow ? 'mt-auto min-h-[340px] flex-col justify-start' : 'flex-col sm:flex-row sm:gap-2'} ${large && !legendBelow ? 'sm:justify-center sm:gap-2' : ''}`}>
       <div className={`relative shrink-0 ${donutMarginLeft ? 'sm:ml-[10mm]' : ''} ${donutMarginTop ? 'sm:translate-y-[10px]' : ''} ${large ? `${legendBelow ? 'h-[220px] w-[220px] sm:h-[250px] sm:w-[250px]' : 'flex h-[220px] w-[220px] items-center justify-center sm:h-[250px] sm:w-[52%]'}` : 'h-[160px] w-[160px] sm:h-[180px] sm:w-[180px]'}`}>
         {hoveredRow && <div className="pointer-events-none absolute left-1/2 top-0 z-10 -translate-x-1/2 -translate-y-full whitespace-nowrap rounded-md bg-slate-900 px-2.5 py-1.5 text-[11px] font-semibold text-white shadow-lg">{hoveredRow.label}: {formatNumber(hoveredRow.value)} ({hoveredRow.share.toFixed(2)}%)</div>}
         {distribution.total === 0 ? <div className="grid h-full place-items-center rounded-full border-[14px] border-slate-100 text-center"><span className="text-[11px] font-semibold text-slate-400">No recorded data</span></div> : <svg viewBox="0 0 100 100" className="h-full w-full" aria-label={ariaLabel}>
@@ -92,14 +92,14 @@ const DistributionDonut: React.FC<{ distribution: DashboardDistribution; ariaLab
           <text x="50" y="57" textAnchor="middle" fontSize="4.5" fill={reportColors.slate}>{centerLabel}</text>
         </svg>}
       </div>
-      <div className={`min-w-0 py-2 ${legendMarginLeft ? 'sm:ml-[15mm]' : ''} ${legendMarginRight ? 'sm:mr-[18mm]' : ''} ${legendBelow ? 'w-full' : 'w-full flex-1 sm:w-auto'}`}>
+      <div className={`ceo-donut-legend min-w-0 py-2 ${legendMarginLeft ? 'sm:ml-[15mm]' : ''} ${legendMarginRight ? 'sm:mr-[18mm]' : ''} ${legendBelow ? 'w-full' : 'w-full flex-1 sm:w-auto'}`}>
         <div className="grid gap-y-2" style={{ gridTemplateColumns: 'minmax(0, 1fr) 46px 5mm', columnGap: '0.15rem' }}>
           {distribution.rows.map((row) => {
             const dropdown = dropdowns.find((item) => item.label === row.label);
             const isDropdownOpen = Boolean(dropdown?.open);
             return (
               <React.Fragment key={row.label}>
-                <div className={`relative flex min-w-0 items-center gap-2 ${legendLabelClassName}`} style={{ marginLeft: '-10mm' }}>
+                <div className={`ceo-legend-label relative flex min-w-0 items-center gap-2 ${legendLabelClassName}`} style={{ marginLeft: '-10mm' }}>
                   <span className="h-2.5 w-2.5 shrink-0 rounded-sm" style={{ backgroundColor: row.color }} aria-hidden="true" />
                   <span className="truncate">{row.label}</span>
                   {dropdown && (
@@ -1203,7 +1203,7 @@ export const CEOMonitoringView: React.FC = () => {
   };
 
   return (
-    <div className="min-w-0 flex-1 overflow-y-auto bg-[#F7F9FB] p-3 sm:p-5">
+    <div className="ceo-dashboard min-w-0 flex-1 overflow-y-auto bg-[#F7F9FB] p-3 sm:p-5">
       <div className="mx-auto max-w-[1440px] space-y-5">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
           <div>
@@ -1226,7 +1226,7 @@ export const CEOMonitoringView: React.FC = () => {
           </div>
         </div>
 
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-6">
+        <div className="ceo-kpi-grid grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-6">
           {kpiCards.map((card) => (
             <div key={card.label} className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
               <div className="mb-3 flex items-center gap-2">
@@ -1241,8 +1241,8 @@ export const CEOMonitoringView: React.FC = () => {
           ))}
         </div>
 
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-2">
-          <div className="order-1 xl:col-span-1 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+        <div className="ceo-panel-grid grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-2">
+          <div className="ceo-panel order-1 xl:col-span-1 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
             <div className="mb-2 flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-50">
@@ -1306,7 +1306,7 @@ export const CEOMonitoringView: React.FC = () => {
             />
           </div>
 
-          <div className="order-2 xl:col-span-1 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+          <div className="ceo-panel order-2 xl:col-span-1 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
             <div className="mb-2 flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-50">
