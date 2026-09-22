@@ -894,7 +894,7 @@ export const CEOMonitoringView: React.FC = () => {
       }];
       const scrapReportRows = [
         { label: 'Damage', value: damageScrapCount, capacityKwh: damageScrapCount * CELL_CAPACITY_KWH, color: statusColors.Damage || statusColors.Scrap },
-        { label: 'Recycle', value: reusableScrapCount, capacityKwh: reusableScrapCount * CELL_CAPACITY_KWH, color: statusColors.Recycle },
+        { label: 'Recycle', value: reusableScrapCount, capacityKwh: reusableScrapCount * CELL_CAPACITY_KWH, color: reportGreen },
       ];
       const soldBatteryCount = numberOr(source.soldBatteryPackCount ?? source.batteryStatusBuckets?.find((row: any) => String(row.label || '').toUpperCase() === 'SOLD')?.value);
       const soldRackCount = numberOr(source.rackStatusBuckets?.find((row: any) => String(row.label || row.status || '').toUpperCase().replace(/_/g, ' ') === 'SOLD')?.value);
