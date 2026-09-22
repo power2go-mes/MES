@@ -281,3 +281,74 @@ html, body, #root { min-width: 0; min-height: 100%; }
     min-width: 0;
   }
 }
+
+/* Keep two-column dashboard cards readable on tablets and small laptops. */
+@media (min-width: 768px) and (max-width: 1199px) {
+  .ceo-dashboard {
+    padding: 1rem;
+  }
+
+  .ceo-dashboard .ceo-panel-grid {
+    gap: 0.75rem;
+  }
+
+  .ceo-dashboard .ceo-panel-grid > div {
+    min-width: 0;
+    overflow: visible;
+    padding: 0.75rem;
+  }
+
+  .ceo-dashboard .ceo-panel-grid > div > div:first-child {
+    min-width: 0;
+    align-items: flex-start;
+  }
+
+  .ceo-dashboard .ceo-panel-grid > div > div:first-child > div:nth-child(2) {
+    min-width: 0;
+  }
+
+  .ceo-dashboard .ceo-panel-grid > div > div:first-child > div:last-child {
+    min-width: 0;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+  }
+
+  .ceo-dashboard .ceo-donut-layout {
+    align-items: center;
+    gap: 0.25rem;
+  }
+
+  .ceo-dashboard .ceo-donut-layout > div:first-child {
+    width: 42%;
+    height: 11rem;
+    margin-left: 0;
+    transform: none;
+  }
+
+  .ceo-dashboard .ceo-donut-legend {
+    width: 58%;
+    margin-left: 0;
+    margin-right: 0;
+    padding-top: 0.25rem;
+  }
+
+  .ceo-dashboard .ceo-legend-label {
+    margin-left: 0 !important;
+    gap: 0.3rem;
+  }
+
+  .ceo-dashboard .ceo-donut-legend > div {
+    grid-template-columns: minmax(0, 1fr) 2.5rem 3.5rem !important;
+    column-gap: 0.2rem !important;
+    row-gap: 0.35rem;
+  }
+
+  .ceo-dashboard .ceo-donut-legend span {
+    min-width: 0;
+    font-size: 0.65rem;
+  }
+
+  .ceo-dashboard .ceo-panel-grid button {
+    max-width: 100%;
+  }
+}
