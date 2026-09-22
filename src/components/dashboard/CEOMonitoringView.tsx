@@ -42,13 +42,24 @@ const statusColors: Record<string, string> = {
 const packColors = [reportColors.blue, reportColors.green];
 const ceoDonutPalette = ['#245501', '#538D22', '#1A4301', '#73A942', '#143601', '#AAD576'];
 const applyPalette = <T extends { color?: string }>(rows: T[], palette = ceoDonutPalette) => rows.map((row, index) => ({ ...row, color: palette[index % palette.length] }));
+const ceoStatusColors: Record<string, string> = {
+  'In Stock': ceoDonutPalette[1],
+  'Floor Stock': ceoDonutPalette[2],
+  'In Module': ceoDonutPalette[3],
+  'In Pack': ceoDonutPalette[4],
+  'In Rack': ceoDonutPalette[5],
+  'Karachi Warehouse': ceoDonutPalette[0],
+  'Lahore Warehouse': ceoDonutPalette[1],
+  Sold: ceoDonutPalette[2],
+  Damage: ceoDonutPalette[0],
+  Reusable: ceoDonutPalette[5],
+};
 const packColorByModel: Record<string, string> = {
   'WallMount 5kWh': reportColors.blue,
   '5 kWh Battery Pack': reportColors.blue,
   '7.5 kWh Battery Pack': reportColors.green,
 };
 const reportDarkGrey = reportColors.slate;
-const reportGreen = reportColors.green;
 const reportCabinetBlue = reportColors.blue;
 const rackPowerColors: Record<string, string> = {
   '25': reportColors.blue,
@@ -857,7 +868,7 @@ export const CEOMonitoringView: React.FC = () => {
           label: status.replace(/_/g, ' '),
           value: values.get(status.replace(/_/g, ' ').toUpperCase())?.value || 0,
           capacityKwh: values.get(status.replace(/_/g, ' ').toUpperCase())?.capacityKwh || (values.get(status.replace(/_/g, ' ').toUpperCase())?.value || 0) * defaultCapacityKwh(status),
-          color: Object.entries(colorMap).find(([label]) => label.toUpperCase() === status.replace(/_/g, ' ').toUpperCase())?.[1] || reportColors.slate,
+          color: ceoStatusColors[status.replace(/_/g, ' ')] || Object.entries(colorMap).find(([label]) => label.toUpperCase() === status.replace(/_/g, ' ').toUpperCase())?.[1] || reportColors.slate,
         }));
       };
       const cellReportRows = statusRows(
@@ -867,34 +878,36 @@ export const CEOMonitoringView: React.FC = () => {
         () => CELL_CAPACITY_KWH,
       ).concat([
         { label: 'Damage', value: damageScrapCount, capacityKwh: damageScrapCount * CELL_CAPACITY_KWH, color: statusColors.Damage || statusColors.Scrap },
-        { label: 'Recycle', value: reusableScrapCount, capacityKwh: reusableScrapCount * CELL_CAPACITY_KWH, color: reportGreen },
+        { label: 'Recycle', value: reusableScrapCount, capacityKwh: reusableScrapCount * CELL_CAPACITY_KWH, color: ceoDonutPalette[5] },
       ]).map((row) => row.label === 'In Module'
         ? { ...row, label: 'In Module (standalone)' }
         : row);
       const moduleReportRows = statusRows(
         ['8S', '12S'],
         source.moduleTypeBuckets,
-        { '8S': reportGreen, '12S': reportGreen },
+        { '8S': ceoDonutPalette[0], '12S': ceoDonutPalette[5] },
         (status) => status === '12S' ? 3.75 : 2.5,
       );
-      const batteryReportRows = (source.batteryPackBuckets || []).map((row: any, index: number) => {
+      const batteryReportRows = [...(source.batteryPackBuckets || [])]
+        .sort((left: any, right: any) => Number(String(right.label || '').match(/\d+(?:\.\d+)?/)?.[0] || 0) - Number(String(left.label || '').match(/\d+(?:\.\d+)?/)?.[0] || 0))
+        .map((row: any, index: number) => {
         const label = String(row.label || 'Unnamed Pack');
         return {
           label,
           value: numberOr(row.value),
           capacityKwh: numberOr(row.capacityKwh),
-          color: reportGreen,
+          color: ceoDonutPalette[index % ceoDonutPalette.length],
         };
-      });
+        });
       const cabinetReportRows = [{
         label: 'Cabinet · 7.5 kWh batteries',
         value: cabinetProduced,
         capacityKwh: cabinetProduced * 7.5,
-        color: reportGreen,
+        color: ceoDonutPalette[0],
       }];
       const scrapReportRows = [
         { label: 'Damage', value: damageScrapCount, capacityKwh: damageScrapCount * CELL_CAPACITY_KWH, color: statusColors.Damage || statusColors.Scrap },
-        { label: 'Recycle', value: reusableScrapCount, capacityKwh: reusableScrapCount * CELL_CAPACITY_KWH, color: reportGreen },
+        { label: 'Recycle', value: reusableScrapCount, capacityKwh: reusableScrapCount * CELL_CAPACITY_KWH, color: ceoDonutPalette[5] },
       ];
       const soldBatteryCount = numberOr(source.soldBatteryPackCount ?? source.batteryStatusBuckets?.find((row: any) => String(row.label || '').toUpperCase() === 'SOLD')?.value);
       const soldRackCount = numberOr(source.rackStatusBuckets?.find((row: any) => String(row.label || row.status || '').toUpperCase().replace(/_/g, ' ') === 'SOLD')?.value);
@@ -902,14 +915,10 @@ export const CEOMonitoringView: React.FC = () => {
       const soldRackCellCapacityKwh = numberOr(source.soldRackCellCount) * CELL_CAPACITY_KWH;
       const soldCellQuantity = numberOr(source.soldCellCount ?? source.cellBuckets?.find((row: any) => String(row.label || '').toUpperCase() === 'SOLD')?.value);
       const soldReportRows = [
-        { label: 'Battery Pack units', value: soldBatteryCount, capacityKwh: soldBatteryCellCapacityKwh, color: reportGreen },
-        { label: 'Rack units', value: soldRackCount, capacityKwh: soldRackCellCapacityKwh, color: reportGreen },
+        { label: 'Battery Pack units', value: soldBatteryCount, capacityKwh: soldBatteryCellCapacityKwh, color: ceoDonutPalette[1] },
+        { label: 'Rack units', value: soldRackCount, capacityKwh: soldRackCellCapacityKwh, color: ceoDonutPalette[0] },
       ];
       const rackTypeTotals = new Map<string, { value: number; capacityKwh: number }>();
-      const rackColor = (rackType: string) => {
-        const powerMatch = rackType.match(/RACK_(\d+(?:\.\d+)?)KWH/i);
-        return reportGreen;
-      };
       const formatRackLabel = (rackType: string) => {
         const powerMatch = rackType.match(/RACK_(\d+(?:\.\d+)?)KWH/i);
         const powerValue = powerMatch?.[1] === '70' ? '67.9' : powerMatch?.[1];
@@ -934,10 +943,10 @@ export const CEOMonitoringView: React.FC = () => {
           const rightPower = Number(rightType.match(/RACK_(\d+(?:\.\d+)?)KWH/i)?.[1] || Number.MAX_SAFE_INTEGER);
           return leftPower - rightPower;
         })
-        .map(([rackType, totals]) => ({
+        .map(([rackType, totals], index) => ({
           label: formatRackLabel(rackType),
           ...totals,
-          color: rackColor(rackType),
+          color: ceoDonutPalette[index % ceoDonutPalette.length],
         }));
       const controllerInventory = source.controllerInventory || {};
       const bmsTotal = numberOr(controllerInventory.totalBms);
@@ -945,14 +954,14 @@ export const CEOMonitoringView: React.FC = () => {
       const bmsAvailable = numberOr(controllerInventory.availableBms);
       const bmuAvailable = numberOr(controllerInventory.availableBmu);
       const bmsReportRows = [
-        { label: 'Total', value: bmsTotal, capacityKwh: 0, color: reportGreen },
-        { label: 'Available', value: bmsAvailable, capacityKwh: 0, color: reportGreen },
-        { label: 'Used', value: Math.max(0, bmsTotal - bmsAvailable), capacityKwh: 0, color: reportGreen },
+        { label: 'Total', value: bmsTotal, capacityKwh: 0, color: ceoDonutPalette[0] },
+        { label: 'Available', value: bmsAvailable, capacityKwh: 0, color: ceoDonutPalette[1] },
+        { label: 'Used', value: Math.max(0, bmsTotal - bmsAvailable), capacityKwh: 0, color: ceoDonutPalette[2] },
       ];
       const bmuReportRows = [
-        { label: 'Total', value: bmuTotal, capacityKwh: 0, color: reportGreen },
-        { label: 'Available', value: bmuAvailable, capacityKwh: 0, color: reportGreen },
-        { label: 'Used', value: Math.max(0, bmuTotal - bmuAvailable), capacityKwh: 0, color: reportGreen },
+        { label: 'Total', value: bmuTotal, capacityKwh: 0, color: ceoDonutPalette[0] },
+        { label: 'Available', value: bmuAvailable, capacityKwh: 0, color: ceoDonutPalette[1] },
+        { label: 'Used', value: Math.max(0, bmuTotal - bmuAvailable), capacityKwh: 0, color: ceoDonutPalette[2] },
       ];
       const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
       const pageWidth = doc.internal.pageSize.getWidth();
