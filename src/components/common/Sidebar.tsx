@@ -21,7 +21,10 @@ import {
   Settings,
   ChevronDown,
   ChevronRight,
-  PanelLeftClose
+  PanelLeftClose,
+  Bell,
+  ChevronUp,
+  LogOut
 } from 'lucide-react';
 
 type SidebarProps = {
@@ -30,11 +33,22 @@ type SidebarProps = {
 };
 
 export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
-  const { activeView, setActiveView, setActiveBatteryId, setBatteryBuilderEditRequested, inventoryTab, setInventoryTab } = useApp();
-  const { currentUser } = useAuth();
+  const { activeView, setActiveView, setActiveBatteryId, setBatteryBuilderEditRequested, inventoryTab, setInventoryTab, notifications } = useApp();
+  const { currentUser, profile, logout } = useAuth();
   const canManageUsers = currentUser?.roleId === 'role-admin' || currentUser?.role === 'admin';
   const isCeo = currentUser?.roleId === 'role-ceo' || currentUser?.role === 'ceo';
   const [openSections, setOpenSections] = useState<Record<string, boolean>>({});
+  const [showNotifications, setShowNotifications] = useState(false);
+  const [showProfile, setShowProfile] = useState(false);
+
+  const currentProfile = profile ?? currentUser;
+
+  const getRoleBadgeColor = (role: string) => {
+    if (role === 'admin' || role === 'qc_inspector' || role === 'maintenance' || role === 'warehouse') {
+      return 'bg-slate-50 text-slate-700 border-slate-200';
+    }
+    return 'bg-emerald-50 text-emerald-700 border-emerald-200';
+  };
 
   const toggleSection = (section: string) => {
     setOpenSections(previous => ({ ...previous, [section]: !previous[section] }));
@@ -209,6 +223,69 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
         </div>
 
       </nav>
+
+      <div className="mobile-sidebar-actions flex border-t border-slate-100 p-3 md:hidden">
+        <div className="relative flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setShowNotifications(previous => !previous)}
+            aria-label="Open notifications"
+            className="relative flex h-10 w-10 items-center justify-center rounded-lg border border-slate-200 text-slate-500 hover:bg-slate-50"
+          >
+            <Bell className="h-4 w-4" />
+            {notifications.length > 0 && <span className="absolute right-1.5 top-1.5 h-2 w-2 rounded-full bg-emerald-600" />}
+          </button>
+          <button
+            type="button"
+            onClick={() => setShowProfile(previous => !previous)}
+            aria-expanded={showProfile}
+            className="flex min-w-0 flex-1 items-center gap-2 rounded-lg border border-slate-200 px-2 py-1.5 text-left hover:bg-slate-50"
+          >
+            <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-slate-900 text-xs font-bold text-white">
+              {profile?.name?.charAt(0) || '—'}
+            </span>
+            <span className="min-w-0 flex-1">
+              <span className="block truncate text-xs font-bold text-slate-900">{currentUser?.name || '—'}</span>
+              <span className="block truncate text-[10px] font-bold uppercase tracking-wider text-slate-400">{currentUser?.role?.replace('_', ' ') || '—'}</span>
+            </span>
+            {showProfile ? <ChevronUp className="h-3.5 w-3.5 shrink-0 text-slate-400" /> : <ChevronDown className="h-3.5 w-3.5 shrink-0 text-slate-400" />}
+          </button>
+          {showNotifications && (
+            <div className="absolute bottom-12 left-0 z-50 w-full rounded-xl border border-slate-200 bg-white py-2 shadow-lg">
+              <div className="flex items-center justify-between border-b border-slate-100 px-3 py-2">
+                <span className="text-[10px] font-black uppercase tracking-widest text-slate-400">Notifications</span>
+                <span className="rounded bg-emerald-50 px-1.5 py-0.5 text-[10px] font-bold text-emerald-700">{notifications.length}</span>
+              </div>
+              <div className="max-h-48 overflow-y-auto">
+                {notifications.length === 0 ? <p className="p-3 text-center text-xs text-slate-400">No new notifications</p> : notifications.map(notification => (
+                  <div key={notification.id} className="border-b border-slate-50 p-3 text-xs last:border-0">
+                    <p className="font-bold text-slate-800">{notification.title}</p>
+                    <p className="mt-0.5 text-[11px] text-slate-500">{notification.message}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+          {showProfile && (
+            <div className="absolute bottom-12 right-0 z-50 w-64 rounded-xl border border-slate-200 bg-white py-2 shadow-lg">
+              <div className="border-b border-slate-100 px-3 py-2">
+                <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Operator Profile</p>
+                <p className="mt-0.5 text-[11px] text-slate-500">{currentUser?.badgeId || '—'}</p>
+              </div>
+              <div className="flex items-center justify-between px-3 py-2 text-xs">
+                <span className="font-semibold">Role</span>
+                <span className={`rounded border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider ${getRoleBadgeColor(currentProfile?.roleId || '')}`}>
+                  {String(currentProfile?.roleId || '—').replace('role-', '').replace('_', ' ')}
+                </span>
+              </div>
+              <button type="button" onClick={() => void logout()} className="flex w-full items-center gap-2 border-t border-slate-100 px-3 py-2 text-left text-xs font-semibold text-slate-600 hover:bg-slate-50">
+                <LogOut className="h-3.5 w-3.5" />
+                <span>Logout</span>
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
     </aside>
   );
 };

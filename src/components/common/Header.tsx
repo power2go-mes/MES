@@ -68,8 +68,8 @@ export const Header: React.FC<HeaderProps> = ({ onOpenNavigation, onToggleSideba
   };
 
   return (
-    <header className="app-header h-16 bg-white border-b border-slate-200 sticky top-0 z-40 shadow-xs px-4 sm:px-6">
-      <div className="mx-auto flex h-full w-full max-w-[1600px] items-center gap-6">
+    <header className="app-header min-h-16 bg-white border-b border-slate-200 sticky top-0 z-40 shadow-xs px-4 sm:px-6">
+      <div className="mx-auto flex min-h-16 w-full max-w-[1600px] flex-wrap items-center gap-6">
         <button
           type="button"
           onClick={isSidebarOpen ? onToggleSidebar : onOpenNavigation}
@@ -89,7 +89,7 @@ export const Header: React.FC<HeaderProps> = ({ onOpenNavigation, onToggleSideba
           <ArrowLeft className="h-4 w-4" />
           <span className="text-xs font-semibold">Back</span>
         </button>
-        <div className="hidden md:flex min-w-0 flex-1 max-w-xl">
+        <div className="order-last flex w-full min-w-0 flex-1 md:order-none md:max-w-xl">
           <form onSubmit={handleSearch} className="relative w-full">
           <input
             type="text"
@@ -108,7 +108,7 @@ export const Header: React.FC<HeaderProps> = ({ onOpenNavigation, onToggleSideba
           </form>
         </div>
 
-        <div className="ml-auto flex h-10 items-center gap-3 sm:gap-5">
+        <div className="ml-auto hidden h-10 items-center gap-3 sm:gap-5 md:flex">
           {/* Notifications */}
           <div className="relative" data-header-menu="true">
             <button
