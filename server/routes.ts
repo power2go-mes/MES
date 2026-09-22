@@ -1192,7 +1192,7 @@ apiRouter.get('/production-orders', (req, res) => {
       const batId = `bat-${Date.now()}-${q}`;
       const batteryBase = `P2G-${product.productModel.toUpperCase().replace(/[^A-Z0-9.]+/g, '')}-${new Date().toISOString().slice(2, 7).replace('-', '')}`;
       const nextBatteryNumber = Array.from(db.batteries.values()).reduce((max, battery) => {
-        if (!/^P2G-[A-Z0-9.]+-[0-9]{4}-[0-9]{6}$/i.test(battery.serialNumber)) return max;
+        if (!battery.serialNumber.toUpperCase().includes(product.productModel.toUpperCase())) return max;
         return Math.max(max, Number(battery.serialNumber.match(/(\d+)$/)?.[1] || 0));
       }, 0) + q + 1;
       const batSerial = `${batteryBase}-${String(nextBatteryNumber).padStart(6, '0')}`;

@@ -1699,7 +1699,7 @@ async getUsers(): Promise<User[]> {
         const { data: serialPage, error: serialLookupError } = await supabase
           .from('batteries')
           .select('serial_number')
-          .like('serial_number', `${serialPrefix}-%`)
+          .like('serial_number', `P2G-BP-${batteryPower}KWH-%`)
           .range(offset, offset + 999);
         if (serialLookupError) throw new Error(`Failed to verify battery serials: ${serialLookupError.message}`);
         existingSerialRows.push(...(serialPage || []));

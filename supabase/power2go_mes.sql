@@ -1411,7 +1411,7 @@ begin
     select coalesce(max((substring(serial_number from '([0-9]+)$'))::integer), 0) + 1
     into v_next_battery_number
     from public.batteries
-    where serial_number ~ ('^P2G-BP-' || regexp_replace(to_char(case when coalesce(v_capacity_kwh, 5) = 8 then 7.5 else coalesce(v_capacity_kwh, 5) end, 'FM999990.##'), '0+$', '') || 'KWH-' || v_production_period || '-[0-9]{4}$');
+    where serial_number ~ ('^P2G-BP-' || regexp_replace(to_char(case when coalesce(v_capacity_kwh, 5) = 8 then 7.5 else coalesce(v_capacity_kwh, 5) end, 'FM999990.##'), '0+$', '') || 'KWH-[0-9]{4}-[0-9]{4}$');
     perform pg_advisory_xact_lock(hashtext('P2G-module-serials')); 
     select coalesce(max((substring(serial_number from '([0-9]+)$'))::integer), 0) + 1
     into v_next_module_number
@@ -1539,7 +1539,7 @@ begin
     select coalesce(max((substring(serial_number from '([0-9]+)$'))::integer), 0) + 1
       into v_next_number
       from public.batteries
-         where serial_number like 'P2G-BP-' || regexp_replace(to_char(case when coalesce(v_product.capacity_kwh, 5) = 8 then 7.5 else coalesce(v_product.capacity_kwh, 5) end, 'FM999990.##'), '0+$', '') || 'KWH-' || to_char(current_date, 'DDMM') || '-%';
+            where serial_number like 'P2G-BP-' || regexp_replace(to_char(case when coalesce(v_product.capacity_kwh, 5) = 8 then 7.5 else coalesce(v_product.capacity_kwh, 5) end, 'FM999990.##'), '0+$', '') || 'KWH-%';
         v_battery_serial := 'P2G-BP-' || regexp_replace(to_char(case when coalesce(v_product.capacity_kwh, 5) = 8 then 7.5 else coalesce(v_product.capacity_kwh, 5) end, 'FM999990.##'), '0+$', '') || 'KWH-' || to_char(current_date, 'DDMM') || '-' || lpad(v_next_number::text, 4, '0');
 
     insert into public.production_orders (id, order_number, product_id, target_quantity, quantity_in_process, status)
@@ -3054,7 +3054,7 @@ begin
             b.id,
             'P2G-BP-' || regexp_replace(to_char(case when coalesce(p.capacity_kwh, 5) = 8 then 7.5 else coalesce(p.capacity_kwh, 5) end, 'FM999990.##'), '0+$', '') || 'KWH-' || to_char(b.created_at, 'DDMM') as serial_prefix,
             row_number() over (
-                partition by case when coalesce(p.capacity_kwh, 5) = 8 then 7.5 else coalesce(p.capacity_kwh, 5) end, b.created_at::date
+                partition by case when coalesce(p.capacity_kwh, 5) = 8 then 7.5 else coalesce(p.capacity_kwh, 5) end
                 order by b.created_at, b.id
             ) as serial_number
         from public.batteries b
@@ -3199,7 +3199,7 @@ begin
             r.id,
             'P2G-RACK-' || regexp_replace(replace(r.rack_template_code, 'RACK_', ''), 'KWH$', '') || 'KWH-' || to_char(r.created_at, 'DDMM') as serial_prefix,
             row_number() over (
-                partition by r.rack_template_code, r.created_at::date
+                partition by r.required_pack_template_code
                 order by r.created_at, r.id
             ) as serial_number
         from public.racks r
@@ -3258,7 +3258,8 @@ begin
     select coalesce(max((substring(serial_number from '([0-9]+)$'))::integer), 0) + 1
       into v_next_number
       from public.racks
-     where serial_number like 'P2G-RACK-' || v_rack_power || 'KWH-' || to_char(current_date, 'DDMM') || '-%';
+         where required_pack_template_code = v_pack_code
+             and serial_number like 'P2G-RACK-%KWH-%';
     v_serial := 'P2G-RACK-' || v_rack_power || 'KWH-' || to_char(current_date, 'DDMM') || '-' || lpad(v_next_number::text, 4, '0');
     if coalesce(array_length(p_battery_ids, 1), 0) <> v_required then raise exception 'Rack requires % packs', v_required; end if;
     if exists (select 1 from public.rack_packs where battery_id = any(p_battery_ids)) then raise exception 'One or more packs are already assigned to a rack'; end if;
