@@ -839,6 +839,8 @@ async getUsers(): Promise<User[]> {
         rawSupabase.from('bms_units').select('id,status,serial_number'),
         rawSupabase.from('bmu_units').select('id,status,serial_number'),
       ]);
+      const warehouseLocations = await warehouseLocationPromise;
+      const { latestByEntity } = warehouseLocations;
       const extractSerial = (...values: any[]) => {
         for (const value of values) {
           const candidate = String(value ?? '').trim();
@@ -1039,7 +1041,7 @@ async getUsers(): Promise<User[]> {
         assignedBms: (liveBms || []).filter((controller: any) => isAssignedController(controller, linkedBmsIds, controller.id)).length,
         assignedBmu: (liveBmus || []).filter((controller: any) => isAssignedController(controller, linkedBmuIds, controller.id)).length,
       };
-      const { locationByCell: warehouseCellLocations, lifecycleByCellId, warehouseRackCounts, warehouseRackTypeCounts, warehouseBatteryCounts, warehouseBatteryTypeCounts, rackCellCount, latestByEntity } = await warehouseLocationPromise;
+      const { locationByCell: warehouseCellLocations, lifecycleByCellId, warehouseRackCounts, warehouseRackTypeCounts, warehouseBatteryCounts, warehouseBatteryTypeCounts, rackCellCount } = warehouseLocations;
       const normalizedCellBuckets = reconcileDashboardCellBuckets(data?.cellBuckets, data?.inventory?.totalCells);
       const warehouseAwareCellBuckets = buildWarehouseLocationBuckets(normalizedCellBuckets, warehouseCellLocations, lifecycleByCellId);
       const karachiWarehouseCells = Array.from(warehouseCellLocations.values()).filter(location => location === 'KARACHI').length;
