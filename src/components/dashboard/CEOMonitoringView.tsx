@@ -106,6 +106,7 @@ const DistributionDonut: React.FC<{ distribution: DashboardDistribution; ariaLab
                     <button
                       type="button"
                       onClick={dropdown.onToggle}
+                      data-ceo-dropdown="true"
                       className="inline-flex h-4 w-4 items-center justify-center rounded-sm border border-slate-200 bg-white text-slate-500 transition-colors hover:border-emerald-200 hover:text-emerald-700"
                       aria-label={`Toggle ${dropdown.label} sold serial numbers`}
                     >
@@ -113,7 +114,7 @@ const DistributionDonut: React.FC<{ distribution: DashboardDistribution; ariaLab
                     </button>
                   )}
                   {isDropdownOpen && dropdown && (
-                    <div className="absolute left-0 top-full z-30 mt-2 w-[220px] max-w-[220px] rounded-md border border-slate-200 bg-white p-2 shadow-lg">
+                    <div data-ceo-dropdown="true" className="absolute left-0 top-full z-30 mt-2 w-[220px] max-w-[220px] rounded-md border border-slate-200 bg-white p-2 shadow-lg">
                       {dropdown.serials.length > 0 ? (
                         <div className="flex max-h-36 flex-wrap gap-1.5 overflow-auto">
                           {dropdown.serials.map((serial) => (
@@ -221,6 +222,19 @@ export const CEOMonitoringView: React.FC = () => {
   const [selectedSoldEntity, setSelectedSoldEntity] = useState('All');
   const [openSoldDetail, setOpenSoldDetail] = useState<'Racks' | 'Battery Packs' | null>(null);
   const [openDonutDetail, setOpenDonutDetail] = useState<Record<string, boolean>>({});
+  const closeAllDropdowns = () => {
+    setOpenWarehouseFilter(null);
+    setOpenCellFilter(false);
+    setOpenSoldDetail(null);
+    setOpenDonutDetail({});
+  };
+  useEffect(() => {
+    const handlePointerDown = (event: PointerEvent) => {
+      if (!(event.target as HTMLElement | null)?.closest('[data-ceo-dropdown="true"]')) closeAllDropdowns();
+    };
+    document.addEventListener('pointerdown', handlePointerDown);
+    return () => document.removeEventListener('pointerdown', handlePointerDown);
+  });
   const normalizeDonutLabel = (label: string) => String(label || '').trim().replace(/[_-]+/g, ' ').replace(/\s+/g, ' ').toLowerCase();
   const resolveDonutSerials = (rowLabel: string, serialMap: Record<string, string[]> = {}) => {
     const direct = serialMap[rowLabel] || serialMap[String(rowLabel).replace(/_/g, ' ')] || [];
@@ -241,7 +255,13 @@ export const CEOMonitoringView: React.FC = () => {
   const makeDonutDropdowns = (rows: Array<{ label: string; value: number; color: string }>, serialMap: Record<string, string[]> = {}) => rows.map((row) => ({
     label: row.label,
     open: !!openDonutDetail[row.label],
-    onToggle: () => setOpenDonutDetail((current) => ({ ...current, [row.label]: !current[row.label] })),
+    onToggle: () => {
+      const willOpen = !openDonutDetail[row.label];
+      setOpenWarehouseFilter(null);
+      setOpenCellFilter(false);
+      setOpenSoldDetail(null);
+      setOpenDonutDetail(willOpen ? { [row.label]: true } : {});
+    },
     serials: resolveDonutSerials(row.label, serialMap),
   }));
   useEffect(() => {
@@ -1313,7 +1333,12 @@ export const CEOMonitoringView: React.FC = () => {
                 return {
                   label: row.label,
                   open: openSoldDetail === row.label,
-                  onToggle: () => setOpenSoldDetail((current) => current === row.label ? null : row.label as 'Racks' | 'Battery Packs'),
+                  onToggle: () => {
+                    setOpenWarehouseFilter(null);
+                    setOpenCellFilter(false);
+                    setOpenDonutDetail({});
+                    setOpenSoldDetail((current) => current === row.label ? null : row.label as 'Racks' | 'Battery Packs');
+                  },
                   serials,
                 };
               })}
@@ -1334,12 +1359,12 @@ export const CEOMonitoringView: React.FC = () => {
               <div className="flex items-center gap-2"><div className="text-[18px] font-extrabold text-slate-900">{formatNumber(warehouseCellTotal)}</div><button type="button" onClick={() => void exportWarehouseReport()} disabled={exportingWarehouseReport} className="inline-flex items-center gap-1 rounded-md border border-emerald-200 bg-white px-2 py-1 text-[10px] font-bold text-emerald-700 hover:bg-emerald-50 disabled:cursor-wait disabled:opacity-60" title="Export warehouse report"><Download className="h-3 w-3" />{exportingWarehouseReport ? 'Exporting...' : 'Export Warehouse Report'}</button></div>
             </div>
             <div className="mb-3 flex flex-wrap gap-2 text-[10px] font-medium text-slate-500">
-              <button type="button" onClick={() => { setSelectedWarehouseInventoryType('All'); setOpenWarehouseFilter(null); }} className={`rounded-md border px-2 py-1 ${selectedWarehouseInventoryType === 'All' ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-slate-200 bg-slate-50 text-slate-500'}`}>All</button>
+              <button type="button" data-ceo-dropdown="true" onClick={() => { setSelectedWarehouseInventoryType('All'); closeAllDropdowns(); }} className={`rounded-md border px-2 py-1 ${selectedWarehouseInventoryType === 'All' ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-slate-200 bg-slate-50 text-slate-500'}`}>All</button>
               {(['Racks', 'Battery Packs'] as const).map(type => <div key={type} className="relative">
-                <button type="button" onClick={() => { setSelectedWarehouseInventoryType(type); setOpenWarehouseFilter(openWarehouseFilter === type ? null : type); }} className={`inline-flex items-center gap-1 rounded-md border px-2 py-1 ${selectedWarehouseInventoryType === type ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-slate-200 bg-slate-50 text-slate-500'}`} aria-expanded={openWarehouseFilter === type}>
+                <button type="button" data-ceo-dropdown="true" onClick={() => { setSelectedWarehouseInventoryType(type); setOpenCellFilter(false); setOpenSoldDetail(null); setOpenDonutDetail({}); setOpenWarehouseFilter(openWarehouseFilter === type ? null : type); }} className={`inline-flex items-center gap-1 rounded-md border px-2 py-1 ${selectedWarehouseInventoryType === type ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-slate-200 bg-slate-50 text-slate-500'}`} aria-expanded={openWarehouseFilter === type}>
                   {type}<ChevronDown className="h-3 w-3" />
                 </button>
-                {openWarehouseFilter === type && <div className="absolute left-0 top-full z-20 mt-1 flex min-w-max flex-col gap-1 rounded-lg border border-slate-200 bg-white p-1.5 shadow-lg">
+                {openWarehouseFilter === type && <div data-ceo-dropdown="true" className="absolute left-0 top-full z-20 mt-1 flex min-w-max flex-col gap-1 rounded-lg border border-slate-200 bg-white p-1.5 shadow-lg">
                   {(type === 'Racks' ? warehouseRackTypeOptions : warehouseBatteryTypeOptions).map(filterType => <button key={filterType} type="button" onClick={() => { if (type === 'Racks') setSelectedWarehouseRackType(filterType); else setSelectedWarehouseBatteryType(filterType); setOpenWarehouseFilter(null); }} className={`whitespace-nowrap rounded-md px-2 py-1.5 text-left ${((type === 'Racks' ? selectedWarehouseRackType : selectedWarehouseBatteryType) === filterType) ? 'bg-emerald-50 text-emerald-700' : 'text-slate-600 hover:bg-slate-50'}`}>{filterType === 'All' ? `All ${type.toLowerCase()}` : type === 'Racks' ? warehouseRackTypeLabel(filterType) : filterType}</button>)}
                 </div>}
               </div>)}
@@ -1528,13 +1553,14 @@ export const CEOMonitoringView: React.FC = () => {
               <div className="relative">
                 <button
                   type="button"
-                  onClick={() => setOpenCellFilter(open => !open)}
+                  data-ceo-dropdown="true"
+                  onClick={() => { setOpenWarehouseFilter(null); setOpenSoldDetail(null); setOpenDonutDetail({}); setOpenCellFilter(open => !open); }}
                   aria-expanded={openCellFilter}
                   className={`inline-flex items-center gap-1 rounded-md border px-2 py-1 ${selectedCellStatus === 'All' || !['In Stock', 'Floor Stock', 'Damage', 'Reusable'].includes(selectedCellStatus) ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-slate-200 bg-slate-50 text-slate-500'}`}
                 >
                   Other<ChevronDown className="h-3 w-3" />
                 </button>
-                {openCellFilter && <div className="absolute left-0 top-full z-20 mt-1 flex min-w-max flex-col gap-1 rounded-lg border border-slate-200 bg-white p-1.5 shadow-lg">
+                {openCellFilter && <div data-ceo-dropdown="true" className="absolute left-0 top-full z-20 mt-1 flex min-w-max flex-col gap-1 rounded-lg border border-slate-200 bg-white p-1.5 shadow-lg">
                   {['In Module', 'In Pack', 'In Rack', 'Karachi Warehouse', 'Lahore Warehouse', 'Sold'].map((label) => (
                     <button
                       key={label}
