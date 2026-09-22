@@ -60,7 +60,7 @@ const AppContent: React.FC = () => {
       return;
     }
 
-    const timeout = window.setTimeout(() => setPostLoginReady(true), 3000);
+    const timeout = window.setTimeout(() => setPostLoginReady(true), 5000);
     return () => window.clearTimeout(timeout);
   }, [isAuthenticated]);
 
@@ -79,20 +79,6 @@ const AppContent: React.FC = () => {
   // If NOT authenticated — show LOGIN page (the auth gate)
   if (!isAuthenticated) {
     return <LoginPage />;
-  }
-
-  if (isAuthenticated && !postLoginReady) {
-    return (
-      <div className="flex h-screen w-screen items-center justify-center bg-slate-50">
-        <div className="rounded-2xl border border-slate-200 bg-white px-8 py-6 text-center shadow-sm">
-          <h1 className="text-2xl font-black tracking-[-0.06em] text-slate-900">Power2Go MES</h1>
-          <p className="mt-3 text-sm text-slate-500">Preparing dashboard for you...</p>
-          <div className="mt-5 h-2 w-40 overflow-hidden rounded-full bg-slate-200">
-            <div className="h-full w-full animate-pulse rounded-full bg-emerald-500" />
-          </div>
-        </div>
-      </div>
-    );
   }
 
   // Authenticated — render the MES application
@@ -145,6 +131,17 @@ const AppContent: React.FC = () => {
 
   return (
     <div className="app-shell flex flex-col h-screen w-screen overflow-hidden bg-slate-50 font-sans text-slate-900 antialiased select-none">
+      {!postLoginReady && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-50" role="status" aria-live="polite">
+          <div className="rounded-2xl border border-slate-200 bg-white px-8 py-6 text-center shadow-sm">
+            <h1 className="text-2xl font-black tracking-[-0.06em] text-slate-900">Power2Go MES</h1>
+            <p className="mt-3 text-sm text-slate-500">Loading dashboard...</p>
+            <div className="mt-5 h-2 w-40 overflow-hidden rounded-full bg-slate-200">
+              <div className="loading-progress h-full w-2/5 rounded-full bg-emerald-500" />
+            </div>
+          </div>
+        </div>
+      )}
       <div className="flex flex-1 overflow-hidden">
         {sidebarOpen && <Sidebar isOpen={sidebarOpen} onClose={closeSidebar} />}
         {mobileNavOpen && sidebarOpen && (

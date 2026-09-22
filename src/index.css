@@ -62,8 +62,13 @@
   from { opacity: 0; }
   to   { opacity: 1; }
 }
+@keyframes loading-progress {
+  from { transform: translateX(-180%); }
+  to   { transform: translateX(340%); }
+}
 .animate-slide-up { animation: slide-up 0.2s ease-out; }
 .animate-fade-in  { animation: fade-in  0.15s ease-out; }
+.loading-progress { animation: loading-progress 1.35s ease-in-out infinite; }
 
 .dashboard-grid {
   background-image: linear-gradient(rgba(255,255,255,.13) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,.13) 1px, transparent 1px);
