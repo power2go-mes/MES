@@ -1259,8 +1259,7 @@ export const CEOMonitoringView: React.FC = () => {
       <div className="mx-auto max-w-[1440px] space-y-5">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
           <div>
-            <h1 className="text-[30px] font-extrabold tracking-[-0.05em] text-slate-900">CEO Dashboard</h1>
-            <p className="mt-1 text-sm text-slate-500">Live production, inventory, quality and traceability overview</p>
+            <h1 className="text-[30px] font-extrabold tracking-[-0.05em] text-slate-900">DASHBOARD</h1>
           </div>
           <div className="flex flex-col items-stretch gap-2 lg:items-end">
             <div className="flex flex-wrap items-center gap-2 lg:justify-end">
@@ -1673,7 +1672,6 @@ export const CEOMonitoringView: React.FC = () => {
           </div>
         </div>
 
-        <div className="pb-6 text-center text-[11px] text-slate-400">Power2Go MES · CEO Dashboard · Data refreshes automatically</div>
       </div>
     </div>
   );

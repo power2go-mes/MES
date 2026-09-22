@@ -106,7 +106,8 @@ export const InventoryView: React.FC = () => {
 
   const loadInventory = async (page = 0) => {
     const append = page > 0;
-    const pageSize = 50;
+    const pageSize = 25;
+    let moreAvailable = false;
     setLoading(true);
     try {
       if (activeTab === 'CELLS') {
@@ -130,7 +131,8 @@ export const InventoryView: React.FC = () => {
         ]);
         setCells(previous => append ? [...previous, ...res] : res);
         setWarehouseCellStatuses(warehouseStatuses);
-        setHasMoreInventory(res.length === pageSize);
+        moreAvailable = res.length === pageSize;
+        setHasMoreInventory(moreAvailable);
         setInventoryPage(page);
         setAllCellsCount(counts.total);
         setUsedCellsCount(counts.used);
@@ -156,33 +158,40 @@ export const InventoryView: React.FC = () => {
       } else if (activeTab === 'BMS') {
         const res = await api.getBmsUnits({ limit: pageSize, offset: page * pageSize, search, status: statusFilter });
         setBmsUnits(previous => append ? [...previous, ...res] : res);
-        setHasMoreInventory(res.length === pageSize);
+        moreAvailable = res.length === pageSize;
+        setHasMoreInventory(moreAvailable);
         setInventoryPage(page);
       } else if (activeTab === 'BMU') {
         const res = await api.getBmuUnits({ limit: pageSize, offset: page * pageSize, search, status: statusFilter });
         setBmuUnits(previous => append ? [...previous, ...res] : res);
-        setHasMoreInventory(res.length === pageSize);
+        moreAvailable = res.length === pageSize;
+        setHasMoreInventory(moreAvailable);
         setInventoryPage(page);
       } else if (activeTab === 'MODULES') {
         const res = await api.getModules({ limit: pageSize, offset: page * pageSize, search, status: statusFilter });
         setModules(previous => append ? [...previous, ...res] : res);
-        setHasMoreInventory(res.length === pageSize);
+        moreAvailable = res.length === pageSize;
+        setHasMoreInventory(moreAvailable);
         setInventoryPage(page);
       } else if (activeTab === 'BATTERIES') {
         const res = await api.getBatteries({ limit: pageSize, offset: page * pageSize, search, status: statusFilter });
         setBatteries(previous => append ? [...previous, ...res] : res);
-        setHasMoreInventory(res.length === pageSize);
+        moreAvailable = res.length === pageSize;
+        setHasMoreInventory(moreAvailable);
         setInventoryPage(page);
         void api.getWarehouseEntityStatuses().then(setWarehouseEntityStatuses).catch(error => console.error('Failed to load battery warehouse statuses', error));
       } else if (activeTab === 'RACKS') {
         const [res, warehouseStatuses] = await Promise.all([api.getRacks({ limit: pageSize, offset: page * pageSize, search, status: statusFilter }), api.getWarehouseEntityStatuses()]);
         setRacks(previous => append ? [...previous, ...res] : res);
         setWarehouseEntityStatuses(warehouseStatuses);
-        setHasMoreInventory(res.length === pageSize);
+        moreAvailable = res.length === pageSize;
+        setHasMoreInventory(moreAvailable);
         setInventoryPage(page);
       }
+      return moreAvailable;
     } catch (err) {
       console.error('Failed to load inventory', err);
+      return false;
     } finally {
       setLoading(false);
     }
@@ -191,6 +200,16 @@ export const InventoryView: React.FC = () => {
   const loadMoreInventory = () => {
     if (loading || !hasMoreInventory) return;
     void loadInventory(inventoryPage + 1);
+  };
+
+  const loadAllInventory = async () => {
+    if (loading || !hasMoreInventory) return;
+    let nextPage = inventoryPage + 1;
+    let moreAvailable = true;
+    while (moreAvailable) {
+      moreAvailable = await loadInventory(nextPage);
+      nextPage += 1;
+    }
   };
 
   const normalizeSerialList = (input: string): string[] => {
@@ -429,6 +448,9 @@ export const InventoryView: React.FC = () => {
   });
 
   const displayedCells = filteredCells;
+  const cellTotalLabel = !search && !statusFilter
+    ? allCellsCount
+    : hasMoreInventory ? `${displayedCells.length}+` : displayedCells.length;
 
   const getTabItems = (tab: Tab): Array<{ id: string }> => {
     if (tab === 'CELLS') return filteredCells;
@@ -810,17 +832,20 @@ export const InventoryView: React.FC = () => {
           </div>
           <div className="flex items-center justify-between gap-3 border-t border-slate-100 px-5 py-3 font-sans">
             <span className="text-[11px] font-medium text-slate-400">
-              Showing {displayedCells.length} of {filteredCells.length} cells
+              Showing {displayedCells.length} of {cellTotalLabel} cells
             </span>
             {hasMoreInventory && (
-              <button
-                type="button"
-                onClick={loadMoreInventory}
-                disabled={loading}
-                className="px-3.5 py-2 text-xs font-bold text-emerald-700 border border-emerald-200 rounded-lg hover:bg-emerald-50 transition-colors"
-              >
-                {loading ? 'Loading...' : 'See more'}
-              </button>
+              <>
+                <button
+                  type="button"
+                  onClick={loadMoreInventory}
+                  disabled={loading}
+                  className="px-3.5 py-2 text-xs font-bold text-emerald-700 border border-emerald-200 rounded-lg hover:bg-emerald-50 transition-colors"
+                >
+                  {loading ? 'Loading...' : 'Load more 25'}
+                </button>
+                <button type="button" onClick={() => void loadAllInventory()} disabled={loading} className="ml-2 px-3.5 py-2 text-xs font-bold text-emerald-700 border border-emerald-200 rounded-lg hover:bg-emerald-50 transition-colors">{loading ? 'Loading...' : 'Load all'}</button>
+              </>
             )}
           </div>
         </div>
@@ -951,8 +976,9 @@ export const InventoryView: React.FC = () => {
           {hasMoreInventory && activeTab === 'BMS' && (
             <div className="flex justify-center border-t border-slate-100 px-5 py-3">
               <button type="button" onClick={loadMoreInventory} disabled={loading} className="px-4 py-2 text-xs font-bold text-emerald-700 border border-emerald-200 rounded-lg hover:bg-emerald-50 disabled:cursor-wait disabled:opacity-60">
-                {loading ? 'Loading...' : 'See more BMS'}
+                {loading ? 'Loading...' : 'Load more 25'}
               </button>
+              <button type="button" onClick={() => void loadAllInventory()} disabled={loading} className="ml-2 px-4 py-2 text-xs font-bold text-emerald-700 border border-emerald-200 rounded-lg hover:bg-emerald-50 disabled:cursor-wait disabled:opacity-60">{loading ? 'Loading...' : 'Load all'}</button>
             </div>
           )}
         </div>
@@ -1034,8 +1060,9 @@ export const InventoryView: React.FC = () => {
           {hasMoreInventory && activeTab === 'BMU' && (
             <div className="flex justify-center border-t border-slate-100 px-5 py-3">
               <button type="button" onClick={loadMoreInventory} disabled={loading} className="px-4 py-2 text-xs font-bold text-emerald-700 border border-emerald-200 rounded-lg hover:bg-emerald-50 disabled:cursor-wait disabled:opacity-60">
-                {loading ? 'Loading...' : 'See more BMU'}
+                {loading ? 'Loading...' : 'Load more 25'}
               </button>
+              <button type="button" onClick={() => void loadAllInventory()} disabled={loading} className="ml-2 px-4 py-2 text-xs font-bold text-emerald-700 border border-emerald-200 rounded-lg hover:bg-emerald-50 disabled:cursor-wait disabled:opacity-60">{loading ? 'Loading...' : 'Load all'}</button>
             </div>
           )}
         </div>
@@ -1150,8 +1177,9 @@ export const InventoryView: React.FC = () => {
           {hasMoreInventory && (
             <div className="flex justify-center border-t border-slate-100 px-5 py-3">
               <button type="button" onClick={loadMoreInventory} disabled={loading} className="px-4 py-2 text-xs font-bold text-emerald-700 border border-emerald-200 rounded-lg hover:bg-emerald-50 disabled:cursor-wait disabled:opacity-60">
-                {loading ? 'Loading...' : 'See more modules'}
+                {loading ? 'Loading...' : 'Load more 25'}
               </button>
+              <button type="button" onClick={() => void loadAllInventory()} disabled={loading} className="ml-2 px-4 py-2 text-xs font-bold text-emerald-700 border border-emerald-200 rounded-lg hover:bg-emerald-50 disabled:cursor-wait disabled:opacity-60">{loading ? 'Loading...' : 'Load all'}</button>
             </div>
           )}
         </div>
@@ -1273,8 +1301,9 @@ export const InventoryView: React.FC = () => {
           {hasMoreInventory && (
             <div className="flex justify-center border-t border-slate-100 px-5 py-3">
               <button type="button" onClick={loadMoreInventory} disabled={loading} className="px-4 py-2 text-xs font-bold text-emerald-700 border border-emerald-200 rounded-lg hover:bg-emerald-50 disabled:cursor-wait disabled:opacity-60">
-                {loading ? 'Loading...' : 'See more batteries'}
+                {loading ? 'Loading...' : 'Load more 25'}
               </button>
+              <button type="button" onClick={() => void loadAllInventory()} disabled={loading} className="ml-2 px-4 py-2 text-xs font-bold text-emerald-700 border border-emerald-200 rounded-lg hover:bg-emerald-50 disabled:cursor-wait disabled:opacity-60">{loading ? 'Loading...' : 'Load all'}</button>
             </div>
           )}
         </div>
@@ -1303,8 +1332,9 @@ export const InventoryView: React.FC = () => {
           {hasMoreInventory && (
             <div className="flex justify-center border-t border-slate-100 px-5 py-3">
               <button type="button" onClick={loadMoreInventory} disabled={loading} className="px-4 py-2 text-xs font-bold text-emerald-700 border border-emerald-200 rounded-lg hover:bg-emerald-50 disabled:cursor-wait disabled:opacity-60">
-                {loading ? 'Loading...' : 'See more racks'}
+                {loading ? 'Loading...' : 'Load more 25'}
               </button>
+              <button type="button" onClick={() => void loadAllInventory()} disabled={loading} className="ml-2 px-4 py-2 text-xs font-bold text-emerald-700 border border-emerald-200 rounded-lg hover:bg-emerald-50 disabled:cursor-wait disabled:opacity-60">{loading ? 'Loading...' : 'Load all'}</button>
             </div>
           )}
         </div>

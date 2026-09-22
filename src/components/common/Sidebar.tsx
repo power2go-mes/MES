@@ -65,15 +65,6 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
             <PanelLeftClose className="h-3.5 w-3.5" />
           </button>
         </div>
-        <div className="flex items-center justify-between gap-2">
-          <span className="font-mono text-emerald-600 font-bold text-[10px] bg-emerald-50 px-2 py-0.5 rounded border border-emerald-100">
-            LINE-01-MES
-          </span>
-        </div>
-        <div className="flex items-center space-x-2 text-[11px] text-slate-600 bg-white p-2 rounded-lg border border-slate-200 shadow-2xs">
-          <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></div>
-          <span className="text-slate-700 font-medium">Mode: <strong className="text-slate-900">OPERATOR MES</strong></span>
-        </div>
       </div>
 
       {/* Nav List */}
