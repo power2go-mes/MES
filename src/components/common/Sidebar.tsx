@@ -51,10 +51,6 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
 
   return (
     <aside
-      onClick={event => {
-        const button = (event.target as HTMLElement).closest('button');
-        if (button && !button.hasAttribute('aria-expanded')) onClose();
-      }}
       className={`app-sidebar w-64 bg-white border-r border-slate-200 flex flex-col shrink-0 select-none overflow-hidden ${isOpen ? 'is-open' : ''}`}
     >
       <div className="shrink-0 p-4 border-b border-slate-100 bg-slate-50/60">

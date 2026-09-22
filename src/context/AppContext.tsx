@@ -33,6 +33,8 @@ export interface AppNotification {
 interface AppContextType {
   activeView: NavView;
   setActiveView: (view: NavView) => void;
+  sidebarOpen: boolean;
+  setSidebarOpen: React.Dispatch<React.SetStateAction<boolean>>;
   canGoBack: boolean;
   goBack: () => void;
   activeBatteryId: string | null;
@@ -83,6 +85,7 @@ const useLocalStorage = <T,>(key: string, initialValue: T): [T, React.Dispatch<R
 
 export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [activeView, setActiveView] = useLocalStorage<NavView>('p2g_activeView', 'production-flow');
+  const [sidebarOpen, setSidebarOpen] = useLocalStorage<boolean>('p2g_sidebarOpen', true);
   const [viewHistory, setViewHistory] = useState<NavView[]>([]);
   const [activeBatteryId, setActiveBatteryId] = useLocalStorage<string | null>('p2g_activeBatteryId', null);
   const [batteryBuilderEditRequested, setBatteryBuilderEditRequested] = useState(false);
@@ -141,6 +144,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const contextValue = useMemo(() => ({
     activeView,
     setActiveView: navigateToView,
+    sidebarOpen,
+    setSidebarOpen,
     canGoBack: viewHistory.length > 0,
     goBack,
     activeBatteryId,
@@ -164,6 +169,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     activeView,
     viewHistory,
     navigateToView,
+    sidebarOpen,
+    setSidebarOpen,
     goBack,
     activeBatteryId,
     batteryBuilderEditRequested,

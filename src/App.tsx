@@ -33,10 +33,9 @@ const WarehouseView = lazy(() => import('./components/warehouse/WarehouseView').
 const SoldView = lazy(() => import('./components/sold/SoldView').then(module => ({ default: module.SoldView })));
 
 const AppContent: React.FC = () => {
-  const { activeView, setActiveView, notifications, dismissNotification } = useApp();
+  const { activeView, setActiveView, sidebarOpen, setSidebarOpen, notifications, dismissNotification } = useApp();
   const { isAuthenticated, authLoading, currentUser } = useAuth();
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
-  const [sidebarOpen, setSidebarOpen] = useState(true);
   const [postLoginReady, setPostLoginReady] = useState(false);
   const openSidebar = () => {
     setSidebarOpen(true);
