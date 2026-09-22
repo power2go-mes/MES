@@ -172,6 +172,16 @@ const DistributionBars: React.FC<{ distribution: DashboardDistribution; colors?:
 };
 
 const formatNumber = (value: number) => new Intl.NumberFormat('en-US').format(value);
+const formatDashboardSerial = (value: unknown) => {
+  const serial = String(value || '').trim();
+  const moduleMatch = serial.match(/^P2G-MOD-\d{4}-(\d+)$/i);
+  if (moduleMatch) return `MOD-${moduleMatch[1]}`;
+  const cellMatch = serial.match(/^P2G-CL-\d{4}-(\d+)$/i);
+  if (cellMatch) return `CL-${cellMatch[1]}`;
+  const match = serial.match(/(\d+(?:\.\d+)?KWH)-\d{4}-(\d+)$/i);
+  return match ? `${match[1].toUpperCase()}-${match[2]}` : serial;
+};
+const formatDashboardSerialList = (values: unknown[] = []) => values.map(formatDashboardSerial).filter(Boolean);
 const CELL_NOMINAL_CAPACITY_AH = 100;
 const CELL_NOMINAL_VOLTAGE_V = 3.2;
 const CELL_CAPACITY_KWH = (CELL_NOMINAL_CAPACITY_AH * CELL_NOMINAL_VOLTAGE_V) / 1000;
@@ -464,37 +474,37 @@ export const CEOMonitoringView: React.FC = () => {
   }, [source.batteryStatusBuckets, source.rackStatusBuckets]);
   const soldRackSerialNumbers = useMemo(() => {
     const values = Array.isArray(source.soldRackSerialNumbers) ? source.soldRackSerialNumbers : [];
-    return values.filter((value: unknown) => String(value || '').trim().length > 0);
+    return formatDashboardSerialList(values);
   }, [source.soldRackSerialNumbers]);
   const soldBatterySerialNumbers = useMemo(() => {
     const values = Array.isArray(source.soldBatterySerialNumbers) ? source.soldBatterySerialNumbers : [];
-    return values.filter((value: unknown) => String(value || '').trim().length > 0);
+    return formatDashboardSerialList(values);
   }, [source.soldBatterySerialNumbers]);
   const warehouseSerialDetails = useMemo(() => ({
-    'Karachi Racks': Array.isArray(source.warehouseStatusSerialNumbers?.['Karachi Racks']) ? source.warehouseStatusSerialNumbers['Karachi Racks'] : [],
-    'Lahore Racks': Array.isArray(source.warehouseStatusSerialNumbers?.['Lahore Racks']) ? source.warehouseStatusSerialNumbers['Lahore Racks'] : [],
-    'Karachi Battery Packs': Array.isArray(source.warehouseStatusSerialNumbers?.['Karachi Battery Packs']) ? source.warehouseStatusSerialNumbers['Karachi Battery Packs'] : [],
-    'Lahore Battery Packs': Array.isArray(source.warehouseStatusSerialNumbers?.['Lahore Battery Packs']) ? source.warehouseStatusSerialNumbers['Lahore Battery Packs'] : [],
+    'Karachi Racks': formatDashboardSerialList(source.warehouseStatusSerialNumbers?.['Karachi Racks']),
+    'Lahore Racks': formatDashboardSerialList(source.warehouseStatusSerialNumbers?.['Lahore Racks']),
+    'Karachi Battery Packs': formatDashboardSerialList(source.warehouseStatusSerialNumbers?.['Karachi Battery Packs']),
+    'Lahore Battery Packs': formatDashboardSerialList(source.warehouseStatusSerialNumbers?.['Lahore Battery Packs']),
   }), [source.warehouseStatusSerialNumbers]);
   const rackSerialDetailMap = useMemo(() => {
     const entries = source.rackStatusSerialNumbersByType || {};
-    return Object.fromEntries(Object.entries(entries).map(([label, serials]) => [String(label), Array.isArray(serials) ? serials.filter(Boolean) : []]));
+    return Object.fromEntries(Object.entries(entries).map(([label, serials]) => [String(label), formatDashboardSerialList(Array.isArray(serials) ? serials : [])]));
   }, [source.rackStatusSerialNumbersByType]);
   const batterySerialDetailMap = useMemo(() => {
     const entries = source.batteryPackSerialNumbersByLabel || {};
-    return Object.fromEntries(Object.entries(entries).map(([label, serials]) => [String(label), Array.isArray(serials) ? serials.filter(Boolean) : []]));
+    return Object.fromEntries(Object.entries(entries).map(([label, serials]) => [String(label), formatDashboardSerialList(Array.isArray(serials) ? serials : [])]));
   }, [source.batteryPackSerialNumbersByLabel]);
   const moduleSerialDetailMap = useMemo(() => {
     const entries = source.moduleSerialNumbersByLabel || {};
-    return Object.fromEntries(Object.entries(entries).map(([label, serials]) => [String(label), Array.isArray(serials) ? serials.filter(Boolean) : []]));
+    return Object.fromEntries(Object.entries(entries).map(([label, serials]) => [String(label), formatDashboardSerialList(Array.isArray(serials) ? serials : [])]));
   }, [source.moduleSerialNumbersByLabel]);
   const aliasMap = (obj: Record<string, string[]> = {}, aliases: Record<string, string[]>) => {
     const merged: Record<string, string[]> = {};
     for (const [key, values] of Object.entries(obj)) {
-      merged[key] = Array.isArray(values) ? values.filter(Boolean) : [];
+      merged[key] = Array.isArray(values) ? formatDashboardSerialList(values) : [];
     }
     for (const [key, values] of Object.entries(aliases)) {
-      merged[key] = [...(merged[key] || []), ...(Array.isArray(values) ? values.filter(Boolean) : [])];
+      merged[key] = [...(merged[key] || []), ...(Array.isArray(values) ? formatDashboardSerialList(values) : [])];
     }
     return merged;
   };
@@ -505,7 +515,7 @@ export const CEOMonitoringView: React.FC = () => {
       const serials = [...new Set([
         ...(entries[label] || []),
         ...extraLabels.flatMap((extraLabel) => entries[extraLabel] || []),
-      ].filter(Boolean))];
+      ].map(formatDashboardSerial).filter(Boolean))];
       if (serials.length > 0) result[label] = serials;
     };
     cellRows.forEach((row) => {
@@ -520,14 +530,18 @@ export const CEOMonitoringView: React.FC = () => {
   }, [cellRows, source.cellStatusSerialNumbersByLabel]);
   const damageReusableSerialDetailMap = useMemo(() => {
     const entries = source.damageReusableSerialNumbers || {};
-    const aliasEntries: Record<string, string[]> = {
-      Damage: [...(entries.Damage || []), ...(entries.Scrap || [])],
-      Reusable: [...(entries.Reusable || []), ...(entries.Recycle || [])],
-      Recycle: [...(entries.Recycle || []), ...(entries.Reusable || [])],
-      Scrap: [...(entries.Scrap || []), ...(entries.Damage || [])],
+    const uniqueSerials = (values: unknown[], limit: number) => [...new Set(formatDashboardSerialList(values))].slice(0, Math.max(0, limit));
+    const damageLimit = numberOr(damageReusableRows.find((row) => row.label === 'Damage')?.value);
+    const reusableLimit = numberOr(damageReusableRows.find((row) => row.label === 'Reusable')?.value);
+    const damageSerials = uniqueSerials([...(entries.Damage || []), ...(entries.Scrap || [])], damageLimit);
+    const reusableSerials = uniqueSerials([...(entries.Reusable || []), ...(entries.Recycle || [])], reusableLimit);
+    return {
+      Damage: damageSerials,
+      Scrap: damageSerials,
+      Reusable: reusableSerials,
+      Recycle: reusableSerials,
     };
-    return aliasMap(entries, aliasEntries);
-  }, [source.damageReusableSerialNumbers]);
+  }, [damageReusableRows, source.damageReusableSerialNumbers]);
   const controllerSerialDetailMap = useMemo(() => {
     const entries = source.controllerSerialNumbersByLabel || {};
     const aliasEntries: Record<string, string[]> = {
