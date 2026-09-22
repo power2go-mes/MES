@@ -135,7 +135,7 @@ const AppContent: React.FC = () => {
             onClick={closeSidebar}
           />
         )}
-        <main className="flex-1 flex flex-col overflow-y-auto overflow-x-hidden relative bg-slate-50">
+        <main className="app-main flex-1 flex flex-col overflow-y-auto overflow-x-hidden relative bg-slate-50">
           <Header onOpenNavigation={openSidebar} onToggleSidebar={() => setSidebarOpen(open => !open)} isSidebarOpen={sidebarOpen} />
           <Suspense fallback={<div className="grid flex-1 place-items-center bg-slate-50 text-xs font-bold uppercase tracking-[0.18em] text-slate-500">Loading workspace</div>}>
             {visitedViews.map(view => (

@@ -515,7 +515,7 @@ export const InventoryView: React.FC = () => {
   };
 
   return (
-    <div className="flex-1 p-6 space-y-6 overflow-y-auto max-w-7xl mx-auto">
+    <div className="inventory-page flex-1 p-6 space-y-6 overflow-y-auto max-w-7xl mx-auto">
       {/* Header */}
       <div className="inventory-header bg-white rounded-2xl shadow-xs border border-slate-200 p-6 flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
@@ -544,7 +544,7 @@ export const InventoryView: React.FC = () => {
       </div>
 
       {/* Filter and Search Bar */}
-      <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs flex flex-col sm:flex-row gap-3 items-center justify-between">
+      <div className="inventory-toolbar bg-white p-4 rounded-2xl border border-slate-200 shadow-xs flex flex-col sm:flex-row gap-3 items-center justify-between">
         <div className="relative flex-1 w-full">
           <input
             type="text"
