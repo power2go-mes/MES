@@ -836,8 +836,8 @@ async getUsers(): Promise<User[]> {
         rawSupabase.from('module_cells').select('cell_id,module:modules(battery_id)'),
         rawSupabase.from('rack_packs').select('battery_id,rack:racks(status)'),
         rawSupabase.from('cells').select('id,status,lifecycle_status,internal_serial,supplier_barcode,grade,created_at'),
-        rawSupabase.from('bms_units').select('id,status,serial_number,serialNumber'),
-        rawSupabase.from('bmu_units').select('id,status,serial_number,serialNumber'),
+        rawSupabase.from('bms_units').select('id,status,serial_number'),
+        rawSupabase.from('bmu_units').select('id,status,serial_number'),
       ]);
       const extractSerial = (...values: any[]) => {
         for (const value of values) {
@@ -2260,7 +2260,7 @@ async getUsers(): Promise<User[]> {
     }
     const { data, error } = await query;
     if (error) throw error;
-    const { data: batteries, error: batteriesError } = await supabase.from('batteries').select('id, serial_number, serialNumber, bmsId, bms_id');
+    const { data: batteries, error: batteriesError } = await supabase.from('batteries').select('id, serial_number, bms_id');
     if (batteriesError) throw batteriesError;
     const assignedBatteryByController = new Map<string, string>(
       (batteries || [])
@@ -2334,7 +2334,7 @@ async getUsers(): Promise<User[]> {
     }
     const { data, error } = await query;
     if (error) throw error;
-    const { data: batteries, error: batteriesError } = await supabase.from('batteries').select('id, serial_number, serialNumber, bmuId, bmu_id');
+    const { data: batteries, error: batteriesError } = await supabase.from('batteries').select('id, serial_number, bmu_id');
     if (batteriesError) throw batteriesError;
     const assignedBatteryByController = new Map<string, string>(
       (batteries || [])
@@ -3139,7 +3139,7 @@ async getUsers(): Promise<User[]> {
       const lookupValue = data.barcode.trim();
       const { data: bmsById, error: bmsIdLookupError } = await supabase
         .from('bms_units')
-        .select('id, serialNumber, status, reservedForBatteryId')
+        .select('id, serial_number, status, reserved_for_battery_id')
         .eq('id', lookupValue)
         .maybeSingle();
       if (bmsIdLookupError) throw bmsIdLookupError;
@@ -3147,8 +3147,8 @@ async getUsers(): Promise<User[]> {
       if (!bmsRecord) {
         const { data: bmsBySerial, error: bmsSerialLookupError } = await supabase
           .from('bms_units')
-          .select('id, serialNumber, status, reservedForBatteryId')
-          .ilike('serialNumber', lookupValue)
+          .select('id, serial_number, status, reserved_for_battery_id')
+          .ilike('serial_number', lookupValue)
           .maybeSingle();
         if (bmsSerialLookupError) throw bmsSerialLookupError;
         bmsRecord = bmsBySerial;
@@ -3156,12 +3156,13 @@ async getUsers(): Promise<User[]> {
       if (!bmsRecord) {
         throw new Error(`BMS '${lookupValue}' was not found in the current BMS inventory.`);
       }
+      const bmsSerialNumber = String(bmsRecord.serial_number || lookupValue);
       if (bmsRecord.status === 'QUARANTINED' || bmsRecord.status === 'FAILED' || bmsRecord.status === 'ARCHIVED') {
-        throw new Error(`BMS '${bmsRecord.serialNumber}' is not available for assignment (${bmsRecord.status}).`);
+        throw new Error(`BMS '${bmsSerialNumber}' is not available for assignment (${bmsRecord.status}).`);
       }
-      const bmsAssignedBatteryId = bmsRecord.assignedToBatteryId || bmsRecord.reservedForBatteryId;
+      const bmsAssignedBatteryId = bmsRecord.reserved_for_battery_id;
       if (bmsAssignedBatteryId && bmsAssignedBatteryId !== batteryId) {
-        throw new Error(`BMS '${bmsRecord.serialNumber}' is already assigned to another battery.`);
+        throw new Error(`BMS '${bmsSerialNumber}' is already assigned to another battery.`);
       }
       const { data: result, error } = await rawSupabase.rpc('assign_controller_transaction', {
         p_battery_id: batteryId,
@@ -3234,7 +3235,7 @@ async getUsers(): Promise<User[]> {
       const lookupValue = data.barcode.trim();
       const { data: bmuById, error: bmuIdLookupError } = await supabase
         .from('bmu_units')
-        .select('id, serialNumber, status, reservedForBatteryId')
+        .select('id, serial_number, status, reserved_for_battery_id')
         .eq('id', lookupValue)
         .maybeSingle();
       if (bmuIdLookupError) throw bmuIdLookupError;
@@ -3242,8 +3243,8 @@ async getUsers(): Promise<User[]> {
       if (!bmuRecord) {
         const { data: bmuBySerial, error: bmuSerialLookupError } = await supabase
           .from('bmu_units')
-          .select('id, serialNumber, status, reservedForBatteryId')
-          .ilike('serialNumber', lookupValue)
+          .select('id, serial_number, status, reserved_for_battery_id')
+          .ilike('serial_number', lookupValue)
           .maybeSingle();
         if (bmuSerialLookupError) throw bmuSerialLookupError;
         bmuRecord = bmuBySerial;
@@ -3251,12 +3252,13 @@ async getUsers(): Promise<User[]> {
       if (!bmuRecord) {
         throw new Error(`BMU '${lookupValue}' was not found in the current BMU inventory.`);
       }
+      const bmuSerialNumber = String(bmuRecord.serial_number || lookupValue);
       if (bmuRecord.status === 'QUARANTINED' || bmuRecord.status === 'FAILED' || bmuRecord.status === 'ARCHIVED') {
-        throw new Error(`BMU '${bmuRecord.serialNumber}' is not available for assignment (${bmuRecord.status}).`);
+        throw new Error(`BMU '${bmuSerialNumber}' is not available for assignment (${bmuRecord.status}).`);
       }
-      const bmuAssignedBatteryId = bmuRecord.assignedToBatteryId || bmuRecord.reservedForBatteryId;
+      const bmuAssignedBatteryId = bmuRecord.reserved_for_battery_id;
       if (bmuAssignedBatteryId && bmuAssignedBatteryId !== batteryId) {
-        throw new Error(`BMU '${bmuRecord.serialNumber}' is already assigned to another battery.`);
+        throw new Error(`BMU '${bmuSerialNumber}' is already assigned to another battery.`);
       }
       const { data: result, error } = await rawSupabase.rpc('assign_controller_transaction', {
         p_battery_id: batteryId,
