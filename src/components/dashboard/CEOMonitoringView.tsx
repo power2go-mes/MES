@@ -209,10 +209,12 @@ const formatMwh = (capacityKwh: number) => {
 const formatCellTotalMwh = (capacityKwh: number) => `${roundMwh(capacityKwh).toFixed(2)} MWh`;
 const formatCellRowMwh = (capacityKwh: number) => `${roundMwh(capacityKwh).toFixed(2)} MWh`;
 const formatShare = (value: number, total: number) => `${((value / Math.max(1, total)) * 100).toFixed(2)}%`;
+let cachedCeoStats: any | null = null;
+
 export const CEOMonitoringView: React.FC = () => {
   const { refreshKey, addNotification } = useApp();
-  const [stats, setStats] = useState<any | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [stats, setStats] = useState<any | null>(() => cachedCeoStats);
+  const [loading, setLoading] = useState(() => cachedCeoStats === null);
   const [exporting, setExporting] = useState(false);
   const [exportingCells, setExportingCells] = useState(false);
   const [exportingModules, setExportingModules] = useState(false);
@@ -285,7 +287,11 @@ export const CEOMonitoringView: React.FC = () => {
         const [res, reusableCellIds] = await Promise.all([
           api.getDashboardStats(undefined, undefined, (summary: any) => {
             if (!cancelled && requestId === refreshRequestId.current) {
-              setStats((current: any) => current && Object.keys(current).length > 0 ? current : summary);
+              setStats((current: any) => {
+                const nextStats = current && Object.keys(current).length > 0 ? current : summary;
+                cachedCeoStats = nextStats;
+                return nextStats;
+              });
               setLoading(false);
             }
           }),
@@ -318,7 +324,9 @@ export const CEOMonitoringView: React.FC = () => {
         );
 
         if (!cancelled && requestId === refreshRequestId.current) {
-          setStats({ ...res, cellBuckets: patchedBuckets });
+          const nextStats = { ...res, cellBuckets: patchedBuckets };
+          cachedCeoStats = nextStats;
+          setStats(nextStats);
           setLoadError(null);
         }
       } catch (error: any) {
@@ -332,7 +340,7 @@ export const CEOMonitoringView: React.FC = () => {
       }
     };
 
-    setLoading(true);
+    if (cachedCeoStats === null) setLoading(true);
     void refresh();
 
     const interval = window.setInterval(() => {
