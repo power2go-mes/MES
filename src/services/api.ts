@@ -1200,6 +1200,7 @@ async getUsers(): Promise<User[]> {
         moduleSerialNumbersByLabel,
         cellStatusSerialNumbersByLabel,
         damageReusableSerialNumbers,
+        reusableCellCount: reusableCellIds.size,
         controllerSerialNumbersByLabel,
         rackTotal: liveRacks?.length || 0,
         rackStatusBuckets: rackStatusEntries.map(([label, values]) => ({
