@@ -240,27 +240,22 @@ export const CEOMonitoringView: React.FC = () => {
     const refresh = async () => {
       const requestId = ++refreshRequestId.current;
       try {
-        const [res, quarantineRecords] = await Promise.all([
+        const [res, reusableCellIds] = await Promise.all([
           api.getDashboardStats(undefined, undefined, (summary: any) => {
             if (!cancelled && requestId === refreshRequestId.current) {
               setStats((current: any) => current && Object.keys(current).length > 0 ? current : summary);
               setLoading(false);
             }
           }),
-          api.getQuarantineRecords().catch(() => []),
+          api.getReusableCellIds().catch(() => []),
         ]);
 
-        const reusableCellIds = new Set(quarantineRecords.filter((record: any) => {
-          const entityType = String(record.entityType || record.entity_type || '').toUpperCase();
-          const entityId = String(record.entityId || record.entity_id || '');
-          const disposition = String(record.disposition || '').toUpperCase();
-          return entityType === 'CELL' && entityId && ['RELEASE_APPROVED', 'REWORK'].includes(disposition);
-        }).map((record: any) => String(record.entityId || record.entity_id)));
+        const reusableCellIdSet = new Set(reusableCellIds);
 
         const existingDamageValue = numberOr(res.cellBuckets?.find((row: any) => ['SCRAP', 'DAMAGE'].includes(String(row.label || '').toUpperCase()))?.value);
         const existingReusableValue = numberOr(res.cellBuckets?.find((row: any) => ['RECYCLE', 'REUSABLE'].includes(String(row.label || '').toUpperCase()))?.value);
         const scrapCellCount = existingDamageValue || 0;
-        const reusableCount = existingReusableValue > 0 ? existingReusableValue : reusableCellIds.size;
+        const reusableCount = existingReusableValue > 0 ? existingReusableValue : reusableCellIdSet.size;
         const reusableToReclassify = existingReusableValue > 0 ? 0 : reusableCount;
         const patchedBuckets = normalizeCellBucketLabels(
           (res.cellBuckets || [])

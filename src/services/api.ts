@@ -4439,6 +4439,17 @@ async getUsers(): Promise<User[]> {
     return Array.from(uniqueRecords.values());
   },
 
+  async getReusableCellIds(): Promise<string[]> {
+    const { data, error } = await supabase
+      .from('quarantine_records')
+      .select('entity_id')
+      .eq('entity_type', 'CELL')
+      .eq('status', 'RESOLVED')
+      .in('disposed_of_as', ['RELEASE_APPROVED', 'REWORK']);
+    if (error) throw error;
+    return Array.from(new Set((data || []).map((record: any) => String(record.entity_id || '')).filter(Boolean)));
+  },
+
   async quarantineItem(payload: { itemType: string; itemId: string; reason: string; userId?: string }): Promise<any> {
     if (!rawSupabase) throw new Error('Supabase is not configured.');
     const { data, error } = await rawSupabase.rpc('quarantine_item_transaction', {
