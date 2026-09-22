@@ -812,20 +812,11 @@ async getUsers(): Promise<User[]> {
       };
       const warehouseLocationPromise = resolveWarehouseCellLocations();
       // Use RPC for dashboard summary (much faster than loading all cells)
-      const { data, error } = await rawSupabase.rpc('get_dashboard_summary', {
+      const dashboardSummaryPromise = rawSupabase.rpc('get_dashboard_summary', {
         p_start_date: startDate || null,
         p_end_date: endDate || null,
       });
-      
-      if (error) {
-        console.warn('Dashboard RPC error:', error.message);
-        throw new Error(`Dashboard summary unavailable: ${error.message}`);
-      }
-      if (!data) {
-        throw new Error('Dashboard summary returned no data. Verify the signed-in user has an active MES read permission.');
-      }
-
-      const [{ data: liveModules }, { data: liveBatteries }, { data: liveRacks }, { data: liveRackPacks }, { data: soldBatteries }, { data: soldRacks }, { data: soldCells }, { data: soldModuleCells }, { data: soldRackPacks }, { data: liveCells }, { data: liveBms }, { data: liveBmus }] = await Promise.all([
+      const detailDataPromise = Promise.all([
         applyDateRange(rawSupabase.from('modules').select('id,module_type,status,created_at,serial_number,battery:batteries(product_templates(capacity_kwh,num_modules))')),
         applyDateRange(rawSupabase.from('batteries').select('id,bms_id,bmu_id,progress_percent,status,lifecycle_status,created_at,product_id,serial_number,product_templates(name,capacity_kwh)')),
         applyDateRange(rawSupabase.from('racks').select('id,status,rack_template_code,required_pack_count,required_pack_template_code,created_at,serial_number')),
@@ -839,6 +830,17 @@ async getUsers(): Promise<User[]> {
         rawSupabase.from('bms_units').select('id,status,serial_number'),
         rawSupabase.from('bmu_units').select('id,status,serial_number'),
       ]);
+      const [{ data, error }, detailData] = await Promise.all([dashboardSummaryPromise, detailDataPromise]);
+
+      if (error) {
+        console.warn('Dashboard RPC error:', error.message);
+        throw new Error(`Dashboard summary unavailable: ${error.message}`);
+      }
+      if (!data) {
+        throw new Error('Dashboard summary returned no data. Verify the signed-in user has an active MES read permission.');
+      }
+
+      const [{ data: liveModules }, { data: liveBatteries }, { data: liveRacks }, { data: liveRackPacks }, { data: soldBatteries }, { data: soldRacks }, { data: soldCells }, { data: soldModuleCells }, { data: soldRackPacks }, { data: liveCells }, { data: liveBms }, { data: liveBmus }] = detailData;
       const warehouseLocations = await warehouseLocationPromise;
       const { latestByEntity } = warehouseLocations;
       const extractSerial = (...values: any[]) => {
