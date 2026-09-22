@@ -76,6 +76,19 @@
   mask-image: linear-gradient(90deg, black, transparent 78%);
 }
 
+.dashboard-view > div > section:nth-child(2),
+.dashboard-view > div > section:nth-child(3) {
+  display: none;
+}
+
+.dashboard-view section[class*="xl:grid-cols-[1.5fr,1fr]"] {
+  display: none !important;
+}
+
+.dashboard-view > div > section:nth-child(5) {
+  display: none !important;
+}
+
 .chart-bar { animation: chart-rise .6s ease-out both; transform-origin: bottom; }
 .chart-donut-segment { transition: stroke-dasharray 500ms ease, stroke-dashoffset 500ms ease; }
 @keyframes chart-rise { from { opacity: 0; transform: scaleY(0); } to { opacity: 1; transform: scaleY(1); } }

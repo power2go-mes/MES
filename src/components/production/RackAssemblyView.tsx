@@ -28,6 +28,8 @@ export const RackAssemblyView: React.FC = () => {
   const [template, setTemplate] = useState<RackTemplate>('RACK_25KWH');
   const [builderOpen, setBuilderOpen] = useState(false);
   const [batteries, setBatteries] = useState<BatteryUnit[]>([]);
+  const [batteryPage, setBatteryPage] = useState(0);
+  const [hasMoreBatteries, setHasMoreBatteries] = useState(false);
   const [selected, setSelected] = useState<string[]>([]);
   const [racks, setRacks] = useState<RackUnit[]>([]);
   const [location, setLocation] = useState('RACK_ASSEMBLY');
@@ -49,17 +51,24 @@ export const RackAssemblyView: React.FC = () => {
     return serial.slice(-4) === query || serial.includes(query);
   });
 
-  const load = async () => {
+  const load = async (page = 0) => {
     setLoading(true);
     try {
-      const [allBatteries, allRacks] = await Promise.all([api.getBatterySummaries(), api.getRacks()]);
+      const pageSize = 50;
+      const [allBatteries, allRacks] = await Promise.all([
+        api.getBatterySummaries({ limit: pageSize, offset: page * pageSize, statuses: ['RELEASED', 'FINISHED', 'WAREHOUSE'] }),
+        api.getRacks(),
+      ]);
       const assignedBatteryIds = new Set(allRacks.flatMap(rack => rack.batteryIds || []));
-      setBatteries(allBatteries.filter(item => (
+      const availableBatteries = allBatteries.filter(item => (
         ['RELEASED', 'FINISHED', 'WAREHOUSE'].includes(item.status)
         && !assignedBatteryIds.has(item.id)
-      )) as BatteryUnit[]);
+      )) as BatteryUnit[];
+      setBatteries(current => page > 0 ? [...current, ...availableBatteries] : availableBatteries);
+      setBatteryPage(page);
+      setHasMoreBatteries(allBatteries.length === pageSize);
       setRacks(allRacks);
-      setSelected(current => current.filter(id => !assignedBatteryIds.has(id)));
+      if (page === 0) setSelected(current => current.filter(id => !assignedBatteryIds.has(id)));
     } catch (error: any) {
       addNotification('error', 'Rack Load Failed', error.message || 'Could not load rack data.');
     } finally {
@@ -86,6 +95,10 @@ export const RackAssemblyView: React.FC = () => {
       ? current.filter(item => item !== id)
       : current.length < requiredCount ? [...current, id] : current
   ));
+
+  const loadMoreBatteries = () => {
+    if (!loading && hasMoreBatteries) void load(batteryPage + 1);
+  };
 
   const handleBatteryScan = async (barcode: string) => {
     const normalized = barcode.trim().toLowerCase().replace(/\s+/g, '');
@@ -178,7 +191,8 @@ export const RackAssemblyView: React.FC = () => {
         <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
           <div className="mb-4 flex flex-col justify-between gap-3 md:flex-row md:items-center"><div><p className="text-[10px] font-black uppercase tracking-widest text-cyan-600">Pack slots</p><h2 className="text-base font-black text-slate-900">Physical Rack Layout</h2></div><div className="flex items-center gap-2"><span className="rounded-lg bg-cyan-50 px-3 py-2 text-xs font-black text-cyan-700">{selected.length} / {requiredCount} selected</span><button type="button" onClick={() => setScannerOpen(true)} disabled={selected.length >= requiredCount} className="flex items-center gap-2 rounded-lg bg-cyan-600 px-3 py-2 text-xs font-bold text-white disabled:bg-slate-300"><QrCode className="h-4 w-4" />Scan battery</button></div></div>
           {!loading && <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between"><label className="text-xs font-bold text-slate-600">Search battery pack<input value={batterySearch} onChange={event => setBatterySearch(event.target.value.replace(/\D/g, '').slice(-4))} inputMode="numeric" maxLength={4} placeholder="Last 4 serial digits" className="mt-1 block w-full rounded-lg border border-slate-200 px-3 py-2 text-xs font-mono sm:w-56" /></label><span className="text-[11px] text-slate-500">Showing {filteredBatteries.length} of {batteries.length} released packs</span></div>}
-          {loading ? <p className="py-8 text-center text-xs text-slate-500">Loading released packs...</p> : filteredBatteries.length === 0 ? <p className="rounded-xl border border-dashed border-slate-200 py-8 text-center text-xs text-slate-500">No released battery pack matches those last four digits.</p> : <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">{filteredBatteries.map(item => <button type="button" key={item.id} onClick={() => toggleBattery(item.id)} className={`rounded-xl border p-4 text-left transition-colors ${selected.includes(item.id) ? 'border-cyan-500 bg-cyan-50 ring-2 ring-cyan-200' : 'border-slate-200 hover:border-cyan-300'}`}><span className="mb-2 block text-[10px] font-black uppercase tracking-widest text-cyan-700">Pack slot {selected.includes(item.id) ? selected.indexOf(item.id) + 1 : '-'}</span><span className="block truncate font-mono text-xs font-black text-slate-900">{item.serialNumber}</span><span className="mt-1 block text-[10px] text-slate-500">{item.status} · {item.productName}</span></button>)}</div>}
+          {loading && batteries.length === 0 ? <p className="py-8 text-center text-xs text-slate-500">Loading released packs...</p> : filteredBatteries.length === 0 ? <p className="rounded-xl border border-dashed border-slate-200 py-8 text-center text-xs text-slate-500">No released battery pack matches those last four digits.</p> : <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">{filteredBatteries.map(item => <button type="button" key={item.id} onClick={() => toggleBattery(item.id)} className={`rounded-xl border p-4 text-left transition-colors ${selected.includes(item.id) ? 'border-cyan-500 bg-cyan-50 ring-2 ring-cyan-200' : 'border-slate-200 hover:border-cyan-300'}`}><span className="mb-2 block text-[10px] font-black uppercase tracking-widest text-cyan-700">Pack slot {selected.includes(item.id) ? selected.indexOf(item.id) + 1 : '-'}</span><span className="block truncate font-mono text-xs font-black text-slate-900">{item.serialNumber}</span><span className="mt-1 block text-[10px] text-slate-500">{item.status} · {item.productName}</span></button>)}</div>}
+          {!loading && hasMoreBatteries && <div className="mt-4 text-center"><button type="button" onClick={loadMoreBatteries} className="rounded-lg border border-cyan-200 px-4 py-2 text-xs font-bold text-cyan-700 hover:bg-cyan-50">Load more battery packs</button></div>}
           <div className="mt-5 grid gap-2 md:grid-cols-2"><label className="flex items-center gap-2 rounded-lg border border-slate-200 p-3 text-xs font-bold text-slate-700"><input type="checkbox" checked={physicalQc} onChange={event => setPhysicalQc(event.target.checked)} /> Physical rack inspection passed</label><label className="flex items-center gap-2 rounded-lg border border-slate-200 p-3 text-xs font-bold text-slate-700"><input type="checkbox" checked={voltageQc} onChange={event => setVoltageQc(event.target.checked)} /> Rack voltage verification passed</label></div>
           <button type="button" onClick={() => void assemble()} disabled={saving || selected.length !== requiredCount || !physicalQc || !voltageQc} className="mt-4 w-full rounded-lg bg-cyan-600 px-4 py-3 text-xs font-bold text-white disabled:bg-slate-300">{saving ? 'Assembling rack...' : 'Assemble rack'}</button>
         </section>

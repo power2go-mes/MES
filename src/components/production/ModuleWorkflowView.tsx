@@ -19,6 +19,9 @@ export const ModuleWorkflowView: React.FC = () => {
   const { activeModuleId, setActiveModuleId, setActiveView, addNotification, refreshKey, triggerRefresh } = useApp();
   const [moduleType, setModuleType] = useState<'8S' | '12S'>('8S');
   const [floorCells, setFloorCells] = useState<CellItem[]>([]);
+  const [floorSearch, setFloorSearch] = useState('');
+  const [floorPage, setFloorPage] = useState(0);
+  const [hasMoreFloorCells, setHasMoreFloorCells] = useState(false);
   const [selectedCellIds, setSelectedCellIds] = useState<string[]>([]);
   const [manualBarcodes, setManualBarcodes] = useState('');
   const [scannerOpen, setScannerOpen] = useState(false);
@@ -52,17 +55,20 @@ export const ModuleWorkflowView: React.FC = () => {
     });
   };
 
-  const loadFloorCells = async (additionalCells: CellItem[] = []) => {
+  const loadFloorCells = async (additionalCells: CellItem[] = [], page = 0) => {
     setLoading(true);
     try {
-      const stockCells = await api.getCells({ lifecycleStatus: 'FLOOR_STOCK', limit: 5000 });
+      const pageSize = 50;
+      const stockCells = await api.getCells({ lifecycleStatus: 'FLOOR_STOCK', search: floorSearch || undefined, limit: pageSize, offset: page * pageSize });
       setFloorCells(current => {
         const cellsById = new Map<string, CellItem>();
-        [...stockCells, ...additionalCells, ...current].forEach(cell => {
+        [...(page > 0 ? current : []), ...stockCells, ...additionalCells].forEach(cell => {
           if (cell?.id) cellsById.set(cell.id, cell);
         });
         return Array.from(cellsById.values());
       });
+      setFloorPage(page);
+      setHasMoreFloorCells(stockCells.length === pageSize);
     } catch (error: any) {
       addNotification('error', 'Floor Stock Unavailable', error.message || 'Could not load floor-stock cells.');
     } finally {
@@ -71,8 +77,8 @@ export const ModuleWorkflowView: React.FC = () => {
   };
 
   useEffect(() => {
-    if (!activeModuleId) void loadFloorCells();
-  }, [activeModuleId, refreshKey]);
+    if (!activeModuleId) void loadFloorCells([], 0);
+  }, [activeModuleId, refreshKey, floorSearch]);
   useEffect(() => { setSelectedCellIds([]); setManualBarcodes(''); }, [moduleType]);
 
   useEffect(() => {
@@ -109,6 +115,10 @@ export const ModuleWorkflowView: React.FC = () => {
   const selectedCells = useMemo(() => selectedCellIds
     .map(id => floorCells.find(cell => cell.id === id))
     .filter(Boolean) as CellItem[], [floorCells, selectedCellIds]);
+
+  const loadMoreFloorCells = () => {
+    if (!loading && hasMoreFloorCells) void loadFloorCells([], floorPage + 1);
+  };
 
   const addCellByBarcode = (barcode: string) => {
     const normalized = barcode.trim().toLowerCase();
@@ -244,7 +254,9 @@ export const ModuleWorkflowView: React.FC = () => {
 
         <section className="rounded-2xl border border-slate-200 bg-white shadow-sm">
           <div className="flex items-center justify-between border-b border-slate-100 p-5"><div><p className="text-[10px] font-black uppercase tracking-widest text-emerald-600">2D Module Builder</p><h2 className="text-base font-black text-slate-900">Cells assigned to {moduleType}</h2></div><span className="font-mono text-sm font-black text-emerald-700">{selectedCells.length} / {requiredCells}</span></div>
+          {!draftModule && <div className="border-b border-slate-100 px-5 pt-4"><input value={floorSearch} onChange={event => setFloorSearch(event.target.value)} placeholder="Search floor-stock cells" className="w-full rounded-lg border border-slate-200 px-3 py-2 text-xs font-mono" /></div>}
           {loading ? <p className="p-8 text-center text-xs text-slate-500">Loading floor-stock cells...</p> : <div className="grid gap-3 p-5 md:grid-cols-2 xl:grid-cols-4">{selectedCells.map((cell, index) => <div key={cell.id} className="rounded-xl border border-emerald-200 bg-emerald-50 p-3"><div className="flex items-center justify-between"><span className="text-[10px] font-black text-emerald-700">SLOT {index + 1}</span><div className="flex items-center gap-2"><button type="button" onClick={() => { setEditingCellIndex(index); setScannerOpen(true); }} className="inline-flex items-center gap-1 rounded border border-emerald-600 bg-white px-2 py-1 text-[10px] font-bold text-emerald-700 hover:bg-emerald-50" title="Edit this cell">Edit</button><button type="button" onClick={() => setSelectedCellIds(current => current.filter(id => id !== cell.id))} className="text-slate-400 hover:text-red-600" title="Remove cell"><Trash2 className="h-4 w-4" /></button></div></div><p className="mt-2 truncate font-mono text-xs font-bold text-slate-900">{cell.internalSerial}</p><p className="mt-1 text-[10px] text-slate-500">{cell.supplierBarcode || 'No supplier barcode'} · FLOOR_STOCK</p></div>)}{selectedCells.length === 0 && <p className="col-span-full py-8 text-center text-xs text-slate-500">No cells selected. Scan or paste cells from floor stock.</p>}</div>}
+          {!draftModule && hasMoreFloorCells && !loading && <div className="border-t border-slate-100 p-4 text-center"><button type="button" onClick={loadMoreFloorCells} className="rounded-lg border border-emerald-200 px-4 py-2 text-xs font-bold text-emerald-700 hover:bg-emerald-50">Load more floor cells</button></div>}
           {!draftModule && <div className="flex items-center justify-between border-t border-slate-100 p-5"><p className="text-xs text-slate-500">The first step creates a module draft. Tests are required before completion.</p><button type="button" onClick={() => void createModule()} disabled={saving || selectedCells.length !== requiredCells} className="rounded-lg bg-slate-900 px-5 py-2.5 text-xs font-bold text-white disabled:bg-slate-300">{saving ? 'Creating draft...' : `Start ${moduleType} module`}</button></div>}
         </section>
 

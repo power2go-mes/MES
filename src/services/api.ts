@@ -2710,12 +2710,19 @@ async getUsers(): Promise<User[]> {
     });
   },
 
-  async getBatterySummaries(): Promise<Array<Pick<BatteryUnit, 'id' | 'serialNumber' | 'productName' | 'productionOrderId' | 'currentStep' | 'progressPercent' | 'status' | 'lifecycleStatus'> & { bmsId?: string; bmuId?: string; capacityKwh?: number }>> {
-    const { data, error } = await supabase
+  async getBatterySummaries(params?: { limit?: number; offset?: number; statuses?: string[] }): Promise<Array<Pick<BatteryUnit, 'id' | 'serialNumber' | 'productName' | 'productionOrderId' | 'currentStep' | 'progressPercent' | 'status' | 'lifecycleStatus'> & { bmsId?: string; bmuId?: string; capacityKwh?: number }>> {
+    let query = supabase
       .from('batteries')
       .select('id,serial_number,production_order_id,current_step,progress_percent,status,lifecycle_status,bms_id,bmu_id,product_templates(name,capacity_kwh)')
-      .range(0, 9999)
       .order('created_at', { ascending: false });
+    if (params?.statuses?.length) query = query.in('status', params.statuses);
+    if (params?.limit) {
+      const offset = Math.max(0, params.offset || 0);
+      query = query.range(offset, offset + params.limit - 1);
+    } else {
+      query = query.range(0, 9999);
+    }
+    const { data, error } = await query;
     if (error) throw error;
     return (data || []).map((battery: any) => ({
       id: battery.id,

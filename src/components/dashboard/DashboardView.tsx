@@ -179,6 +179,35 @@ export const DashboardView: React.FC = () => {
       <Panel eyebrow="Operational health" title="At a glance" action={<Activity className="h-5 w-5 text-emerald-600" />}><div className="mt-4 divide-y divide-slate-100">{[['Quality review', `${Number(quality.quarantinedCount || 0)} open`, false], ['Scheduled batches', `${Number(stats.orders?.total || 0)} total`, false], ['Completed batches', `${Number(stats.orders?.completed || 0)} total`, false]].map(([label, value, online]) => <div key={String(label)} className="flex items-center justify-between py-3"><span className="flex items-center gap-2 text-xs font-semibold text-slate-500"><i className={`h-2 w-2 rounded-full ${online ? 'bg-emerald-500' : 'bg-slate-300'}`} />{label}</span><b className={`text-xs font-black ${online ? 'text-emerald-600' : 'text-slate-900'}`}>{value}</b></div>)}</div></Panel>
     </section>
 
+    <section className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+      <Panel eyebrow="Needs attention" title="Module assembly" action={<Layers className="h-5 w-5 text-emerald-600" />}>
+        <div className="mt-4 space-y-2">
+          {moduleProgressRows.filter(row => !['SOLD', 'IN RACK'].includes(row.label.toUpperCase())).length === 0
+            ? <p className="py-5 text-center text-xs text-slate-400">No module assembly work in progress</p>
+            : moduleProgressRows.filter(row => !['SOLD', 'IN RACK'].includes(row.label.toUpperCase())).map(row => (
+              <div key={row.label} className="flex items-center justify-between rounded-lg border border-slate-100 px-3 py-2 text-xs">
+                <span className="min-w-0 flex-1 truncate font-semibold text-slate-600">{row.label}</span><b className="mr-2 font-mono text-slate-900">{row.value.toLocaleString()}</b><button type="button" onClick={() => setActiveView('workflow-module')} className="rounded p-1 text-slate-400 hover:bg-emerald-50 hover:text-emerald-600" title="Edit module assembly"><Pencil className="h-3.5 w-3.5" /></button><button type="button" disabled className="rounded p-1 text-slate-300" title="Delete requires an individual module"><Trash2 className="h-3.5 w-3.5" /></button>
+              </div>
+            ))}
+        </div>
+      </Panel>
+      <Panel eyebrow="Needs attention" title="Pack assembly" action={<Factory className="h-5 w-5 text-emerald-600" />}>
+        <div className="mt-4 space-y-2">
+          <div className="flex items-center justify-between rounded-lg border border-slate-100 px-3 py-2 text-xs"><span className="font-semibold text-slate-600">Packs in process</span><b className="font-mono text-slate-900">{Number(inventory.inProcessBatteries || 0).toLocaleString()}</b></div>
+          {recentBatteries.slice(0, 4).map((battery: any) => <div key={battery.id} className="flex items-center gap-2 rounded-lg border border-slate-100 px-3 py-2 text-xs"><span className="min-w-0 flex-1 truncate font-mono text-slate-600">{battery.serialNumber}</span><span className="shrink-0 font-bold text-emerald-600">{Number(battery.progressPercent || 0)}%</span><button type="button" onClick={() => { setActiveBatteryId(battery.id); setActiveView('workflow-pack'); }} className="rounded p-1 text-slate-400 hover:bg-emerald-50 hover:text-emerald-600" title="Edit battery pack"><Pencil className="h-3.5 w-3.5" /></button><button type="button" onClick={() => void deleteBattery(battery)} className="rounded p-1 text-slate-400 hover:bg-red-50 hover:text-red-600" title="Delete battery pack"><Trash2 className="h-3.5 w-3.5" /></button></div>)}
+        </div>
+      </Panel>
+      <Panel eyebrow="Needs attention" title="Rack assembly" action={<PackageCheck className="h-5 w-5 text-cyan-600" />}>
+        <div className="mt-4 space-y-2">
+          {rackProgressRows.filter(row => !['SOLD', 'IN_STOCK'].includes(row.label.toUpperCase())).length === 0
+            ? <p className="py-5 text-center text-xs text-slate-400">No rack assembly work in progress</p>
+            : rackProgressRows.filter(row => !['SOLD', 'IN_STOCK'].includes(row.label.toUpperCase())).map(row => (
+              <div key={row.label} className="flex items-center justify-between rounded-lg border border-slate-100 px-3 py-2 text-xs"><span className="min-w-0 flex-1 truncate font-semibold text-slate-600">{row.label}</span><b className="mr-2 font-mono text-slate-900">{row.value.toLocaleString()}</b><button type="button" onClick={() => setActiveView('rack-assembly')} className="rounded p-1 text-slate-400 hover:bg-emerald-50 hover:text-emerald-600" title="Edit rack assembly"><Pencil className="h-3.5 w-3.5" /></button><button type="button" disabled className="rounded p-1 text-slate-300" title="Delete requires an individual rack"><Trash2 className="h-3.5 w-3.5" /></button></div>
+            ))}
+        </div>
+      </Panel>
+    </section>
+
     <section className="grid grid-cols-1 gap-5 lg:grid-cols-2">
       <ProgressPanel
         eyebrow="Module progress"
