@@ -255,9 +255,13 @@ export const CEOMonitoringView: React.FC = () => {
         const existingDamageValue = numberOr(res.cellBuckets?.find((row: any) => ['SCRAP', 'DAMAGE'].includes(String(row.label || '').toUpperCase()))?.value);
         const existingReusableValue = numberOr(res.cellBuckets?.find((row: any) => ['RECYCLE', 'REUSABLE'].includes(String(row.label || '').toUpperCase()))?.value);
         const scrapCellCount = existingDamageValue || 0;
+        const reusableSerialCount = new Set([
+          ...(res.damageReusableSerialNumbers?.Reusable || []),
+          ...(res.damageReusableSerialNumbers?.Recycle || []),
+        ].filter(Boolean)).size;
         const reusableCount = existingReusableValue > 0
           ? existingReusableValue
-          : numberOr(res.reusableCellCount, reusableCellIdSet.size);
+          : Math.max(numberOr(res.reusableCellCount, 0), reusableCellIdSet.size, reusableSerialCount);
         const reusableToReclassify = existingReusableValue > 0 ? 0 : reusableCount;
         const patchedBuckets = normalizeCellBucketLabels(
           (res.cellBuckets || [])
