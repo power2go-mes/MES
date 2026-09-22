@@ -241,7 +241,7 @@ export const CEOMonitoringView: React.FC = () => {
         const [res, quarantineRecords] = await Promise.all([
           api.getDashboardStats(undefined, undefined, (summary: any) => {
             if (!cancelled) {
-              setStats(summary);
+              setStats((current: any) => current && Object.keys(current).length > 0 ? current : summary);
               setLoading(false);
             }
           }),
