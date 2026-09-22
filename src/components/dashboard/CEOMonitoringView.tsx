@@ -1,9 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { jsPDF } from 'jspdf';
 import { Activity, AlertTriangle, Boxes, ChevronDown, Cpu, Download, Factory, PackageCheck, Truck, Zap } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
 import { api } from '../../services/api';
-import { downloadBatteryReport, downloadCellReport, downloadModuleReport, downloadRackReport, downloadSoldReport, downloadWarehouseReport } from '../../lib/cellReportExport';
 import { buildDashboardDistribution, DashboardDistribution, DashboardChartRow, normalizeCellBucketLabels } from '../../lib/dashboardCharts';
 
 const numberOr = (value: any, fallback = 0) => {
@@ -767,6 +765,7 @@ export const CEOMonitoringView: React.FC = () => {
   const exportCellReport = async () => {
     setExportingCells(true);
     try {
+      const { downloadCellReport } = await import('../../lib/cellReportExport');
       const [cells, counts, warehouseStatuses] = await Promise.all([
         api.getCells(),
         api.getCellCounts(),
@@ -787,6 +786,7 @@ export const CEOMonitoringView: React.FC = () => {
   const exportBatteryReport = async () => {
     setExportingBatteryReport(true);
     try {
+      const { downloadBatteryReport } = await import('../../lib/cellReportExport');
       const [batteries, warehouseStatuses] = await Promise.all([api.getBatteries(), api.getWarehouseEntityStatuses()]);
       downloadBatteryReport(batteries, { warehouseStatuses });
       addNotification('success', 'Battery report exported', `${batteries.length.toLocaleString()} battery records were exported.`);
@@ -800,6 +800,7 @@ export const CEOMonitoringView: React.FC = () => {
   const exportModuleReport = async () => {
     setExportingModules(true);
     try {
+      const { downloadModuleReport } = await import('../../lib/cellReportExport');
       const modules = await api.getModules({ includeCells: true });
       downloadModuleReport(modules);
       addNotification('success', 'Module report exported', `${modules.length.toLocaleString()} module records were exported.`);
@@ -813,6 +814,7 @@ export const CEOMonitoringView: React.FC = () => {
   const exportRackReport = async () => {
     setExportingRackReport(true);
     try {
+      const { downloadRackReport } = await import('../../lib/cellReportExport');
       const [racks, warehouseStatuses] = await Promise.all([api.getRacks(), api.getWarehouseEntityStatuses()]);
       downloadRackReport(racks, { warehouseStatuses });
       addNotification('success', 'Rack report exported', `${racks.length.toLocaleString()} rack records were exported.`);
@@ -826,6 +828,7 @@ export const CEOMonitoringView: React.FC = () => {
   const exportWarehouseReport = async () => {
     setExportingWarehouseReport(true);
     try {
+      const { downloadWarehouseReport } = await import('../../lib/cellReportExport');
       const [batteries, racks, warehouseStatuses] = await Promise.all([
         api.getBatteries(),
         api.getRacks(),
@@ -843,6 +846,7 @@ export const CEOMonitoringView: React.FC = () => {
   const exportSoldReport = async () => {
     setExportingSoldReport(true);
     try {
+      const { downloadSoldReport } = await import('../../lib/cellReportExport');
       const [batteries, racks, saleHistory] = await Promise.all([api.getBatteries(), api.getRacks(), api.getSaleHistory()]);
       downloadSoldReport(batteries, racks, saleHistory);
       addNotification('success', 'Sold report exported', 'Sold battery packs and racks were exported.');
@@ -856,6 +860,7 @@ export const CEOMonitoringView: React.FC = () => {
   const exportReport = async () => {
     setExporting(true);
     try {
+      const { jsPDF } = await import('jspdf');
       const reportDate = new Date().toISOString().slice(0, 10);
       const rangeLabel = 'All available data';
       const [quarantineRecords] = await Promise.all([
@@ -1255,7 +1260,7 @@ export const CEOMonitoringView: React.FC = () => {
   };
 
   return (
-    <div className="ceo-dashboard min-w-0 flex-1 overflow-y-auto bg-[#F7F9FB] p-3 sm:p-5">
+    <div className="ceo-dashboard min-w-0 flex-1 overflow-y-auto bg-[#F7F9FB] p-3 sm:p-5" aria-busy={loading && !stats}>
       <div className="mx-auto max-w-[1440px] space-y-5">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
           <div>
@@ -1278,7 +1283,12 @@ export const CEOMonitoringView: React.FC = () => {
         </div>
 
         <div className="ceo-kpi-grid grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-6">
-          {kpiCards.map((card) => (
+          {loading && !stats ? Array.from({ length: 6 }, (_, index) => (
+            <div key={`kpi-skeleton-${index}`} className="h-[112px] animate-pulse rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+              <div className="h-4 w-3/5 rounded bg-slate-200" />
+              <div className="mt-5 h-7 w-2/5 rounded bg-slate-200" />
+            </div>
+          )) : kpiCards.map((card) => (
             <div key={card.label} className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
               <div className="mb-3 flex items-center gap-2">
                 <div className="flex h-9 w-9 items-center justify-center rounded-lg" style={{ background: card.bg }}>

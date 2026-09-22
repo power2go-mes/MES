@@ -1,7 +1,7 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { useApp } from '../../context/AppContext';
-import { Search, RefreshCw, Bell, ChevronDown, LogOut, Menu, ArrowLeft, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
+import { Search, Bell, ChevronDown, LogOut, Menu, ArrowLeft, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
 
 type HeaderProps = {
   onOpenNavigation: () => void;
@@ -11,7 +11,7 @@ type HeaderProps = {
 
 export const Header: React.FC<HeaderProps> = ({ onOpenNavigation, onToggleSidebar, isSidebarOpen }) => {
   const { currentUser, profile, logout } = useAuth();
-  const { setActiveView, goBack, canGoBack, quickSearchQuery, setQuickSearchQuery, triggerRefresh, notifications } = useApp();
+  const { activeView, setActiveView, goBack, canGoBack, quickSearchQuery, setQuickSearchQuery, notifications } = useApp();
 
   const getRoleBadgeColor = (role: string) => {
     switch (role) {
@@ -39,6 +39,22 @@ export const Header: React.FC<HeaderProps> = ({ onOpenNavigation, onToggleSideba
   const [showRoleMenu, setShowRoleMenu] = useState(false);
   const [showNotifMenu, setShowNotifMenu] = useState(false);
   const currentProfile = profile ?? currentUser;
+
+  useEffect(() => {
+    setShowRoleMenu(false);
+    setShowNotifMenu(false);
+  }, [activeView]);
+
+  useEffect(() => {
+    const handlePointerDown = (event: PointerEvent) => {
+      if (!(event.target as HTMLElement | null)?.closest('[data-header-menu="true"]')) {
+        setShowRoleMenu(false);
+        setShowNotifMenu(false);
+      }
+    };
+    document.addEventListener('pointerdown', handlePointerDown);
+    return () => document.removeEventListener('pointerdown', handlePointerDown);
+  }, []);
 
   const handleSwitchRole = (_role: string) => {
     setShowRoleMenu(false);
@@ -93,18 +109,8 @@ export const Header: React.FC<HeaderProps> = ({ onOpenNavigation, onToggleSideba
         </div>
 
         <div className="ml-auto flex h-10 items-center gap-3 sm:gap-5">
-          {/* Refresh button */}
-          <button
-            onClick={() => triggerRefresh()}
-            aria-label="Refresh data"
-            className="flex h-10 w-10 items-center justify-center p-0 text-slate-400 hover:text-slate-700 hover:bg-slate-100 focus:outline-none focus:ring-2 focus:ring-emerald-500 rounded-lg transition-colors"
-            title="Refresh Data"
-          >
-            <RefreshCw className="w-4 h-4" />
-          </button>
-
           {/* Notifications */}
-          <div className="relative">
+          <div className="relative" data-header-menu="true">
             <button
               onClick={() => setShowNotifMenu(!showNotifMenu)}
               aria-label="Open notifications"
@@ -141,7 +147,7 @@ export const Header: React.FC<HeaderProps> = ({ onOpenNavigation, onToggleSideba
 
           {/* Operator Profile / Role Switcher */}
           <div className="flex h-10 items-center gap-2">
-            <div className="relative">
+            <div className="relative" data-header-menu="true">
               <button
                 onClick={() => setShowRoleMenu(!showRoleMenu)}
                 aria-label="Open profile menu"

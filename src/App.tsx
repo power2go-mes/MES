@@ -36,7 +36,6 @@ const AppContent: React.FC = () => {
   const { activeView, setActiveView, sidebarOpen, setSidebarOpen, notifications, dismissNotification } = useApp();
   const { isAuthenticated, authLoading, currentUser } = useAuth();
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
-  const [postLoginReady, setPostLoginReady] = useState(false);
   const [visitedViews, setVisitedViews] = useState<NavView[]>(() => [activeView]);
   const openSidebar = () => {
     setSidebarOpen(true);
@@ -58,16 +57,6 @@ const AppContent: React.FC = () => {
   useEffect(() => {
     if (isCeo && !ceoViews.has(activeView)) setActiveView('ceo-monitoring');
   }, [activeView, isCeo, setActiveView]);
-
-  useEffect(() => {
-    if (!isAuthenticated) {
-      setPostLoginReady(false);
-      return;
-    }
-
-    const timeout = window.setTimeout(() => setPostLoginReady(true), 5000);
-    return () => window.clearTimeout(timeout);
-  }, [isAuthenticated]);
 
   // If auth is still loading (initial check in progress), show nothing
   if (authLoading) {
@@ -136,17 +125,6 @@ const AppContent: React.FC = () => {
 
   return (
     <div className="app-shell flex flex-col h-screen w-screen overflow-hidden bg-slate-50 font-sans text-slate-900 antialiased select-none">
-      {!postLoginReady && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-50" role="status" aria-live="polite">
-          <div className="rounded-2xl border border-slate-200 bg-white px-8 py-6 text-center shadow-sm">
-            <h1 className="text-2xl font-black tracking-[-0.06em] text-slate-900">Power2Go MES</h1>
-            <p className="mt-3 text-sm text-slate-500">Loading dashboard...</p>
-            <div className="mt-5 h-2 w-40 overflow-hidden rounded-full bg-slate-200">
-              <div className="loading-progress h-full w-2/5 rounded-full bg-emerald-500" />
-            </div>
-          </div>
-        </div>
-      )}
       <div className="flex flex-1 overflow-hidden">
         {sidebarOpen && <Sidebar isOpen={sidebarOpen} onClose={closeSidebar} />}
         {mobileNavOpen && sidebarOpen && (

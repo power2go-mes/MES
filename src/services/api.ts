@@ -791,6 +791,14 @@ async getUsers(): Promise<User[]> {
       onSummary?.(dashboardStatsCache.value);
       return dashboardStatsCache.value;
     }
+    if (!startDate && !endDate && typeof window !== 'undefined') {
+      try {
+        const persisted = window.localStorage.getItem('p2g_dashboard_stats_cache');
+        if (persisted) onSummary?.(JSON.parse(persisted));
+      } catch {
+        // Ignore unavailable or invalid browser storage.
+      }
+    }
     if (dashboardStatsRequest?.key === cacheKey) return dashboardStatsRequest.promise;
 
     const promise = api.loadDashboardStats(startDate, endDate, onSummary);
@@ -798,6 +806,13 @@ async getUsers(): Promise<User[]> {
     try {
       const value = await promise;
       dashboardStatsCache = { key: cacheKey, value, expiresAt: Date.now() + 30000 };
+      if (!startDate && !endDate && typeof window !== 'undefined') {
+        try {
+          window.localStorage.setItem('p2g_dashboard_stats_cache', JSON.stringify(value));
+        } catch {
+          // Ignore storage quota and privacy-mode failures.
+        }
+      }
       return value;
     } finally {
       if (dashboardStatsRequest?.key === cacheKey) dashboardStatsRequest = null;
@@ -834,7 +849,7 @@ async getUsers(): Promise<User[]> {
         rawSupabase.from('bms_units').select('id,status,serial_number'),
         rawSupabase.from('bmu_units').select('id,status,serial_number'),
       ]);
-      const [{ data, error }, detailData] = await Promise.all([dashboardSummaryPromise, detailDataPromise]);
+      const { data, error } = await dashboardSummaryPromise;
 
       if (error) {
         console.warn('Dashboard RPC error:', error.message);
@@ -861,6 +876,7 @@ async getUsers(): Promise<User[]> {
         },
       });
 
+      const detailData = await detailDataPromise;
       const warehouseLocations = await warehouseLocationPromise;
       const { latestByEntity } = warehouseLocations;
       const liveCells = warehouseLocations.cells || [];
