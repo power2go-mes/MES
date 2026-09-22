@@ -210,9 +210,9 @@ function moduleSerialPrefix(date = new Date()): string {
   return `P2G-MOD-${String(date.getDate()).padStart(2, '0')}${String(date.getMonth() + 1).padStart(2, '0')}`;
 }
 
-function moduleSerialSequence(serial: unknown, prefix: string): number {
+function moduleSerialSequence(serial: unknown): number {
   const value = String(serial || '');
-  if (!value.startsWith(`${prefix}-`)) return 0;
+  if (!/^P2G-MOD-/i.test(value)) return 0;
   const match = value.match(/-(\d+)$/);
   return match ? Number(match[1]) || 0 : 0;
 }
@@ -1808,12 +1808,11 @@ async getUsers(): Promise<User[]> {
       const modulePrefix = moduleSerialPrefix(now);
       const { data: existingModuleSerials, error: moduleSerialError } = await supabase
         .from('modules')
-        .select('serial_number')
-        .like('serial_number', `${modulePrefix}-%`);
+        .select('serial_number');
       if (moduleSerialError) throw new Error(`Failed to verify module serials: ${moduleSerialError.message}`);
       let moduleSequence = Math.max(
         0,
-        ...(existingModuleSerials || []).map((module: any) => moduleSerialSequence(module.serial_number, modulePrefix)),
+        ...(existingModuleSerials || []).map((module: any) => moduleSerialSequence(module.serial_number)),
       ) + 1;
 
       params.batchPlan.batteries.forEach((plan: any, batteryIndex: number) => {
@@ -2872,12 +2871,11 @@ async getUsers(): Promise<User[]> {
       const modulePrefix = moduleSerialPrefix();
       const { data: existingModuleSerials, error: moduleSerialError } = await supabase
         .from('modules')
-        .select('serial_number')
-        .like('serial_number', `${modulePrefix}-%`);
+        .select('serial_number');
       if (moduleSerialError) throw moduleSerialError;
       let moduleSequence = Math.max(
         0,
-        ...(existingModuleSerials || []).map((module: any) => moduleSerialSequence(module.serial_number, modulePrefix)),
+        ...(existingModuleSerials || []).map((module: any) => moduleSerialSequence(module.serial_number)),
       ) + 1;
       batteryIds.push(batId);
 

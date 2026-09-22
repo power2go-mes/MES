@@ -1207,7 +1207,7 @@ apiRouter.get('/production-orders', (req, res) => {
         const month = String(now.getMonth() + 1).padStart(2, '0');
         const modulePrefix = `P2G-MOD-${day}${month}`;
         const nextModuleNumber = Array.from(db.modules.values()).reduce((max, module) => {
-          const match = module.serialNumber.match(new RegExp(`^${modulePrefix}-(\\d+)$`, 'i'));
+          const match = module.serialNumber.match(/^P2G-MOD-[A-Z0-9-]+-(\d+)$/i);
           return Math.max(max, Number(match?.[1] || 0));
         }, 0) + m + 1;
         const modSerial = `P2G-MOD-${day}${month}-${String(nextModuleNumber).padStart(5, '0')}`;
