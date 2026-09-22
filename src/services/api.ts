@@ -830,6 +830,7 @@ async getUsers(): Promise<User[]> {
         applyDateRange(rawSupabase.from('cells').select('id,reserved_for_battery_id').eq('lifecycle_status', 'SOLD')),
         rawSupabase.from('module_cells').select('cell_id,module:modules(battery_id)'),
         rawSupabase.from('rack_packs').select('battery_id,rack:racks(status)'),
+        rawSupabase.from('quarantine_records').select('entity_id,entity_type,status,disposed_of_as').eq('entity_type', 'CELL'),
         rawSupabase.from('bms_units').select('id,status,serial_number'),
         rawSupabase.from('bmu_units').select('id,status,serial_number'),
       ]);
@@ -863,7 +864,11 @@ async getUsers(): Promise<User[]> {
       const warehouseLocations = await warehouseLocationPromise;
       const { latestByEntity } = warehouseLocations;
       const liveCells = warehouseLocations.cells || [];
-      const [{ data: liveModules }, { data: liveBatteries }, { data: liveRacks }, { data: liveRackPacks }, { data: soldBatteries }, { data: soldRacks }, { data: soldCells }, { data: soldModuleCells }, { data: soldRackPacks }, { data: liveBms }, { data: liveBmus }] = detailData;
+      const [{ data: liveModules }, { data: liveBatteries }, { data: liveRacks }, { data: liveRackPacks }, { data: soldBatteries }, { data: soldRacks }, { data: soldCells }, { data: soldModuleCells }, { data: soldRackPacks }, { data: reusableRecords }, { data: liveBms }, { data: liveBmus }] = detailData;
+      const reusableCellIds = new Set((reusableRecords || [])
+        .filter((record: any) => ['RELEASE_APPROVED', 'REWORK', 'REUSABLE', 'RECYCLE'].includes(String(record.disposed_of_as || '').toUpperCase()))
+        .map((record: any) => String(record.entity_id || ''))
+        .filter(Boolean));
       const extractSerial = (...values: any[]) => {
         for (const value of values) {
           const candidate = String(value ?? '').trim();
@@ -912,6 +917,10 @@ async getUsers(): Promise<User[]> {
           damageReusableSerialNumbers.Scrap = [...(damageReusableSerialNumbers.Scrap || []), serial];
         }
         if (['REUSABLE', 'REWORK', 'RELEASE_APPROVED'].includes(lifecycleStatus)) {
+          damageReusableSerialNumbers.Reusable = [...(damageReusableSerialNumbers.Reusable || []), serial];
+          damageReusableSerialNumbers.Recycle = [...(damageReusableSerialNumbers.Recycle || []), serial];
+        }
+        if (reusableCellIds.has(String(cell.id))) {
           damageReusableSerialNumbers.Reusable = [...(damageReusableSerialNumbers.Reusable || []), serial];
           damageReusableSerialNumbers.Recycle = [...(damageReusableSerialNumbers.Recycle || []), serial];
         }
@@ -4442,10 +4451,9 @@ async getUsers(): Promise<User[]> {
   async getReusableCellIds(): Promise<string[]> {
     const { data, error } = await supabase
       .from('quarantine_records')
-      .select('entity_id')
+      .select('entity_id, disposed_of_as')
       .eq('entity_type', 'CELL')
-      .eq('status', 'RESOLVED')
-      .in('disposed_of_as', ['RELEASE_APPROVED', 'REWORK']);
+      .in('disposed_of_as', ['RELEASE_APPROVED', 'REWORK', 'REUSABLE', 'RECYCLE']);
     if (error) throw error;
     return Array.from(new Set((data || []).map((record: any) => String(record.entity_id || '')).filter(Boolean)));
   },
