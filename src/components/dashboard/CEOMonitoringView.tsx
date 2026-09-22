@@ -173,6 +173,7 @@ const DistributionBars: React.FC<{ distribution: DashboardDistribution; colors?:
 };
 
 const formatNumber = (value: number) => new Intl.NumberFormat('en-US').format(value);
+const formatDashboardChartLabel = (value: unknown) => String(value || '').replace(/\b8\s*KWH\b/gi, '7.5KWH');
 const formatDashboardSerial = (value: unknown) => {
   const serial = String(value || '').trim();
   const moduleMatch = serial.match(/^P2G-MOD-\d{4}-(\d+)$/i);
@@ -180,7 +181,7 @@ const formatDashboardSerial = (value: unknown) => {
   const cellMatch = serial.match(/^P2G-CL-\d{4}-(\d+)$/i);
   if (cellMatch) return `CL-${cellMatch[1]}`;
   const match = serial.match(/(\d+(?:\.\d+)?KWH)-\d{4}-(\d+)$/i);
-  return match ? `${match[1].toUpperCase()}-${match[2]}` : serial;
+  return match ? `${formatDashboardChartLabel(match[1]).toUpperCase()}-${match[2]}` : formatDashboardChartLabel(serial);
 };
 const formatDashboardSerialList = (values: unknown[] = []) => values.map(formatDashboardSerial).filter(Boolean);
 const CELL_NOMINAL_CAPACITY_AH = 100;
@@ -579,7 +580,7 @@ export const CEOMonitoringView: React.FC = () => {
   ), [filteredSoldRows, selectedSoldEntity, soldData]);
   const batteryPackData = useMemo<ChartRow[]>(() => applyPalette((source.batteryPackBuckets || [])
     .map((row: any) => ({
-      label: String(row.label || 'Unnamed Pack'),
+      label: formatDashboardChartLabel(row.label || 'Unnamed Pack'),
       value: numberOr(row.value),
       color: reportColors.green,
     }))
@@ -1365,7 +1366,7 @@ export const CEOMonitoringView: React.FC = () => {
                   {type}<ChevronDown className="h-3 w-3" />
                 </button>
                 {openWarehouseFilter === type && <div data-ceo-dropdown="true" className="absolute left-0 top-full z-20 mt-1 flex min-w-max flex-col gap-1 rounded-lg border border-slate-200 bg-white p-1.5 shadow-lg">
-                  {(type === 'Racks' ? warehouseRackTypeOptions : warehouseBatteryTypeOptions).map(filterType => <button key={filterType} type="button" onClick={() => { if (type === 'Racks') setSelectedWarehouseRackType(filterType); else setSelectedWarehouseBatteryType(filterType); setOpenWarehouseFilter(null); }} className={`whitespace-nowrap rounded-md px-2 py-1.5 text-left ${((type === 'Racks' ? selectedWarehouseRackType : selectedWarehouseBatteryType) === filterType) ? 'bg-emerald-50 text-emerald-700' : 'text-slate-600 hover:bg-slate-50'}`}>{filterType === 'All' ? `All ${type.toLowerCase()}` : type === 'Racks' ? warehouseRackTypeLabel(filterType) : filterType}</button>)}
+                  {(type === 'Racks' ? warehouseRackTypeOptions : warehouseBatteryTypeOptions).map(filterType => <button key={filterType} type="button" onClick={() => { if (type === 'Racks') setSelectedWarehouseRackType(filterType); else setSelectedWarehouseBatteryType(filterType); setOpenWarehouseFilter(null); }} className={`whitespace-nowrap rounded-md px-2 py-1.5 text-left ${((type === 'Racks' ? selectedWarehouseRackType : selectedWarehouseBatteryType) === filterType) ? 'bg-emerald-50 text-emerald-700' : 'text-slate-600 hover:bg-slate-50'}`}>{filterType === 'All' ? `All ${type.toLowerCase()}` : type === 'Racks' ? warehouseRackTypeLabel(filterType) : formatDashboardChartLabel(filterType)}</button>)}
                 </div>}
               </div>)}
             </div>
