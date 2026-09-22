@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { jsPDF } from 'jspdf';
 import { Activity, AlertTriangle, Boxes, ChevronDown, Cpu, Download, Factory, PackageCheck, Truck, Zap } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
@@ -198,6 +198,7 @@ export const CEOMonitoringView: React.FC = () => {
   const [exportingWarehouseReport, setExportingWarehouseReport] = useState(false);
   const [exportingSoldReport, setExportingSoldReport] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const refreshRequestId = useRef(0);
   const [selectedCellStatus, setSelectedCellStatus] = useState<'All' | string>('All');
   const [selectedPackType, setSelectedPackType] = useState('All');
   const [selectedRackType, setSelectedRackType] = useState('All');
@@ -237,10 +238,11 @@ export const CEOMonitoringView: React.FC = () => {
     let cancelled = false;
 
     const refresh = async () => {
+      const requestId = ++refreshRequestId.current;
       try {
         const [res, quarantineRecords] = await Promise.all([
           api.getDashboardStats(undefined, undefined, (summary: any) => {
-            if (!cancelled) {
+            if (!cancelled && requestId === refreshRequestId.current) {
               setStats((current: any) => current && Object.keys(current).length > 0 ? current : summary);
               setLoading(false);
             }
@@ -272,18 +274,18 @@ export const CEOMonitoringView: React.FC = () => {
             ]),
         );
 
-        if (!cancelled) {
+        if (!cancelled && requestId === refreshRequestId.current) {
           setStats({ ...res, cellBuckets: patchedBuckets });
           setLoadError(null);
         }
       } catch (error: any) {
-        if (!cancelled) {
+        if (!cancelled && requestId === refreshRequestId.current) {
           console.warn('CEO dashboard refresh failed:', error);
           setLoadError(error?.message || 'Dashboard data could not be loaded.');
           setStats((prev: any) => prev ?? {});
         }
       } finally {
-        if (!cancelled) setLoading(false);
+        if (!cancelled && requestId === refreshRequestId.current) setLoading(false);
       }
     };
 
