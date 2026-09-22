@@ -6,7 +6,7 @@
 import React, { lazy, Suspense, useEffect, useState } from 'react';
 import { Analytics } from '@vercel/analytics/react';
 import { AuthProvider, useAuth } from './context/AuthContext';
-import { AppProvider, useApp } from './context/AppContext';
+import { AppProvider, NavView, useApp } from './context/AppContext';
 import { Header } from './components/common/Header';
 import { Sidebar } from './components/common/Sidebar';
 import LoginPage from './components/auth/LoginPage';
@@ -37,6 +37,7 @@ const AppContent: React.FC = () => {
   const { isAuthenticated, authLoading, currentUser } = useAuth();
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [postLoginReady, setPostLoginReady] = useState(false);
+  const [visitedViews, setVisitedViews] = useState<NavView[]>(() => [activeView]);
   const openSidebar = () => {
     setSidebarOpen(true);
     setMobileNavOpen(true);
@@ -48,7 +49,11 @@ const AppContent: React.FC = () => {
   const canManageUsers = currentUser?.roleId === 'role-admin' || currentUser?.role === 'admin';
   const isCeo = currentUser?.roleId === 'role-ceo' || currentUser?.role === 'ceo';
   const ceoViews = new Set(['ceo-monitoring', 'inventory', 'traceability']);
-  const effectiveView = isCeo && !ceoViews.has(activeView) ? 'ceo-monitoring' : activeView;
+  const effectiveView: NavView = isCeo && !ceoViews.has(activeView) ? 'ceo-monitoring' : activeView;
+
+  useEffect(() => {
+    setVisitedViews(previous => previous.includes(effectiveView) ? previous : [...previous, effectiveView]);
+  }, [effectiveView]);
 
   useEffect(() => {
     if (isCeo && !ceoViews.has(activeView)) setActiveView('ceo-monitoring');
@@ -82,8 +87,8 @@ const AppContent: React.FC = () => {
   }
 
   // Authenticated — render the MES application
-  const renderActiveView = () => {
-    switch (effectiveView) {
+  const renderView = (view: NavView) => {
+    switch (view) {
       case 'dashboard':
         return <DashboardView />;
       case 'ceo-monitoring':
@@ -155,7 +160,11 @@ const AppContent: React.FC = () => {
         <main className="flex-1 flex flex-col overflow-y-auto overflow-x-hidden relative bg-slate-50">
           <Header onOpenNavigation={openSidebar} onToggleSidebar={() => setSidebarOpen(open => !open)} isSidebarOpen={sidebarOpen} />
           <Suspense fallback={<div className="grid flex-1 place-items-center bg-slate-50 text-xs font-bold uppercase tracking-[0.18em] text-slate-500">Loading workspace</div>}>
-            {renderActiveView()}
+            {visitedViews.map(view => (
+              <div key={view} className="contents" hidden={view !== effectiveView}>
+                {renderView(view)}
+              </div>
+            ))}
           </Suspense>
         </main>
       </div>
