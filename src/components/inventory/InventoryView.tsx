@@ -115,30 +115,31 @@ export const InventoryView: React.FC = () => {
           ? statusFilter
           : undefined;
         const warehouseFilterSelected = statusFilter === 'KARACHI_WAREHOUSE' || statusFilter === 'LAHORE_WAREHOUSE';
-        const [res, counts, warehouseStatuses] = await Promise.all([
-          api.getCells({
+        const cellsPromise = api.getCells({
             search: search || undefined,
             lifecycleStatus: serverLifecycleStatus,
             usedOnly: cellsView === 'USED' ? true : undefined,
             limit: pageSize,
             offset: page * pageSize,
             fields: 'id,internal_serial,supplier_barcode,qr_code,supplier_id,batch_number,pallet_number,box_number,supplier_ocv_v,supplier_ir_mohm,production_ocv_v,production_ir_mohm,grade,status,lifecycle_status,reserved_for_order_id,reserved_for_battery_id,tested_at,created_at,updated_at,supplier:suppliers(name)',
-          }),
-          !search && !statusFilter
-            ? api.getCellCounts()
-            : Promise.resolve({ total: allCellsCount, used: usedCellsCount, available: 0, quarantined: 0 }),
-          warehouseFilterSelected ? api.getWarehouseCellStatuses() : Promise.resolve({}),
-        ]);
+          });
+        const countsPromise = !search && !statusFilter
+          ? api.getCellCounts()
+          : Promise.resolve({ total: allCellsCount, used: usedCellsCount, available: 0, quarantined: 0 });
+        const warehouseStatusesPromise = warehouseFilterSelected ? api.getWarehouseCellStatuses() : Promise.resolve({});
+        const res = await cellsPromise;
         setCells(previous => append ? [...previous, ...res] : res);
-        setWarehouseCellStatuses(warehouseStatuses);
         moreAvailable = res.length === pageSize;
         setHasMoreInventory(moreAvailable);
         setInventoryPage(page);
-        setAllCellsCount(counts.total);
-        setUsedCellsCount(counts.used);
         if (!search && !statusFilter) {
           setAllCells(cellsView === 'USED' ? res : []);
         }
+        void countsPromise.then(counts => {
+          setAllCellsCount(counts.total);
+          setUsedCellsCount(counts.used);
+        }).catch(error => console.error('Failed to load cell counts', error));
+        void warehouseStatusesPromise.then(setWarehouseCellStatuses).catch(error => console.error('Failed to load warehouse cell statuses', error));
 
         if (cellsView === 'USED') {
           try {

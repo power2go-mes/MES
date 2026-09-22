@@ -48,6 +48,8 @@ let dashboardStatsCache: { key: string; value: any; expiresAt: number } | null =
 let dashboardStatsRequest: { key: string; promise: Promise<any> } | null = null;
 let warehouseLocationCache: { value: any; expiresAt: number } | null = null;
 let warehouseLocationRequest: Promise<any> | null = null;
+let cellCountsCache: { value: { total: number; used: number; available: number; quarantined: number }; expiresAt: number } | null = null;
+let cellCountsRequest: Promise<{ total: number; used: number; available: number; quarantined: number }> | null = null;
 let reportsAnalyticsCache: { value: any; expiresAt: number } | null = null;
 let reportsAnalyticsRequest: Promise<any> | null = null;
 let recentTraceItemsCache: { value: Array<{ label: string; serial: string }>; expiresAt: number } | null = null;
@@ -2099,6 +2101,11 @@ async getUsers(): Promise<User[]> {
   },
 
   async getCellCounts(): Promise<{ total: number; used: number; available: number; quarantined: number }> {
+    const now = Date.now();
+    if (cellCountsCache && cellCountsCache.expiresAt > now) return cellCountsCache.value;
+    if (cellCountsRequest) return cellCountsRequest;
+
+    cellCountsRequest = (async () => {
     const [totalResult, usedResult, availableResult, quarantinedResult] = await Promise.all([
       supabase.from('cells').select('id', { count: 'exact', head: true }),
       supabase.from('cells').select('id', { count: 'exact', head: true }).or('reserved_for_battery_id.not.is.null,reserved_for_order_id.not.is.null'),
@@ -2113,6 +2120,14 @@ async getUsers(): Promise<User[]> {
       available: availableResult.count || 0,
       quarantined: quarantinedResult.count || 0,
     };
+    })();
+    try {
+      const value = await cellCountsRequest;
+      cellCountsCache = { value, expiresAt: Date.now() + 60000 };
+      return value;
+    } finally {
+      cellCountsRequest = null;
+    }
   },
 
   async getCells(params?: { status?: string; lifecycleStatus?: string; search?: string; limit?: number; offset?: number; usedOnly?: boolean; fields?: string }): Promise<CellItem[]> {
