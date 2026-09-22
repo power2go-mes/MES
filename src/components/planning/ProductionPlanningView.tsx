@@ -77,7 +77,7 @@ export const ProductionPlanningView: React.FC = () => {
   const defaultBatterySerialBase = (product?: ProductTemplate) => {
     const now = new Date();
     const dayMonth = `${String(now.getDate()).padStart(2, '0')}${String(now.getMonth() + 1).padStart(2, '0')}`;
-    const capacity = Number(product?.capacityKwh || 5).toString().replace(/\.0+$/, '');
+    const capacity = Number(product?.capacityKwh || 5).toString().replace(/\.0+$/, '').replace(/^8$/, '7.5');
     return `P2G-BP-${capacity}KWH-${dayMonth}-0001`;
   };
   const requiredCells = selectedProduct ? selectedProduct.totalCells * quantity : 0;

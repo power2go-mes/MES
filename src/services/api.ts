@@ -1674,7 +1674,7 @@ async getUsers(): Promise<User[]> {
     try {
       const productTemplate = params.batchPlan.template;
       const cellsPerModule = Math.max(1, Number(productTemplate?.cellsPerModule || productTemplate?.totalCells / Math.max(1, productTemplate?.numModules || 1)));
-      const batteryPower = Number(productTemplate?.capacityKwh || 5).toString().replace(/\.0+$/, '');
+      const batteryPower = Number(productTemplate?.capacityKwh || 5).toString().replace(/\.0+$/, '').replace(/^8$/, '7.5');
       const serialPrefix = `P2G-BP-${batteryPower}KWH-${dayMonth}`;
       const existingSerialRows: any[] = [];
       for (let offset = 0; ; offset += 1000) {
@@ -4244,7 +4244,20 @@ async getUsers(): Promise<User[]> {
       }
       if (entityType === 'CELL') {
         const supplier = normalizedEntity.supplierId ? await supabase.from('suppliers').select('*').eq('id', normalizedEntity.supplierId).maybeSingle() : null;
-        if (supplier?.data) context.supplier = supplier.data;
+        if (supplier?.data) {
+          const { data: latestImport } = await supabase
+            .from('supplier_imports')
+            .select('imported_at')
+            .eq('supplier_id', supplier.data.id)
+            .order('imported_at', { ascending: false })
+            .limit(1)
+            .maybeSingle();
+          context.supplier = {
+            ...supplier.data,
+            importedAt: latestImport?.imported_at || null,
+            imported_at: latestImport?.imported_at || null,
+          };
+        }
 
         const cellBatteryId = normalizedEntity.reservedForBatteryId ?? normalizedEntity.reserved_for_battery_id;
         const cellModuleResult = await supabase

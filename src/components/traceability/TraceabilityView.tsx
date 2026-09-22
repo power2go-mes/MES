@@ -38,6 +38,20 @@ interface TraceNode {
 const fmt = (v: any): string =>
   v === undefined || v === null || v === '' ? 'Not recorded' : String(v);
 
+const displayBatterySerial = (value: unknown): string => String(value || '').replace(/8KWH/gi, '7.5KWH');
+
+const fmtDateOnly = (v: any): string => {
+  if (v === undefined || v === null || v === '') return 'Not recorded';
+  const datePart = String(v).split('T')[0];
+  const match = datePart.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  return match ? `${match[3]}-${match[2]}-${match[1]}` : fmt(v);
+};
+
+const fmtDateShort = (v: any): string => {
+  const date = fmtDateOnly(v);
+  return date.match(/^(\d{2})-(\d{2})-(\d{4})$/) ? `${date.slice(0, 6)}${date.slice(-2)}` : date;
+};
+
 const formatTraceStatus = (status: any): string => String(status || '')
   .replace(/^KARACHI_WAREHOUSE$/, 'Karachi Warehouse')
   .replace(/^LAHORE_WAREHOUSE$/, 'Lahore Warehouse')
@@ -48,6 +62,13 @@ const getBatteryTraceStatus = (battery: any): string => String(
     ? battery.status
     : battery?.lifecycleStatus || battery?.lifecycle_status || battery?.status || '',
 );
+
+const getRackTraceWarehouse = (rack: any): string | null => {
+  const warehouse = String(rack?.status || rack?.location || '').toUpperCase();
+  if (warehouse.includes('LAHORE')) return 'Lahore Warehouse';
+  if (warehouse.includes('KARACHI')) return 'Karachi Warehouse';
+  return null;
+};
 
 function makeNode(
   key: string,
@@ -72,13 +93,13 @@ function batterySubtree(bat: any, bms: any, bmu: any, modules = bat.modules || [
     );
   });
   if (bms) children.push(makeNode('bms-' + bat.serialNumber, bms.serialNumber, 'BMS', bms, 'BMS/BMU'));
-  if (bmu) children.push(makeNode('bmu-' + bat.serialNumber, bmu.serialNumber, 'BMU', bmu, 'BMS/BMU'));
+  if (bmu && bmu.serialNumber !== bms?.serialNumber) children.push(makeNode('bmu-' + bat.serialNumber, bmu.serialNumber, 'BMU', bmu, 'BMS/BMU'));
   if (bat.finalQcResult)
     children.push(makeNode('finalqc-' + bat.serialNumber, 'Final QC', 'FINAL_QC', bat.finalQcResult, 'Final QC'));
   const batteryStatus = getBatteryTraceStatus(bat);
   children.push(makeNode('release-' + bat.serialNumber, 'Release', 'RELEASE', { status: batteryStatus }, batteryStatus));
   if (rack) children.push(makeNode('rack-' + (rack.serialNumber || rack.id), rack.serialNumber || rack.id, 'RACK', rack, 'Rack', rack.status));
-  return makeNode('battery-' + bat.serialNumber, bat.serialNumber, 'BATTERY', bat, 'Battery Pack', undefined, children);
+  return makeNode('battery-' + bat.serialNumber, displayBatterySerial(bat.serialNumber), 'BATTERY', bat, 'Battery Pack', undefined, children);
 }
 
 function rackSubtree(rack: any, batteries: any[] = []): TraceNode {
@@ -98,7 +119,7 @@ export function buildModuleTraceNodes(data: any): TraceNode[] {
   if (data.battery) {
     const bChildren: TraceNode[] = [];
     if (data.bms) bChildren.push(makeNode('bms', data.bms.serialNumber, 'BMS', data.bms, 'BMS/BMU'));
-    if (data.bmu) bChildren.push(makeNode('bmu', data.bmu.serialNumber, 'BMU', data.bmu, 'BMS/BMU'));
+    if (data.bmu && data.bmu.serialNumber !== data.bms?.serialNumber) bChildren.push(makeNode('bmu', data.bmu.serialNumber, 'BMU', data.bmu, 'BMS/BMU'));
     if (data.battery.finalQcResult) bChildren.push(makeNode('finalqc', 'Final QC', 'FINAL_QC', data.battery.finalQcResult, 'Final QC'));
     const batteryStatus = getBatteryTraceStatus(data.battery);
     bChildren.push(makeNode('release', 'Release', 'RELEASE', { status: batteryStatus }, batteryStatus));
@@ -106,7 +127,7 @@ export function buildModuleTraceNodes(data: any): TraceNode[] {
       const rack = data.rack;
       bChildren.push(makeNode('rack', rack.serialNumber || rack.id, 'RACK', rack, 'Rack', rack.status));
     }
-    modChildren.push(makeNode(`battery-summary-${data.battery.id}`, data.battery.serialNumber, 'BATTERY', data.battery, 'Battery Pack', undefined, bChildren));
+    modChildren.push(makeNode(`battery-summary-${data.battery.id}`, displayBatterySerial(data.battery.serialNumber), 'BATTERY', data.battery, 'Battery Pack', undefined, bChildren));
   }
 
   if (data.rack && !data.battery) {
@@ -130,7 +151,7 @@ export function buildTree(t: any): TraceNode[] {
     if (t.battery) {
       const bChildren: TraceNode[] = [];
       if (t.bms) bChildren.push(makeNode('bms-' + (t.battery.serialNumber || t.battery.serial_number), t.bms.serialNumber || t.bms.serial_number, 'BMS', t.bms, 'BMS/BMU'));
-      if (t.bmu) bChildren.push(makeNode('bmu-' + (t.battery.serialNumber || t.battery.serial_number), t.bmu.serialNumber || t.bmu.serial_number, 'BMU', t.bmu, 'BMS/BMU'));
+      if (t.bmu && (t.bmu.serialNumber || t.bmu.serial_number) !== (t.bms?.serialNumber || t.bms?.serial_number)) bChildren.push(makeNode('bmu-' + (t.battery.serialNumber || t.battery.serial_number), t.bmu.serialNumber || t.bmu.serial_number, 'BMU', t.bmu, 'BMS/BMU'));
       if (t.battery.finalQcResult)
         bChildren.push(makeNode('finalqc-' + (t.battery.serialNumber || t.battery.serial_number), 'Final QC', 'FINAL_QC', t.battery.finalQcResult, 'Final QC'));
       const batteryStatus = getBatteryTraceStatus(t.battery);
@@ -146,7 +167,7 @@ export function buildTree(t: any): TraceNode[] {
         bChildren.push(makeNode('scrap-' + (t.battery.serialNumber || t.battery.serial_number), 'Damage', 'SCRAP', { reason: t.scrapRecord?.reason || 'Damage record' }, 'Damage'));
       }
       cellChildren.push(
-        makeNode('battery-' + (t.battery.serialNumber || t.battery.serial_number), t.battery.serialNumber || t.battery.serial_number, 'BATTERY', t.battery, 'Battery Pack', undefined, bChildren)
+        makeNode('battery-' + (t.battery.serialNumber || t.battery.serial_number), displayBatterySerial(t.battery.serialNumber || t.battery.serial_number), 'BATTERY', t.battery, 'Battery Pack', undefined, bChildren)
       );
     }
     if (t.rack && !t.battery) {
@@ -170,7 +191,8 @@ export function buildTree(t: any): TraceNode[] {
   }
 
   if (type === 'BATTERY') {
-    const roots = [batterySubtree(e, t.bms, t.bmu, t.modules || [], t.rack)];
+    const batteryWithModules = { ...e, modules: t.modules || e.modules || [] };
+    const roots = [batterySubtree(batteryWithModules, t.bms, t.bmu, batteryWithModules.modules, t.rack)];
     if (t.saleHistory) {
       roots.unshift(makeNode('sale', 'Sale', 'SOLD', { clientName: t.saleHistory.client_name || t.saleHistory.clientName || 'Not recorded' }, 'Sold'));
     }
@@ -196,7 +218,8 @@ export function buildTree(t: any): TraceNode[] {
     const roots: TraceNode[] = [];
     const compChildren: TraceNode[] = [];
     if (t.battery) {
-      compChildren.push(batterySubtree(t.battery, t.bms, t.bmu));
+      const batteryWithModules = { ...t.battery, modules: t.modules || t.battery.modules || [] };
+      compChildren.push(batterySubtree(batteryWithModules, undefined, undefined));
       const supplier = t.cells && t.cells[0] ? t.cells[0].supplierName : null;
       if (supplier) compChildren.push(makeNode('supplier', supplier, 'SUPPLIER', { name: supplier }, 'Supplier'));
     }
@@ -276,91 +299,43 @@ function detailFields(node: TraceNode): { label: string; value: string }[] {
       return [
         { label: 'Internal Serial', value: fmt(d.internalSerial) },
         { label: 'Supplier Barcode', value: fmt(d.supplierBarcode) },
-        { label: 'Supplier Name', value: fmt(d.supplierName) },
-        { label: 'Capacity (Supplier)', value: fmt(d.supplierCapacityAh) },
-        { label: 'Supplier OCV', value: fmt(d.supplierOcvV) },
-        { label: 'Production OCV', value: fmt(d.productionOcvV) },
-        { label: 'Supplier IR', value: fmt(d.supplierIrMilliOhm) },
-        { label: 'Production IR', value: fmt(d.productionIrMilliOhm) },
-        { label: 'Grade (Supplier)', value: fmt(d.supplierGrade) },
-        { label: 'Grade (Production)', value: fmt(d.productionGrade) },
-        { label: 'Batch', value: fmt(d.batchNumber) },
         { label: 'Pallet', value: fmt(d.palletNumber) },
-        { label: 'Box', value: fmt(d.boxNumber) },
         { label: 'Status', value: fmt(d.lifecycleStatus || d.lifecycle_status || d.status) },
-        { label: 'Tested At', value: fmt(d.testedAt) },
-        { label: 'Tested By', value: fmt(d.testedBy) },
       ];
     case 'MODULE':
       return [
         { label: 'Module Serial', value: fmt(d.serialNumber) },
-        { label: 'Matching Score', value: fmt(d.matchingScore) },
-        { label: 'Assembly Status', value: fmt(d.status) },
-        { label: 'Welding Status', value: fmt(d.weldingResult?.status) },
-        { label: 'Laser Power (W)', value: fmt(d.weldingResult?.laserPowerWatts) },
-        { label: 'Weld Pull Force (kg)', value: fmt(d.weldingResult?.pullForceKg) },
-        { label: 'QC Physical OK', value: fmt(d.qcResult?.physicalVisualOk) },
-        { label: 'QC Pack Voltage', value: fmt(d.qcResult?.packVoltageV) },
-        { label: 'QC Status', value: fmt(d.qcResult?.status) },
-        { label: 'Operator', value: fmt(d.weldingResult?.operatorId) },
-        { label: 'Welded At', value: fmt(d.weldingResult?.weldedAt) },
-        ...(d.cells || []).flatMap((cell: any, index: number) => {
-          const slot = Number(cell.moduleSlotIndex ?? index) + 1;
-          return [
-            { label: `Cell Slot ${slot} Barcode`, value: fmt(cell.supplierBarcode || cell.qrCode || cell.internalSerial) },
-            { label: `Cell Slot ${slot} Internal Serial`, value: fmt(cell.internalSerial) },
-          ];
-        }),
+        { label: 'Status', value: fmt(d.status || d.lifecycleStatus || d.lifecycle_status) },
       ];
     case 'BATTERY':
       return [
-        { label: 'Battery Serial', value: fmt(d.serialNumber) },
-        { label: 'Product', value: fmt(d.productName) },
+          { label: 'Battery Serial', value: displayBatterySerial(d.serialNumber) },
         { label: 'Status', value: fmt(getBatteryTraceStatus(d)) },
-        { label: 'Modules', value: fmt((d.modules || []).length) },
-        { label: 'Pack IR (mΩ)', value: fmt(d.finalQcResult?.internalResistanceMilliOhm) },
-        { label: 'Pack Voltage (V)', value: fmt(d.finalQcResult?.packVoltageV) },
-        { label: 'Final QC Status', value: fmt(d.finalQcResult?.status) },
-        { label: 'QR Code', value: fmt(d.qrCode) },
-        { label: 'Created', value: fmt(d.createdAt) },
+        { label: 'Modules', value: fmt(Array.isArray(d.modules) ? d.modules.length : 0) },
+        { label: 'Created', value: fmtDateShort(d.createdAt || d.created_at) },
       ];
     case 'RACK':
+      const rackWarehouse = getRackTraceWarehouse(d);
       return [
         { label: 'Rack Serial', value: fmt(d.serialNumber) },
         { label: 'Rack QR Code', value: fmt(d.qrCode || d.qr_code) },
-        { label: 'Template', value: fmt(d.rackTemplateCode || d.rack_template_code) },
-        { label: 'Status', value: fmt(d.status) },
-        { label: 'Location', value: fmt(d.location) },
-        { label: 'Required Packs', value: fmt(d.requiredPackCount || d.required_pack_count) },
-        { label: 'Pack Template', value: fmt(d.requiredPackTemplateCode || d.required_pack_template_code) },
-        { label: 'Connected Batteries', value: fmt((d.batteries || []).length) },
-        ...(d.batteries || []).flatMap((battery: any, index: number) => ([
-          { label: `Battery ${index + 1} Serial`, value: fmt(battery.serialNumber) },
-          { label: `Battery ${index + 1} Status`, value: fmt(getBatteryTraceStatus(battery)) },
-          { label: `Battery ${index + 1} Product`, value: fmt(battery.productName) },
-        ])),
+        { label: 'Status', value: rackWarehouse ? 'IN_STOCK' : fmt(d.status) },
+        { label: 'Location', value: rackWarehouse || fmt(d.location) },
+        { label: 'Batteries Connected', value: fmt(d.requiredPackCount ?? d.required_pack_count) },
+        { label: 'Date', value: fmtDateShort(d.createdAt || d.created_at) },
       ];
     case 'BMS':
     case 'BMU':
       return [
         { label: 'Serial', value: fmt(d.serialNumber) },
         { label: 'Type', value: node.type },
-        { label: 'Model', value: fmt(d.model) },
-        { label: 'Protocol', value: fmt(d.protocol) },
-        { label: 'Test Status', value: fmt(d.testResult?.status) },
-        { label: 'CAN Comms OK', value: fmt(d.testResult?.canCommsOk) },
-        { label: 'Operator', value: fmt(d.testResult?.testedBy) },
-        { label: 'Tested At', value: fmt(d.testResult?.testedAt) },
+        { label: 'Manufacturer', value: fmt(d.manufacturer || d.manufacturerName) },
         { label: 'Status', value: fmt(d.status) },
       ];
     case 'SUPPLIER':
       return [
         { label: 'Name', value: fmt(d.name) },
-        { label: 'Code', value: fmt(d.code) },
-        { label: 'Country', value: fmt(d.country) },
-        { label: 'Chemistry', value: fmt(d.cellChemistry) },
-        { label: 'Capacity (Ah)', value: fmt(d.nominalCapacityAh) },
-        { label: 'Rating', value: fmt(d.ratingScore) },
+        { label: 'Date Added', value: fmtDateOnly(d.importedAt || d.imported_at || d.createdAt || d.created_at) },
       ];
     case 'FINAL_QC':
       return [
@@ -414,9 +389,14 @@ const TreeNode: React.FC<{
   selectedKey: string;
   onSelect: (key: string) => void;
   depth: number;
-}> = ({ node, selectedKey, onSelect, depth }) => {
+  collapseModuleCells?: boolean;
+  expandedKeys?: Set<string>;
+  onToggle?: (key: string) => void;
+}> = ({ node, selectedKey, onSelect, depth, collapseModuleCells = false, expandedKeys = new Set(), onToggle }) => {
   const Icon = NODE_ICON[node.type] || GitMerge;
   const hasChildren = node.children && node.children.length > 0;
+  const collapsible = collapseModuleCells && node.type === 'MODULE' && hasChildren;
+  const expanded = expandedKeys.has(node.key);
   const copyValue = node.type === 'CELL'
     ? String(node.data?.supplierBarcode || node.data?.supplier_barcode || node.title || '')
     : String(node.data?.serialNumber || node.data?.serial_number || node.title || '');
@@ -442,10 +422,20 @@ const TreeNode: React.FC<{
           </span>
         </button>
         {canCopy && <CopyToClipboardButton value={copyValue} label={`Copy ${node.type.toLowerCase()} identifier`} />}
+        {collapsible && (
+          <button
+            type="button"
+            onClick={() => onToggle?.(node.key)}
+            className="ml-1 flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+            aria-label={`${expanded ? 'Hide' : 'Show'} cells for ${node.title}`}
+          >
+            <ChevronRight className={`h-4 w-4 transition-transform ${expanded ? 'rotate-90' : ''}`} />
+          </button>
+        )}
       </div>
-      {hasChildren &&
+      {hasChildren && (!collapsible || expanded) &&
         node.children!.map(child => (
-          <TreeNode key={child.key} node={child} selectedKey={selectedKey} onSelect={onSelect} depth={depth + 1} />
+          <TreeNode key={child.key} node={child} selectedKey={selectedKey} onSelect={onSelect} depth={depth + 1} collapseModuleCells={collapseModuleCells} expandedKeys={expandedKeys} onToggle={onToggle} />
         ))}
     </div>
   );
@@ -459,6 +449,7 @@ export const TraceabilityView: React.FC = () => {
   const [error, setError] = useState<{ message: string } | null>(null);
   const [recentSerials, setRecentSerials] = useState<{ label: string; serial: string }[]>([]);
   const [selectedKey, setSelectedKey] = useState<string>('');
+  const [expandedModuleKeys, setExpandedModuleKeys] = useState<Set<string>>(new Set());
   const searchRequestRef = useRef(0);
 
   useEffect(() => {
@@ -488,6 +479,7 @@ export const TraceabilityView: React.FC = () => {
     setLoading(true);
     setError(null);
     setSelectedKey('');
+    setExpandedModuleKeys(new Set());
     try {
       const result = await api.universalTrace(q);
       if (requestId !== searchRequestRef.current) return;
@@ -520,6 +512,7 @@ export const TraceabilityView: React.FC = () => {
   };
 
   const tree = trace ? buildTree(trace) : [];
+  const collapseRackModuleCells = trace?.entityType === 'RACK';
   const activeNode = (selectedKey && findNode(selectedKey, tree)) || tree[0] || null;
 
   return (
@@ -621,7 +614,7 @@ export const TraceabilityView: React.FC = () => {
               </span>
               <div className="mt-2 space-y-1 text-xs">
                 <p><span className="text-slate-400">Type:</span> <strong className="text-white">{TYPE_LABEL[trace.entityType] || trace.entityType}</strong></p>
-                <p className="inline-flex items-center gap-1"><span className="text-slate-400">Identifier:</span> <strong className="font-mono text-emerald-300">{trace.entityType === 'CELL' ? (trace.entity?.supplierBarcode || trace.entity?.supplier_barcode || trace.identifier) : trace.identifier}</strong><CopyToClipboardButton value={String(trace.entityType === 'CELL' ? (trace.entity?.supplierBarcode || trace.entity?.supplier_barcode || trace.identifier) : trace.identifier || '')} label="Copy trace identifier" /></p>
+                <p className="inline-flex items-center gap-1"><span className="text-slate-400">Identifier:</span> <strong className="font-mono text-emerald-300">{trace.entityType === 'BATTERY' ? displayBatterySerial(trace.identifier) : trace.entityType === 'CELL' ? (trace.entity?.supplierBarcode || trace.entity?.supplier_barcode || trace.identifier) : trace.identifier}</strong><CopyToClipboardButton value={String(trace.entityType === 'CELL' ? (trace.entity?.supplierBarcode || trace.entity?.supplier_barcode || trace.identifier) : trace.identifier || '')} label="Copy trace identifier" /></p>
                 <p><span className="text-slate-400">Status:</span> <strong className="text-white">{formatTraceStatus(trace.status)}</strong></p>
               </div>
             </div>
@@ -651,7 +644,21 @@ export const TraceabilityView: React.FC = () => {
                 <span>Traceability Map</span>
               </h3>
               {tree.map(node => (
-                <TreeNode key={node.key} node={node} selectedKey={selectedKey} onSelect={setSelectedKey} depth={0} />
+                <TreeNode
+                  key={node.key}
+                  node={node}
+                  selectedKey={selectedKey}
+                  onSelect={setSelectedKey}
+                  depth={0}
+                  collapseModuleCells={collapseRackModuleCells}
+                  expandedKeys={expandedModuleKeys}
+                  onToggle={key => setExpandedModuleKeys(previous => {
+                    const next = new Set(previous);
+                    if (next.has(key)) next.delete(key);
+                    else next.add(key);
+                    return next;
+                  })}
+                />
               ))}
             </div>
 

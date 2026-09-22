@@ -429,7 +429,8 @@ export const SupplierImportView: React.FC = () => {
 
             const numericBatteryValue = String(batteryVal).trim().match(/\d+/)?.[0];
             const batterySequence = numericBatteryValue ? Number(numericBatteryValue) : batteryCounter;
-            const rawSerial = `P2G-BP-${batteryPower}KWH-${dayMonth}-${String(batterySequence).padStart(4, '0')}`;
+            const displayBatteryPower = batteryPower === '8' ? '7.5' : batteryPower;
+            const rawSerial = `P2G-BP-${displayBatteryPower}KWH-${dayMonth}-${String(batterySequence).padStart(4, '0')}`;
 
             batteryGroups.set(currentKey, {
               rawSerial,

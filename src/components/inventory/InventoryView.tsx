@@ -33,6 +33,7 @@ const cellStatuses = [
 ] as const;
 
 const displayRackSerial = (value: unknown) => String(value || '').replace(/70KWH/gi, '67.9KWH');
+const displayBatterySerial = (value: unknown) => String(value || '').replace(/8KWH/gi, '7.5KWH');
 const displayRackTemplate = (value: unknown) => String(value || '').toUpperCase() === 'RACK_70KWH' ? '67.9 kWh' : String(value || '-');
 
 export const InventoryView: React.FC = () => {
@@ -1190,7 +1191,7 @@ export const InventoryView: React.FC = () => {
                         className="h-4 w-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500"
                       />
                     </td>
-                    <td className="px-5 py-3.5"><span className="inline-flex items-center gap-1 font-bold text-slate-900">{b.serialNumber}<CopyToClipboardButton value={b.serialNumber} label="Copy battery serial number" /></span></td>
+                    <td className="px-5 py-3.5"><span className="inline-flex items-center gap-1 font-bold text-slate-900">{displayBatterySerial(b.serialNumber)}<CopyToClipboardButton value={b.serialNumber} label="Copy battery serial number" /></span></td>
                     <td className="px-5 py-3.5 text-emerald-700">{b.bms?.serialNumber || 'NONE'}</td>
                     <td className="px-5 py-3.5 text-emerald-700">{b.bmu?.serialNumber || 'NONE'}</td>
                     <td className="px-5 py-3.5 font-bold text-emerald-600">{b.progressPercent}%</td>
