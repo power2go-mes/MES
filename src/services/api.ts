@@ -784,13 +784,16 @@ async getUsers(): Promise<User[]> {
   },
 
   // Dashboard stats
-  async getDashboardStats(startDate?: string, endDate?: string): Promise<any> {
+  async getDashboardStats(startDate?: string, endDate?: string, onSummary?: (stats: any) => void): Promise<any> {
     const cacheKey = `${startDate || ''}:${endDate || ''}`;
     const now = Date.now();
-    if (dashboardStatsCache?.key === cacheKey && dashboardStatsCache.expiresAt > now) return dashboardStatsCache.value;
+    if (dashboardStatsCache?.key === cacheKey && dashboardStatsCache.expiresAt > now) {
+      onSummary?.(dashboardStatsCache.value);
+      return dashboardStatsCache.value;
+    }
     if (dashboardStatsRequest?.key === cacheKey) return dashboardStatsRequest.promise;
 
-    const promise = api.loadDashboardStats(startDate, endDate);
+    const promise = api.loadDashboardStats(startDate, endDate, onSummary);
     dashboardStatsRequest = { key: cacheKey, promise };
     try {
       const value = await promise;
@@ -801,7 +804,7 @@ async getUsers(): Promise<User[]> {
     }
   },
 
-  async loadDashboardStats(startDate?: string, endDate?: string): Promise<any> {
+  async loadDashboardStats(startDate?: string, endDate?: string, onSummary?: (stats: any) => void): Promise<any> {
     if (!rawSupabase) throw new Error('Supabase is not configured.');
     
     try {
@@ -839,6 +842,23 @@ async getUsers(): Promise<User[]> {
       if (!data) {
         throw new Error('Dashboard summary returned no data. Verify the signed-in user has an active MES read permission.');
       }
+      onSummary?.({
+        ...data,
+        cellBuckets: Array.isArray(data.cellBuckets) ? data.cellBuckets : [],
+        moduleStatusBuckets: Array.isArray(data.moduleStatusBuckets) ? data.moduleStatusBuckets : [],
+        moduleTypeBuckets: Array.isArray(data.moduleStatusBuckets) ? data.moduleStatusBuckets : [],
+        moduleTotal: Number(data.moduleStatusBuckets?.reduce((total: number, row: any) => total + Number(row?.value || 0), 0) || 0),
+        batteryPackBuckets: Array.isArray(data.batteryPackBuckets) ? data.batteryPackBuckets : [],
+        batteryPackTotal: Number(data.batteryPackBuckets?.reduce((total: number, row: any) => total + Number(row?.value || 0), 0) || 0),
+        batteryStatusBuckets: Array.isArray(data.batteryStatusBuckets) ? data.batteryStatusBuckets : [],
+        rackStatusBuckets: Array.isArray(data.rackStatusBuckets) ? data.rackStatusBuckets : [],
+        controllerInventory: {
+          availableBms: Number(data.inventory?.availableBms || 0),
+          availableBmu: Number(data.inventory?.availableBmu || 0),
+          totalBms: Number(data.inventory?.totalBms || 0),
+          totalBmu: Number(data.inventory?.totalBmu || 0),
+        },
+      });
 
       const warehouseLocations = await warehouseLocationPromise;
       const { latestByEntity } = warehouseLocations;

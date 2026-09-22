@@ -239,7 +239,12 @@ export const CEOMonitoringView: React.FC = () => {
     const refresh = async () => {
       try {
         const [res, quarantineRecords] = await Promise.all([
-          api.getDashboardStats(),
+          api.getDashboardStats(undefined, undefined, (summary: any) => {
+            if (!cancelled) {
+              setStats(summary);
+              setLoading(false);
+            }
+          }),
           api.getQuarantineRecords().catch(() => []),
         ]);
 
