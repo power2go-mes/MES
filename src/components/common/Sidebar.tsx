@@ -225,7 +225,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
       </nav>
 
       <div className="mobile-sidebar-actions flex border-t border-slate-100 p-3 md:hidden">
-        <div className="relative flex items-center gap-2">
+        <div className="relative flex w-full items-center gap-2">
           <button
             type="button"
             onClick={() => setShowNotifications(previous => !previous)}
@@ -267,7 +267,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
             </div>
           )}
           {showProfile && (
-            <div className="absolute bottom-12 right-0 z-50 w-64 rounded-xl border border-slate-200 bg-white py-2 shadow-lg">
+            <div className="absolute bottom-12 left-0 z-50 w-full rounded-xl border border-slate-200 bg-white py-2 shadow-lg">
               <div className="border-b border-slate-100 px-3 py-2">
                 <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Operator Profile</p>
                 <p className="mt-0.5 text-[11px] text-slate-500">{currentUser?.badgeId || '—'}</p>
