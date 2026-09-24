@@ -379,6 +379,13 @@ function csvValue(value: unknown): string {
   return `"${String(value ?? '').replace(/"/g, '""')}"`;
 }
 
+function displayTraceIdentifier(trace: any): string {
+  const identifier = trace?.identifier || trace?.entity?.serialNumber || trace?.entity?.id || '';
+  if (trace?.entityType === 'RACK') return displayRackSerial(identifier);
+  if (trace?.entityType === 'BATTERY') return displayBatterySerial(identifier);
+  return String(identifier);
+}
+
 function flattenTraceNodes(nodes: TraceNode[], parent = ''): string[][] {
   return nodes.flatMap(node => {
     const details = detailFields(node)
@@ -508,7 +515,7 @@ export const TraceabilityView: React.FC = () => {
     const blob = new Blob([`\uFEFF${csv}`], { type: 'text/csv;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
-    const identifier = String(trace.identifier || trace.entity?.serialNumber || trace.entity?.id || 'trace')
+    const identifier = (displayTraceIdentifier(trace) || 'trace')
       .replace(/[^a-z0-9_-]+/gi, '_');
     link.href = url;
     link.download = `${identifier}_trace_report.csv`;
@@ -619,7 +626,7 @@ export const TraceabilityView: React.FC = () => {
               </span>
               <div className="mt-2 space-y-1 text-xs">
                 <p><span className="text-slate-400">Type:</span> <strong className="text-white">{TYPE_LABEL[trace.entityType] || trace.entityType}</strong></p>
-                <p className="inline-flex items-center gap-1"><span className="text-slate-400">Identifier:</span> <strong className="font-mono text-emerald-300">{trace.entityType === 'BATTERY' ? displayBatterySerial(trace.identifier) : trace.entityType === 'CELL' ? (trace.entity?.supplierBarcode || trace.entity?.supplier_barcode || trace.identifier) : trace.identifier}</strong><CopyToClipboardButton value={String(trace.entityType === 'CELL' ? (trace.entity?.supplierBarcode || trace.entity?.supplier_barcode || trace.identifier) : trace.identifier || '')} label="Copy trace identifier" /></p>
+                <p className="inline-flex items-center gap-1"><span className="text-slate-400">Identifier:</span> <strong className="font-mono text-emerald-300">{trace.entityType === 'CELL' ? (trace.entity?.supplierBarcode || trace.entity?.supplier_barcode || trace.identifier) : displayTraceIdentifier(trace)}</strong><CopyToClipboardButton value={trace.entityType === 'CELL' ? String(trace.entity?.supplierBarcode || trace.entity?.supplier_barcode || trace.identifier || '') : displayTraceIdentifier(trace)} label="Copy trace identifier" /></p>
                 <p><span className="text-slate-400">Status:</span> <strong className="text-white">{formatTraceStatus(trace.status)}</strong></p>
               </div>
             </div>
