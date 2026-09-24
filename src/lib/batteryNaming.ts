@@ -5,3 +5,7 @@ export function normalizeBatterySerial(value: unknown): string {
 export function normalizeBatteryName(value: unknown): string {
   return String(value || '').trim().replace(/\b8\s*KWH\b/gi, '7.5 kWh');
 }
+
+export function legacyBatterySerialLookup(value: unknown): string {
+  return String(value || '').trim().replace(/7\.5\s*KWH/gi, '8KWH');
+}

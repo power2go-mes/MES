@@ -19,7 +19,7 @@ import {
 
 import { buildCompletedBatteryReleasePlan, createBulkBatteryInitialization, dedupeModuleCellAssignments, type BulkBatteryRow } from './bulkBatteryInitializer';
 import { supabase as rawSupabase } from '../lib/supabaseBrowser';
-import { normalizeBatteryName, normalizeBatterySerial } from '../lib/batteryNaming';
+import { legacyBatterySerialLookup, normalizeBatteryName, normalizeBatterySerial } from '../lib/batteryNaming';
 import { legacyRackSerialLookup, normalizeRackSerial } from '../lib/rackNaming';
 
 const columnAliases: Record<string, string> = {
@@ -1402,7 +1402,7 @@ export const api = {
       if (cellsResult.error) throw cellsResult.error;
       return [
         ...(batteriesResult.data || []).map((battery: any) => {
-          const serial = battery.serialNumber || battery.serial_number || '';
+          const serial = normalizeBatterySerial(battery.serialNumber || battery.serial_number || '');
           return { label: `${serial} (Battery)`, serial };
         }),
         ...(cellsResult.data || []).map((cell: any) => {
@@ -4020,7 +4020,7 @@ export const api = {
   // Universal Traceability Engine
   async universalTrace(query: string): Promise<any> {
     const cleanQuery = query.trim();
-    const lookupQueries = Array.from(new Set([cleanQuery, legacyRackSerialLookup(cleanQuery)]));
+    const lookupQueries = Array.from(new Set([cleanQuery, legacyRackSerialLookup(cleanQuery), legacyBatterySerialLookup(cleanQuery)]));
     const normalizeFieldName = (value: string) => value.replace(/([a-z0-9])([A-Z])/g, '$1_$2').toLowerCase();
     const uniqueColumns = (values: string[]) => Array.from(new Set(values.flatMap(value => [value, normalizeFieldName(value)]).filter(Boolean)));
     const find = async (table: string, columns: string[]) => {
