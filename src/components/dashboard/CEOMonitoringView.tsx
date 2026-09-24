@@ -274,7 +274,7 @@ export const CEOMonitoringView: React.FC = () => {
       setOpenSoldDetail(null);
       setOpenDonutDetail(willOpen ? { [row.label]: true } : {});
     },
-    serials: resolveDonutSerials(row.label, serialMap),
+    serials: resolveDonutSerials(row.label, serialMap).slice(0, Math.max(0, row.value)),
   }));
   useEffect(() => {
     let cancelled = false;
