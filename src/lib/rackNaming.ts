@@ -6,3 +6,7 @@ export function normalizeRackCapacity(value: unknown): string {
   const normalized = String(value || '').trim();
   return normalized === '70' || normalized === '69.7' ? '67.5' : normalized;
 }
+
+export function legacyRackSerialLookup(value: unknown): string {
+  return String(value || '').trim().replace(/67\.5\s*KWH/gi, '70KWH').replace(/69\.7\s*KWH/gi, '70KWH');
+}

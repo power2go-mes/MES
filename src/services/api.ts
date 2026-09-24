@@ -20,7 +20,7 @@ import {
 import { buildCompletedBatteryReleasePlan, createBulkBatteryInitialization, dedupeModuleCellAssignments, type BulkBatteryRow } from './bulkBatteryInitializer';
 import { supabase as rawSupabase } from '../lib/supabaseBrowser';
 import { normalizeBatteryName, normalizeBatterySerial } from '../lib/batteryNaming';
-import { normalizeRackSerial } from '../lib/rackNaming';
+import { legacyRackSerialLookup, normalizeRackSerial } from '../lib/rackNaming';
 
 const columnAliases: Record<string, string> = {
   bmsConfig: 'bms_config_json',
@@ -4020,13 +4020,14 @@ export const api = {
   // Universal Traceability Engine
   async universalTrace(query: string): Promise<any> {
     const cleanQuery = query.trim();
+    const lookupQueries = Array.from(new Set([cleanQuery, legacyRackSerialLookup(cleanQuery)]));
     const normalizeFieldName = (value: string) => value.replace(/([a-z0-9])([A-Z])/g, '$1_$2').toLowerCase();
     const uniqueColumns = (values: string[]) => Array.from(new Set(values.flatMap(value => [value, normalizeFieldName(value)]).filter(Boolean)));
     const find = async (table: string, columns: string[]) => {
       const candidates = uniqueColumns(columns);
-      const results = await Promise.all(candidates.map(column =>
-        supabase.from(table).select('*').ilike(column, cleanQuery).limit(1),
-      ));
+      const results = await Promise.all(lookupQueries.flatMap(lookupQuery => candidates.map(column =>
+        supabase.from(table).select('*').ilike(column, lookupQuery).limit(1),
+      )));
       for (const result of results) {
         if (result.error) throw result.error;
         if (Array.isArray(result.data) && result.data.length > 0) return result.data[0];
@@ -4035,9 +4036,10 @@ export const api = {
     };
 
     const findDirectTraceEntity = async () => {
-      const qrResult = await supabase.from('qr_registry').select('*').ilike('qr_code', cleanQuery).limit(1);
-      if (qrResult.error) throw qrResult.error;
-      if (qrResult.data?.[0]) {
+      for (const lookupQuery of lookupQueries) {
+        const qrResult = await supabase.from('qr_registry').select('*').ilike('qr_code', lookupQuery).limit(1);
+        if (qrResult.error) throw qrResult.error;
+        if (!qrResult.data?.[0]) continue;
         const qrMatch = qrResult.data[0];
         const tableByType: Record<string, string> = {
           CELL: 'cells',
