@@ -20,6 +20,7 @@ import {
 import { buildCompletedBatteryReleasePlan, createBulkBatteryInitialization, dedupeModuleCellAssignments, type BulkBatteryRow } from './bulkBatteryInitializer';
 import { supabase as rawSupabase } from '../lib/supabaseBrowser';
 import { normalizeBatteryName, normalizeBatterySerial } from '../lib/batteryNaming';
+import { normalizeRackSerial } from '../lib/rackNaming';
 
 const columnAliases: Record<string, string> = {
   bmsConfig: 'bms_config_json',
@@ -1100,8 +1101,8 @@ export const api = {
       const karachiWarehouseCells = Array.from(warehouseCellLocations.values()).filter(location => location === 'KARACHI').length;
       const lahoreWarehouseCells = Array.from(warehouseCellLocations.values()).filter(location => location === 'LAHORE').length;
       const warehouseStatusSerialNumbers = {
-        'Karachi Racks': (liveRacks || []).filter((rack: any) => String(latestByEntity.get(`RACK:${rack.id}`) || '').toUpperCase() === 'KARACHI').map((rack: any) => String(rack.serial_number || rack.serialNumber || '')).filter(Boolean),
-        'Lahore Racks': (liveRacks || []).filter((rack: any) => String(latestByEntity.get(`RACK:${rack.id}`) || '').toUpperCase() === 'LAHORE').map((rack: any) => String(rack.serial_number || rack.serialNumber || '')).filter(Boolean),
+        'Karachi Racks': (liveRacks || []).filter((rack: any) => String(latestByEntity.get(`RACK:${rack.id}`) || '').toUpperCase() === 'KARACHI').map((rack: any) => normalizeRackSerial(rack.serial_number || rack.serialNumber)).filter(Boolean),
+        'Lahore Racks': (liveRacks || []).filter((rack: any) => String(latestByEntity.get(`RACK:${rack.id}`) || '').toUpperCase() === 'LAHORE').map((rack: any) => normalizeRackSerial(rack.serial_number || rack.serialNumber)).filter(Boolean),
         'Karachi Battery Packs': (liveBatteries || []).filter((battery: any) => String(latestByEntity.get(`BATTERY:${battery.id}`) || '').toUpperCase() === 'KARACHI').map((battery: any) => normalizeBatterySerial(battery.serial_number || battery.serialNumber)).filter(Boolean),
         'Lahore Battery Packs': (liveBatteries || []).filter((battery: any) => String(latestByEntity.get(`BATTERY:${battery.id}`) || '').toUpperCase() === 'LAHORE').map((battery: any) => normalizeBatterySerial(battery.serial_number || battery.serialNumber)).filter(Boolean),
       };
@@ -1111,7 +1112,7 @@ export const api = {
         const powerMatch = rackType.match(/RACK_(\d+(?:\.\d+)?)KWH/i);
         const capacityValue = powerMatch ? powerMatch[1] : '0';
         const label = `${capacityValue === '70' ? '67.5' : capacityValue} kWh ${capacityValue === '25' ? 'Rack' : 'Cabinet'}`;
-        const serial = String(rack.serial_number || rack.serialNumber || '');
+        const serial = normalizeRackSerial(rack.serial_number || rack.serialNumber);
         if (!serial) return;
         const values = rackTypeSerialNumbers.get(label) || [];
         values.push(serial);
@@ -1213,7 +1214,7 @@ export const api = {
           ? liveBatteryPackTrend
           : (Array.isArray(data?.batteryPackTrend) ? data.batteryPackTrend : []),
         moduleTypeTrend,
-        soldRackSerialNumbers: (soldRacks || []).map((rack: any) => String(rack.serial_number || rack.serialNumber || '')).filter(Boolean),
+        soldRackSerialNumbers: (soldRacks || []).map((rack: any) => normalizeRackSerial(rack.serial_number || rack.serialNumber)).filter(Boolean),
         soldBatterySerialNumbers: (soldBatteries || []).map((battery: any) => normalizeBatterySerial(battery.serial_number || battery.serialNumber)).filter(Boolean),
         warehouseStatusSerialNumbers,
         rackStatusSerialNumbersByType: Object.fromEntries(rackTypeSerialNumbers.entries()),
@@ -5137,7 +5138,7 @@ export const api = {
     return rows.map((rack: any) => ({
       ...rack,
       id: rack.id,
-      serialNumber: rack.serialNumber || rack.serial_number,
+      serialNumber: normalizeRackSerial(rack.serialNumber || rack.serial_number),
       qrCode: rack.qrCode || rack.qr_code,
       rackTemplateCode: rack.rackTemplateCode || rack.rack_template_code,
       requiredPackCount: rack.requiredPackCount || rack.required_pack_count,

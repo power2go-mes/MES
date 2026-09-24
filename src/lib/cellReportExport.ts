@@ -1,6 +1,6 @@
 import * as XLSX from 'xlsx-js-style';
 import { BatteryUnit, CellItem, ModuleItem, RackUnit } from '../types';
-import { normalizeRackCapacity } from './rackNaming';
+import { normalizeRackCapacity, normalizeRackSerial } from './rackNaming';
 
 const exportColors = {
   green: '10A36D',
@@ -284,7 +284,7 @@ export const downloadModuleReport = (modules: ModuleItem[]) => {
 export const downloadRackReport = (racks: RackUnit[], options: CellExportOptions = {}) => {
   if (racks.length === 0) throw new Error('No rack records are available to export.');
   const rows = racks.map(rack => ({
-    'Serial Number': rack.serialNumber || (rack as any).serial_number || '',
+    'Serial Number': normalizeRackSerial(rack.serialNumber || (rack as any).serial_number || ''),
     'Rack Type': exportRackType(rack.rackTemplateCode || (rack as any).rack_template_code),
     Classification: formatClassificationLabel(getRackClassification(rack, options.warehouseStatuses)),
     'Created At': exportDateOnly(rack.createdAt || (rack as any).created_at),
@@ -320,7 +320,7 @@ export const downloadSoldReport = (batteries: BatteryUnit[], racks: RackUnit[], 
         .filter(Boolean)
         .map(battery => exportBatterySerial(battery as BatteryUnit));
       const rackSummary = {
-        'Rack Serial Number': rack.serialNumber || (rack as any).serial_number || '',
+        'Rack Serial Number': normalizeRackSerial(rack.serialNumber || (rack as any).serial_number || ''),
         'Rack Type': exportRackType(rack.rackTemplateCode || (rack as any).rack_template_code),
         'Battery Pack Serial Number': '',
         'Client Name': clientByKey.get(`RACK:${rack.id}`) || 'Not recorded',
@@ -390,7 +390,7 @@ export const downloadWarehouseReport = (
     rows.push({
       Location: location,
       Entity: rackCategory,
-      'Serial / QR': rack.serialNumber || (rack as any).serial_number || rack.id,
+      'Serial / QR': normalizeRackSerial(rack.serialNumber || (rack as any).serial_number || rack.id),
       'Type / Model': exportRackType(rack.rackTemplateCode || (rack as any).rack_template_code),
     });
     rackBatteries.forEach(battery => {

@@ -26,6 +26,7 @@ import {
 import { CopyToClipboardButton } from '../common/CopyToClipboardButton';
 import { preferredLifecycleStatus } from '../../services/api';
 import { normalizeBatterySerial } from '../../lib/batteryNaming';
+import { normalizeRackSerial } from '../../lib/rackNaming';
 
 interface TraceNode {
   key: string;
@@ -41,6 +42,7 @@ const fmt = (v: any): string =>
   v === undefined || v === null || v === '' ? 'Not recorded' : String(v);
 
 const displayBatterySerial = normalizeBatterySerial;
+const displayRackSerial = normalizeRackSerial;
 
 const fmtDateOnly = (v: any): string => {
   if (v === undefined || v === null || v === '') return 'Not recorded';
@@ -100,7 +102,7 @@ function batterySubtree(bat: any, bms: any, bmu: any, modules = bat.modules || [
     children.push(makeNode('finalqc-' + bat.serialNumber, 'Final QC', 'FINAL_QC', bat.finalQcResult, 'Final QC'));
   const batteryStatus = getBatteryTraceStatus(bat);
   children.push(makeNode('release-' + bat.serialNumber, 'Release', 'RELEASE', { status: batteryStatus }, batteryStatus));
-  if (rack) children.push(makeNode('rack-' + (rack.serialNumber || rack.id), rack.serialNumber || rack.id, 'RACK', rack, 'Rack', rack.status));
+  if (rack) children.push(makeNode('rack-' + displayRackSerial(rack.serialNumber || rack.id), displayRackSerial(rack.serialNumber || rack.id), 'RACK', rack, 'Rack', rack.status));
   return makeNode('battery-' + bat.serialNumber, displayBatterySerial(bat.serialNumber), 'BATTERY', bat, 'Battery Pack', undefined, children);
 }
 
@@ -108,7 +110,7 @@ function rackSubtree(rack: any, batteries: any[] = []): TraceNode {
   const children = batteries.map((battery: any, index: number) => (
     batterySubtree(battery, battery.bms, battery.bmu, battery.modules || [])
   ));
-  return makeNode('rack-' + (rack.serialNumber || rack.id), rack.serialNumber || rack.id, 'RACK', rack, 'Rack', rack.status, children);
+  return makeNode('rack-' + displayRackSerial(rack.serialNumber || rack.id), displayRackSerial(rack.serialNumber || rack.id), 'RACK', rack, 'Rack', rack.status, children);
 }
 
 export function buildModuleTraceNodes(data: any): TraceNode[] {
@@ -127,13 +129,13 @@ export function buildModuleTraceNodes(data: any): TraceNode[] {
     bChildren.push(makeNode('release', 'Release', 'RELEASE', { status: batteryStatus }, batteryStatus));
     if (data.rack) {
       const rack = data.rack;
-      bChildren.push(makeNode('rack', rack.serialNumber || rack.id, 'RACK', rack, 'Rack', rack.status));
+      bChildren.push(makeNode('rack', displayRackSerial(rack.serialNumber || rack.id), 'RACK', rack, 'Rack', rack.status));
     }
     modChildren.push(makeNode(`battery-summary-${data.battery.id}`, displayBatterySerial(data.battery.serialNumber), 'BATTERY', data.battery, 'Battery Pack', undefined, bChildren));
   }
 
   if (data.rack && !data.battery) {
-    modChildren.push(makeNode('rack', data.rack.serialNumber || data.rack.id, 'RACK', data.rack, 'Rack', data.rack.status));
+    modChildren.push(makeNode('rack', displayRackSerial(data.rack.serialNumber || data.rack.id), 'RACK', data.rack, 'Rack', data.rack.status));
   }
 
   const roots = [makeNode('module', moduleEntity.serialNumber || moduleEntity.id, 'MODULE', moduleEntity, 'Module', moduleEntity.lifecycleStatus || moduleEntity.lifecycle_status || moduleEntity.status, modChildren)];
@@ -160,7 +162,7 @@ export function buildTree(t: any): TraceNode[] {
       bChildren.push(makeNode('release-' + (t.battery.serialNumber || t.battery.serial_number), 'Release', 'RELEASE', { status: batteryStatus }, batteryStatus));
       if (t.rack) {
         const rack = t.rack;
-        bChildren.push(makeNode('rack-' + (rack.serialNumber || rack.serial_number || rack.id), rack.serialNumber || rack.serial_number || rack.id, 'RACK', rack, 'Rack', rack.status));
+        bChildren.push(makeNode('rack-' + displayRackSerial(rack.serialNumber || rack.serial_number || rack.id), displayRackSerial(rack.serialNumber || rack.serial_number || rack.id), 'RACK', rack, 'Rack', rack.status));
       }
       if (String(t.battery.status || t.battery.lifecycleStatus || t.battery.lifecycle_status || '').toUpperCase() === 'SOLD') {
         bChildren.push(makeNode('sale-' + (t.battery.serialNumber || t.battery.serial_number), 'Sale', 'SOLD', { clientName: t.saleHistory?.client_name || t.saleHistory?.clientName || 'Not recorded' }, 'Sold'));
@@ -173,7 +175,7 @@ export function buildTree(t: any): TraceNode[] {
       );
     }
     if (t.rack && !t.battery) {
-      cellChildren.push(makeNode('rack-' + (t.rack.serialNumber || t.rack.id), t.rack.serialNumber || t.rack.id, 'RACK', t.rack, 'Rack', t.rack.status));
+      cellChildren.push(makeNode('rack-' + displayRackSerial(t.rack.serialNumber || t.rack.id), displayRackSerial(t.rack.serialNumber || t.rack.id), 'RACK', t.rack, 'Rack', t.rack.status));
     }
     roots.push(makeNode('cell', e.supplierBarcode || e.internalSerial || e.id, 'CELL', e, 'Cell', cellStatus(e), cellChildren));
     if (t.supplier) roots.unshift(makeNode('supplier', t.supplier.name, 'SUPPLIER', t.supplier, 'Supplier'));
@@ -320,7 +322,7 @@ function detailFields(node: TraceNode): { label: string; value: string }[] {
       const rackWarehouse = getRackTraceWarehouse(d);
       const rackStatus = preferredLifecycleStatus(d.status, rackWarehouse ? 'IN_STOCK' : undefined);
       return [
-        { label: 'Rack Serial', value: fmt(d.serialNumber) },
+        { label: 'Rack Serial', value: displayRackSerial(d.serialNumber) },
         { label: 'Rack QR Code', value: fmt(d.qrCode || d.qr_code) },
         { label: 'Status', value: formatTraceStatus(rackStatus) },
         { label: 'Location', value: rackWarehouse || fmt(d.location) },
