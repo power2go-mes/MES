@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useApp } from '../../context/AppContext';
 import { useAuth } from '../../context/AuthContext';
-import { api } from '../../services/api';
+import { api, preferredLifecycleStatus } from '../../services/api';
 import { CellItem, BMSItem, BMUItem, ModuleItem, BatteryUnit } from '../../types';
 import { downloadBatteryReport, downloadCellReport, downloadRackReport } from '../../lib/cellReportExport';
 import { QRCodeModal } from '../common/QRCodeModal';
@@ -443,7 +443,7 @@ export const InventoryView: React.FC = () => {
     return matchesSearch && matchesStatus;
   });
   const filteredRacks = racks.filter(rack => {
-    const displayStatus = warehouseEntityStatuses[`RACK:${rack.id}`] || rack.status;
+    const displayStatus = preferredLifecycleStatus(rack.status, warehouseEntityStatuses[`RACK:${rack.id}`]);
     const haystack = [rack.serialNumber, rack.serial_number, rack.rackTemplateCode, rack.rack_template_code, displayStatus, rack.location, rack.qrCode, rack.qr_code].filter(Boolean).join(' ').toLowerCase();
     return (!search || haystack.includes(search.toLowerCase())) && (!statusFilter || displayStatus === statusFilter);
   });
@@ -1347,7 +1347,7 @@ export const InventoryView: React.FC = () => {
                   const template = rack.rackTemplateCode || rack.rack_template_code || '-';
                   const displaySerial = displayRackSerial(serial);
                   const displayTemplate = displayRackTemplate(template);
-                  const status = warehouseEntityStatuses[`RACK:${rack.id}`] || rack.status || 'UNKNOWN';
+                  const status = preferredLifecycleStatus(rack.status, warehouseEntityStatuses[`RACK:${rack.id}`]);
                   const editRackSerial = async () => {
                     const currentSuffix = String(serial).match(/-(\d{4})$/)?.[1] || '';
                     const nextSuffix = window.prompt(`Enter the last 4 digits for ${displaySerial}:`, currentSuffix)?.trim() || '';

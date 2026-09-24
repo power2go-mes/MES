@@ -184,6 +184,12 @@ export function warehouseLocationStatus(location: string | undefined): string | 
   return undefined;
 }
 
+export function preferredLifecycleStatus(status: unknown, warehouseStatus?: string): string {
+  const lifecycleStatus = String(status || '').toUpperCase();
+  if (['SOLD', 'SCRAP', 'QUARANTINED', 'REJECTED'].includes(lifecycleStatus)) return lifecycleStatus;
+  return warehouseStatus || lifecycleStatus || 'UNKNOWN';
+}
+
 export function normalizeBatteryRecord(battery: any): any {
   const serialNumber = normalizeBatterySerial(battery?.serial_number ?? battery?.serialNumber ?? battery?.id);
   const productName = String(
@@ -4231,13 +4237,15 @@ export const api = {
         : entity;
       const lifecycleStatus = normalizedEntity.lifecycleStatus || normalizedEntity.lifecycle_status;
       const warehouseLocation = await getTraceWarehouseLocation(entityType, String(normalizedEntity.id));
+      const warehouseStatus = warehouseLocationStatus(warehouseLocation);
+      const displayStatus = preferredLifecycleStatus(lifecycleStatus || normalizedEntity.status, warehouseStatus);
       const context: any = {
         entityType,
-        entity: warehouseLocationStatus(warehouseLocation)
-          ? { ...normalizedEntity, status: warehouseLocationStatus(warehouseLocation) }
+        entity: warehouseStatus && displayStatus === warehouseStatus
+          ? { ...normalizedEntity, status: warehouseStatus }
           : normalizedEntity,
         identifier: query.trim(),
-        status: warehouseLocationStatus(warehouseLocation) || lifecycleStatus || normalizedEntity.status,
+        status: displayStatus,
       };
       const formatGenealogyReason = (event: any): string | undefined => {
         const data = event.eventData || {};

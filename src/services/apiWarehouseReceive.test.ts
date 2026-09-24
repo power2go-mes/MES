@@ -1,7 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { buildWarehouseLocationBuckets, buildWarehouseReceiveResult } from './api';
+import { buildWarehouseLocationBuckets, buildWarehouseReceiveResult, preferredLifecycleStatus } from './api';
+
+test('sold lifecycle status remains authoritative over a warehouse location', () => {
+  assert.equal(preferredLifecycleStatus('SOLD', 'KARACHI_WAREHOUSE'), 'SOLD');
+  assert.equal(preferredLifecycleStatus('IN_RACK', 'KARACHI_WAREHOUSE'), 'KARACHI_WAREHOUSE');
+});
 
 test('buildWarehouseReceiveResult preserves the warehouse state for each entity type', () => {
   assert.deepEqual(buildWarehouseReceiveResult('BATTERY', 'bat-123', 'LAHORE'), {

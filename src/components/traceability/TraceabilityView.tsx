@@ -24,6 +24,7 @@ import {
   Download,
 } from 'lucide-react';
 import { CopyToClipboardButton } from '../common/CopyToClipboardButton';
+import { preferredLifecycleStatus } from '../../services/api';
 
 interface TraceNode {
   key: string;
@@ -316,10 +317,11 @@ function detailFields(node: TraceNode): { label: string; value: string }[] {
       ];
     case 'RACK':
       const rackWarehouse = getRackTraceWarehouse(d);
+      const rackStatus = preferredLifecycleStatus(d.status, rackWarehouse ? 'IN_STOCK' : undefined);
       return [
         { label: 'Rack Serial', value: fmt(d.serialNumber) },
         { label: 'Rack QR Code', value: fmt(d.qrCode || d.qr_code) },
-        { label: 'Status', value: rackWarehouse ? 'IN_STOCK' : fmt(d.status) },
+        { label: 'Status', value: formatTraceStatus(rackStatus) },
         { label: 'Location', value: rackWarehouse || fmt(d.location) },
         { label: 'Batteries Connected', value: fmt(d.requiredPackCount ?? d.required_pack_count) },
         { label: 'Date', value: fmtDateShort(d.createdAt || d.created_at) },
