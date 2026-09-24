@@ -10,3 +10,10 @@ export function normalizeRackCapacity(value: unknown): string {
 export function legacyRackSerialLookup(value: unknown): string {
   return String(value || '').trim().replace(/67\.5\s*KWH/gi, '70KWH').replace(/69\.7\s*KWH/gi, '70KWH');
 }
+
+export function normalizeRackTemplateLabel(value: unknown): string {
+  const template = String(value || '').trim();
+  const match = template.match(/^RACK_(\d+(?:\.\d+)?)KWH$/i);
+  if (!match) return template || '-';
+  return `${normalizeRackCapacity(match[1])}KWH`;
+}

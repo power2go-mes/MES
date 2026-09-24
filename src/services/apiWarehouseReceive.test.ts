@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 
 import { buildWarehouseLocationBuckets, buildWarehouseReceiveResult, preferredLifecycleStatus } from './api';
 import { legacyBatterySerialLookup, normalizeBatteryName, normalizeBatterySerial } from '../lib/batteryNaming';
-import { legacyRackSerialLookup, normalizeRackCapacity, normalizeRackSerial } from '../lib/rackNaming';
+import { legacyRackSerialLookup, normalizeRackCapacity, normalizeRackSerial, normalizeRackTemplateLabel } from '../lib/rackNaming';
 
 test('battery names and serials use the 7.5KWH label', () => {
   assert.equal(normalizeBatterySerial('P2G-BP-8KWH-0001'), 'P2G-BP-7.5KWH-0001');
@@ -17,6 +17,7 @@ test('rack names and serials use the 67.5KWH label', () => {
   assert.equal(normalizeRackCapacity('70'), '67.5');
   assert.equal(normalizeRackCapacity('69.7'), '67.5');
   assert.equal(legacyRackSerialLookup('P2G-RACK-67.5KWH-0001'), 'P2G-RACK-70KWH-0001');
+  assert.equal(normalizeRackTemplateLabel('RACK_70KWH'), '67.5KWH');
 });
 
 test('sold lifecycle status remains authoritative over a warehouse location', () => {

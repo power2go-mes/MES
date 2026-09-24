@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useApp } from '../../context/AppContext';
 import { api } from '../../services/api';
+import { normalizeRackTemplateLabel } from '../../lib/rackNaming';
 import { BatteryUnit, RackUnit } from '../../types';
 import { PackageCheck, Pencil, RefreshCw, Search, ShoppingCart, Trash2 } from 'lucide-react';
 
@@ -162,7 +163,7 @@ export const SoldView: React.FC = () => {
             <label key={item.id} className="flex items-center gap-3 px-3 py-2.5 text-xs hover:bg-slate-50">
               <input type="checkbox" checked={selectedIds.includes(item.id)} onChange={() => toggleSelected(item.id)} disabled={saving} className="h-4 w-4 accent-emerald-600" />
               <span className="font-mono font-bold text-slate-900">{item.serialNumber}</span>
-              <span className="text-slate-500">{'productName' in item ? item.productName || item.status : item.rackTemplateCode}</span>
+              <span className="text-slate-500">{'productName' in item ? item.productName || item.status : normalizeRackTemplateLabel(item.rackTemplateCode)}</span>
             </label>
           ))}
         </div>
@@ -171,7 +172,7 @@ export const SoldView: React.FC = () => {
 
       <div className="grid gap-6 xl:grid-cols-2">
         <section className="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden"><div className="p-4 border-b border-slate-100 text-xs font-bold uppercase tracking-wider text-slate-600">Sold battery packs ({soldBatteries.length})</div><div className="divide-y divide-slate-100 max-h-[360px] overflow-y-auto">{soldBatteries.length === 0 ? <div className="p-4 text-xs text-slate-500">No sold battery packs found.</div> : soldBatteries.map(item => <div key={item.id} className="p-3 text-xs"><div className="font-bold text-slate-900 font-mono">{item.serialNumber}</div><div className="mt-1 text-slate-500">{item.productName || 'Battery Pack'} · SOLD</div></div>)}</div></section>
-        <section className="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden"><div className="p-4 border-b border-slate-100 text-xs font-bold uppercase tracking-wider text-slate-600">Sold racks ({soldRacks.length})</div><div className="divide-y divide-slate-100 max-h-[360px] overflow-y-auto">{soldRacks.length === 0 ? <div className="p-4 text-xs text-slate-500">No sold racks found.</div> : soldRacks.map(item => <div key={item.id} className="p-3 text-xs"><div className="font-bold text-slate-900 font-mono">{item.serialNumber}</div><div className="mt-1 text-slate-500">{item.rackTemplateCode} · SOLD</div></div>)}</div></section>
+        <section className="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden"><div className="p-4 border-b border-slate-100 text-xs font-bold uppercase tracking-wider text-slate-600">Sold racks ({soldRacks.length})</div><div className="divide-y divide-slate-100 max-h-[360px] overflow-y-auto">{soldRacks.length === 0 ? <div className="p-4 text-xs text-slate-500">No sold racks found.</div> : soldRacks.map(item => <div key={item.id} className="p-3 text-xs"><div className="font-bold text-slate-900 font-mono">{item.serialNumber}</div><div className="mt-1 text-slate-500">{normalizeRackTemplateLabel(item.rackTemplateCode)} · SOLD</div></div>)}</div></section>
       </div>
 
       <section className="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden">
