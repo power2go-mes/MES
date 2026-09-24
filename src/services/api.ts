@@ -1110,7 +1110,7 @@ export const api = {
         const rackType = String(rack.rack_template_code || 'UNKNOWN_RACK');
         const powerMatch = rackType.match(/RACK_(\d+(?:\.\d+)?)KWH/i);
         const capacityValue = powerMatch ? powerMatch[1] : '0';
-        const label = `${capacityValue === '70' ? '69.7' : capacityValue} kWh ${capacityValue === '25' ? 'Rack' : 'Cabinet'}`;
+        const label = `${capacityValue === '70' ? '67.5' : capacityValue} kWh ${capacityValue === '25' ? 'Rack' : 'Cabinet'}`;
         const serial = String(rack.serial_number || rack.serialNumber || '');
         if (!serial) return;
         const values = rackTypeSerialNumbers.get(label) || [];

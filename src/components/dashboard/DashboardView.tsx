@@ -98,7 +98,7 @@ export const DashboardView: React.FC = () => {
     });
   });
   const rackCapacityRows = rackCapacities.map(capacity => ({
-    label: `${capacity === 70 ? '69.7' : capacity} kWh ${capacity === 25 ? 'rack' : 'cabinet'}`,
+    label: `${capacity === 70 ? '67.5' : capacity} kWh ${capacity === 25 ? 'rack' : 'cabinet'}`,
     value: rackCountByCapacity.get(capacity) || 0,
   }));
   const rackCountTotal = rackCapacityRows.reduce((sum, row) => sum + row.value, 0);

@@ -3,6 +3,7 @@ import { useApp } from '../../context/AppContext';
 import { useAuth } from '../../context/AuthContext';
 import { api, preferredLifecycleStatus } from '../../services/api';
 import { normalizeBatterySerial } from '../../lib/batteryNaming';
+import { normalizeRackSerial } from '../../lib/rackNaming';
 import { CellItem, BMSItem, BMUItem, ModuleItem, BatteryUnit } from '../../types';
 import { downloadBatteryReport, downloadCellReport, downloadRackReport } from '../../lib/cellReportExport';
 import { QRCodeModal } from '../common/QRCodeModal';
@@ -33,9 +34,9 @@ const cellStatuses = [
   'IN_STOCK', 'FLOOR_STOCK', 'IN_MODULE', 'IN_PACK', 'IN_RACK', 'KARACHI_WAREHOUSE', 'LAHORE_WAREHOUSE', 'SOLD', 'SCRAP',
 ] as const;
 
-const displayRackSerial = (value: unknown) => String(value || '').replace(/70KWH/gi, '69.7KWH');
+const displayRackSerial = normalizeRackSerial;
 const displayBatterySerial = normalizeBatterySerial;
-const displayRackTemplate = (value: unknown) => String(value || '').toUpperCase() === 'RACK_70KWH' ? '69.7 kWh' : String(value || '-');
+const displayRackTemplate = (value: unknown) => String(value || '').toUpperCase() === 'RACK_70KWH' ? '67.5 kWh' : String(value || '-');
 
 export const InventoryView: React.FC = () => {
   const { setActiveView, setActiveModuleId, setActiveBatteryId, setBatteryBuilderEditRequested, setQuickSearchQuery, refreshKey, addNotification, triggerRefresh, inventoryTab, setInventoryTab } = useApp();

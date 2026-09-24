@@ -440,7 +440,7 @@ export const CEOMonitoringView: React.FC = () => {
   const warehouseRackTypeLabel = (type: string) => {
     const match = type.match(/RACK_(\d+(?:\.\d+)?)KWH/i);
     if (!match) return type.replace(/^RACK_/i, '').replace(/_/g, ' ');
-    const power = match[1] === '70' ? '69.7' : match[1];
+    const power = match[1] === '70' ? '67.5' : match[1];
     return `${power} kWh`;
   };
   const warehouseBatteryTypeOptions = useMemo(() => {
@@ -628,7 +628,7 @@ export const CEOMonitoringView: React.FC = () => {
       .filter(([, value]) => value > 0)
       .sort(([left], [right]) => Number(right) - Number(left))
       .map(([power, value]) => ({
-        label: `${power === '70' ? '69.7' : power} kWh ${power === '25' ? 'Rack' : 'Cabinet'}`,
+        label: `${power === '70' ? '67.5' : power} kWh ${power === '25' ? 'Rack' : 'Cabinet'}`,
         value,
         color: reportColors.green,
       })));
@@ -652,14 +652,14 @@ export const CEOMonitoringView: React.FC = () => {
         if (!match) return;
         const capacityValue = Number(match[1]);
         if (capacityValue >= 45 && capacityValue <= 75 && capacityValue !== 25) {
-          const normalizedKey = capacityValue === 70 ? '69.7' : String(capacityValue);
+          const normalizedKey = capacityValue === 70 ? '67.5' : String(capacityValue);
           totals.set(normalizedKey, (totals.get(normalizedKey) || 0) + numberOr(rackTypeInfo.value));
         }
       });
     });
 
     const distribution = [
-      { key: '69.7', label: '69.7kWh', value: totals.get('69.7') || 0 },
+      { key: '67.5', label: '67.5kWh', value: totals.get('67.5') || 0 },
       { key: '60', label: '60kWh', value: totals.get('60') || 0 },
       { key: '45', label: '45kWh', value: totals.get('45') || 0 },
     ].filter((entry) => entry.value > 0);
@@ -934,7 +934,7 @@ export const CEOMonitoringView: React.FC = () => {
       const rackTypeTotals = new Map<string, { value: number; capacityKwh: number }>();
       const formatRackLabel = (rackType: string) => {
         const powerMatch = rackType.match(/RACK_(\d+(?:\.\d+)?)KWH/i);
-        const powerValue = powerMatch?.[1] === '70' ? '69.7' : powerMatch?.[1];
+        const powerValue = powerMatch?.[1] === '70' ? '67.5' : powerMatch?.[1];
         const power = powerValue ? `${powerValue}kWh` : rackType.replace(/^RACK_/i, '').replace(/_/g, ' ');
         const category = /RACK_25KWH/i.test(rackType) ? 'Rack' : 'Cabinet';
         return `${power.replace('kWh', ' kWh')} ${category}`;

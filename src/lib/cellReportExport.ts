@@ -1,5 +1,6 @@
 import * as XLSX from 'xlsx-js-style';
 import { BatteryUnit, CellItem, ModuleItem, RackUnit } from '../types';
+import { normalizeRackCapacity } from './rackNaming';
 
 const exportColors = {
   green: '10A36D',
@@ -36,7 +37,7 @@ const exportDateOnly = (value?: string) => {
 };
 const exportRackType = (value?: string) => String(value || '')
   .replace(/^RACK_/i, '')
-  .replace(/70KWH$/i, '69.7kWh')
+  .replace(/70KWH$/i, `${normalizeRackCapacity('70')}kWh`)
   .replace(/KWH$/i, 'kWh');
 const normalizeClientName = (value: unknown) => {
   const name = String(value || '').trim();
