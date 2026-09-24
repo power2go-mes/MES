@@ -143,7 +143,7 @@ export const WarehouseView: React.FC = () => {
     const capacity = Number((battery as BatteryUnit & { capacityKwh?: number }).capacityKwh || 0);
     return subFilter === '5KWH'
       ? (capacity > 0 ? capacity < 7 : haystack.includes('5KWH'))
-      : (capacity >= 7 && capacity <= 8) || haystack.includes('7.5KWH') || haystack.includes('7KWH') || haystack.includes('8KWH');
+      : (capacity >= 7 && capacity <= 8) || haystack.includes('7.5KWH') || haystack.includes('7KWH');
   };
   const filteredReceiveItems = receiveType === 'BATTERY'
     ? batteries.filter(item => matchesSerial(item.serialNumber) && matchesSubtype(item))

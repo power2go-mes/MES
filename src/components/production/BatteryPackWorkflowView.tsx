@@ -342,7 +342,7 @@ export const BatteryPackWorkflowView: React.FC = () => {
   const handleEditBatterySerial = async () => {
     if (!battery) return;
     const nextSerial = window.prompt(
-      "Battery serial number (must contain 7.5KWH or 8KWH)",
+      "Battery serial number (must contain 7.5KWH)",
       battery.serialNumber,
     );
     if (nextSerial === null) return;
@@ -355,11 +355,11 @@ export const BatteryPackWorkflowView: React.FC = () => {
       );
       return;
     }
-    if (!/(?:7\.5|8)KWH/.test(normalizedSerial)) {
+    if (!/7\.5KWH/.test(normalizedSerial)) {
       addNotification(
         "error",
         "Serial update failed",
-        "Battery serial must include 7.5KWH or 8KWH.",
+        "Battery serial must include 7.5KWH.",
       );
       return;
     }

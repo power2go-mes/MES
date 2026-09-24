@@ -19,9 +19,9 @@ const rackTemplateConfig: Record<RackTemplate, { capacity: number; requiredCount
 const rackCapacityLabel = (templateCode: string) => {
   const match = templateCode.match(/^RACK_(\d+)KWH$/);
   if (!match) return templateCode;
-  return match[1] === '70' ? '67.9 kWh' : `${match[1]} kWh`;
+  return match[1] === '70' ? '69.7 kWh' : `${match[1]} kWh`;
 };
-const displayRackSerial = (value: unknown) => String(value || '').replace(/70KWH/gi, '67.9KWH');
+const displayRackSerial = (value: unknown) => String(value || '').replace(/70KWH/gi, '69.7KWH');
 
 export const RackAssemblyView: React.FC = () => {
   const { addNotification, setActiveView, refreshKey, triggerRefresh } = useApp();
@@ -167,7 +167,7 @@ export const RackAssemblyView: React.FC = () => {
                 <option value="RACK_25KWH">25 kWh Rack · 5 × 5 kWh packs</option>
                 <option value="RACK_45KWH">45 kWh Rack · 6 × 7.5 kWh packs</option>
                 <option value="RACK_60KWH">60 kWh Rack · 8 × 7.5 kWh packs</option>
-                <option value="RACK_70KWH">67.9 kWh Rack · 9 × 7.5 kWh packs</option>
+                <option value="RACK_70KWH">69.7 kWh Rack · 9 × 7.5 kWh packs</option>
                 <option value="RACK_75KWH">75 kWh Rack · 10 × 7.5 kWh packs</option>
               </select>
             </label>

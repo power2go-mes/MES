@@ -671,7 +671,7 @@ function mapSupabaseProfile(raw: any): User {
 export const api = {
   // Users & Roles
 
-async getUsers(): Promise<User[]> {
+  async getUsers(): Promise<User[]> {
     const { data, error } = await supabaseDb.from('profiles').select(`
       id, full_name, email, username, role_id, status, badge_id, created_at, updated_at,
       role:roles (id, name, description, status)
@@ -823,7 +823,7 @@ async getUsers(): Promise<User[]> {
 
   async loadDashboardStats(startDate?: string, endDate?: string, onSummary?: (stats: any) => void): Promise<any> {
     if (!rawSupabase) throw new Error('Supabase is not configured.');
-    
+
     try {
       const applyDateRange = (query: any, field = 'created_at') => {
         let scopedQuery = query;
@@ -1107,7 +1107,7 @@ async getUsers(): Promise<User[]> {
         const rackType = String(rack.rack_template_code || 'UNKNOWN_RACK');
         const powerMatch = rackType.match(/RACK_(\d+(?:\.\d+)?)KWH/i);
         const capacityValue = powerMatch ? powerMatch[1] : '0';
-        const label = `${capacityValue === '70' ? '67.9' : capacityValue} kWh ${capacityValue === '25' ? 'Rack' : 'Cabinet'}`;
+        const label = `${capacityValue === '70' ? '69.7' : capacityValue} kWh ${capacityValue === '25' ? 'Rack' : 'Cabinet'}`;
         const serial = String(rack.serial_number || rack.serialNumber || '');
         if (!serial) return;
         const values = rackTypeSerialNumbers.get(label) || [];
@@ -1390,22 +1390,22 @@ async getUsers(): Promise<User[]> {
     if (recentTraceItemsRequest) return recentTraceItemsRequest;
 
     recentTraceItemsRequest = (async () => {
-    const [batteriesResult, cellsResult] = await Promise.all([
-      supabase.from('batteries').select('serial_number').order('created_at', { ascending: false }).limit(3),
-      supabase.from('cells').select('internal_serial').order('created_at', { ascending: false }).limit(3),
-    ]);
-    if (batteriesResult.error) throw batteriesResult.error;
-    if (cellsResult.error) throw cellsResult.error;
-    return [
-      ...(batteriesResult.data || []).map((battery: any) => {
-        const serial = battery.serialNumber || battery.serial_number || '';
-        return { label: `${serial} (Battery)`, serial };
-      }),
-      ...(cellsResult.data || []).map((cell: any) => {
-        const serial = cell.internalSerial || cell.internal_serial || '';
-        return { label: `${serial} (Cell)`, serial };
-      }),
-    ].filter(item => Boolean(item.serial));
+      const [batteriesResult, cellsResult] = await Promise.all([
+        supabase.from('batteries').select('serial_number').order('created_at', { ascending: false }).limit(3),
+        supabase.from('cells').select('internal_serial').order('created_at', { ascending: false }).limit(3),
+      ]);
+      if (batteriesResult.error) throw batteriesResult.error;
+      if (cellsResult.error) throw cellsResult.error;
+      return [
+        ...(batteriesResult.data || []).map((battery: any) => {
+          const serial = battery.serialNumber || battery.serial_number || '';
+          return { label: `${serial} (Battery)`, serial };
+        }),
+        ...(cellsResult.data || []).map((cell: any) => {
+          const serial = cell.internalSerial || cell.internal_serial || '';
+          return { label: `${serial} (Cell)`, serial };
+        }),
+      ].filter(item => Boolean(item.serial));
     })();
     try {
       const value = await recentTraceItemsRequest;
@@ -1588,7 +1588,7 @@ async getUsers(): Promise<User[]> {
     const product = params.productId
       ? products.find(candidate => candidate.id === params.productId)
       : products.find(candidate => Number(candidate.capacityKwh ?? 0) >= 7 && Number(candidate.capacityKwh ?? 0) <= 8)
-        || products[0];
+      || products[0];
 
     if (!product) {
       throw new Error('No valid 7.5 kWh product template was found for bulk battery initialization.');
@@ -2105,20 +2105,20 @@ async getUsers(): Promise<User[]> {
     if (cellCountsRequest) return cellCountsRequest;
 
     cellCountsRequest = (async () => {
-    const [totalResult, usedResult, availableResult, quarantinedResult] = await Promise.all([
-      supabase.from('cells').select('id', { count: 'exact', head: true }),
-      supabase.from('cells').select('id', { count: 'exact', head: true }).or('reserved_for_battery_id.not.is.null,reserved_for_order_id.not.is.null'),
-      supabase.from('cells').select('id', { count: 'exact', head: true }).in('status', ['AVAILABLE', 'OCV_TESTED', 'GRADED', 'IMPORTED', 'ACKNOWLEDGED']).is('reserved_for_order_id', null).is('reserved_for_battery_id', null),
-      supabase.from('cells').select('id', { count: 'exact', head: true }).eq('status', 'QUARANTINED'),
-    ]);
-    const failedResult = [totalResult, usedResult, availableResult, quarantinedResult].find(result => result.error);
-    if (failedResult?.error) throw failedResult.error;
-    return {
-      total: totalResult.count || 0,
-      used: usedResult.count || 0,
-      available: availableResult.count || 0,
-      quarantined: quarantinedResult.count || 0,
-    };
+      const [totalResult, usedResult, availableResult, quarantinedResult] = await Promise.all([
+        supabase.from('cells').select('id', { count: 'exact', head: true }),
+        supabase.from('cells').select('id', { count: 'exact', head: true }).or('reserved_for_battery_id.not.is.null,reserved_for_order_id.not.is.null'),
+        supabase.from('cells').select('id', { count: 'exact', head: true }).in('status', ['AVAILABLE', 'OCV_TESTED', 'GRADED', 'IMPORTED', 'ACKNOWLEDGED']).is('reserved_for_order_id', null).is('reserved_for_battery_id', null),
+        supabase.from('cells').select('id', { count: 'exact', head: true }).eq('status', 'QUARANTINED'),
+      ]);
+      const failedResult = [totalResult, usedResult, availableResult, quarantinedResult].find(result => result.error);
+      if (failedResult?.error) throw failedResult.error;
+      return {
+        total: totalResult.count || 0,
+        used: usedResult.count || 0,
+        available: availableResult.count || 0,
+        quarantined: quarantinedResult.count || 0,
+      };
     })();
     try {
       const value = await cellCountsRequest;
@@ -3424,7 +3424,7 @@ async getUsers(): Promise<User[]> {
       p_user_id: data.userId || null,
     });
     if (error) throw error;
-    
+
     // Return updated battery
     return { success: true, itemType: 'CELL', battery: toAppValue(result) };
   },
@@ -3454,10 +3454,10 @@ async getUsers(): Promise<User[]> {
     const moduleIds = (modules || []).map((module: any) => module.id);
     const { data: assignments, error: assignmentError } = moduleIds.length > 0
       ? await supabase
-          .from('module_cells')
-          .select('module_id, cell_id, cell_slot_index')
-          .in('module_id', moduleIds)
-          .order('cell_slot_index', { ascending: true })
+        .from('module_cells')
+        .select('module_id, cell_id, cell_slot_index')
+        .in('module_id', moduleIds)
+        .order('cell_slot_index', { ascending: true })
       : { data: [], error: null };
     if (assignmentError) throw assignmentError;
 
@@ -4066,12 +4066,12 @@ async getUsers(): Promise<User[]> {
                   : normalized.startsWith('CELL-') || /^\d/.test(normalized)
                     ? []
                     : [
-                        { entityType: 'MODULE', table: 'modules', columns: ['serialNumber', 'serial_number', 'id'] },
-                        { entityType: 'BATTERY', table: 'batteries', columns: ['serialNumber', 'serial_number', 'id'] },
-                        { entityType: 'BMS', table: 'bms_units', columns: ['serialNumber', 'serial_number', 'id'] },
-                        { entityType: 'BMU', table: 'bmu_units', columns: ['serialNumber', 'serial_number', 'id'] },
-                        { entityType: 'RACK', table: 'racks', columns: ['serialNumber', 'serial_number', 'qrCode', 'qr_code', 'id'] },
-                      ];
+                      { entityType: 'MODULE', table: 'modules', columns: ['serialNumber', 'serial_number', 'id'] },
+                      { entityType: 'BATTERY', table: 'batteries', columns: ['serialNumber', 'serial_number', 'id'] },
+                      { entityType: 'BMS', table: 'bms_units', columns: ['serialNumber', 'serial_number', 'id'] },
+                      { entityType: 'BMU', table: 'bmu_units', columns: ['serialNumber', 'serial_number', 'id'] },
+                      { entityType: 'RACK', table: 'racks', columns: ['serialNumber', 'serial_number', 'qrCode', 'qr_code', 'id'] },
+                    ];
       const directResults = await Promise.all(candidateLookups.map(async lookup => ({
         ...lookup,
         entity: await find(lookup.table, lookup.columns),

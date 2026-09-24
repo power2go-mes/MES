@@ -213,7 +213,7 @@ export const BatteryReportModal: React.FC<BatteryReportModalProps> = ({
 
     return (
       battery.qrCode ||
-      `POWER2GO|BATTERY:${battery.id}|SERIAL:${battery.serialNumber}`
+      `POWER2GO|BATTERY:${battery.id}|SERIAL:${(battery.serialNumber || '').replace(/8KWH/gi, '7.5KWH')}`
     );
   }, [battery]);
 
@@ -277,7 +277,7 @@ export const BatteryReportModal: React.FC<BatteryReportModalProps> = ({
       controller: controllerData,
       status: normalizeStatus(battery.status),
       productName: safeString(battery.productName),
-      serialNumber: safeString(battery.serialNumber),
+      serialNumber: safeString(battery.serialNumber).replace(/8KWH/gi, '7.5KWH'),
       productionOrderId: safeString(battery.productionOrderId),
       customerOrderRef: safeString(battery.customerOrderRef),
       dispatchedTo: safeString(battery.dispatchedTo),
@@ -920,7 +920,7 @@ export const BatteryReportModal: React.FC<BatteryReportModalProps> = ({
             name="viewport"
             content="width=device-width, initial-scale=1"
           />
-          <title>${escapeHtml(battery.serialNumber || 'Battery')} Report</title>
+          <title>${escapeHtml((battery.serialNumber || '').replace(/8KWH/gi, '7.5KWH') || 'Battery')} Report</title>
           <style>
             ${fontImport}
             ${exportStyles}
@@ -940,7 +940,7 @@ export const BatteryReportModal: React.FC<BatteryReportModalProps> = ({
     const link = document.createElement('a');
 
     link.href = url;
-    link.download = `${battery.serialNumber || 'battery'}_technical_report.html`;
+    link.download = `${(battery.serialNumber || '').replace(/8KWH/gi, '7.5KWH') || 'battery'}_technical_report.html`;
 
     document.body.appendChild(link);
     link.click();

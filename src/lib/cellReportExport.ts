@@ -36,7 +36,7 @@ const exportDateOnly = (value?: string) => {
 };
 const exportRackType = (value?: string) => String(value || '')
   .replace(/^RACK_/i, '')
-  .replace(/70KWH$/i, '67.9kWh')
+  .replace(/70KWH$/i, '69.7kWh')
   .replace(/KWH$/i, 'kWh');
 const normalizeClientName = (value: unknown) => {
   const name = String(value || '').trim();
@@ -314,24 +314,24 @@ export const downloadSoldReport = (batteries: BatteryUnit[], racks: RackUnit[], 
   const rackRows = [...soldRacks]
     .sort((left, right) => String(clientByKey.get(`RACK:${left.id}`) || 'Not recorded').localeCompare(String(clientByKey.get(`RACK:${right.id}`) || 'Not recorded')))
     .flatMap(rack => {
-    const packSerials = (rack.batteryIds || [])
-      .map(batteryId => batteries.find(battery => String(battery.id) === String(batteryId)))
-      .filter(Boolean)
-      .map(battery => exportBatterySerial(battery as BatteryUnit));
-    const rackSummary = {
-      'Rack Serial Number': rack.serialNumber || (rack as any).serial_number || '',
-      'Rack Type': exportRackType(rack.rackTemplateCode || (rack as any).rack_template_code),
-      'Battery Pack Serial Number': '',
-      'Client Name': clientByKey.get(`RACK:${rack.id}`) || 'Not recorded',
-      Status: 'SOLD',
-    };
-    const packRows = packSerials.map(packSerial => ({
-      'Rack Serial Number': '',
-      'Rack Type': '',
-      'Battery Pack Serial Number': packSerial,
-      'Client Name': '',
-      Status: '',
-    }));
+      const packSerials = (rack.batteryIds || [])
+        .map(batteryId => batteries.find(battery => String(battery.id) === String(batteryId)))
+        .filter(Boolean)
+        .map(battery => exportBatterySerial(battery as BatteryUnit));
+      const rackSummary = {
+        'Rack Serial Number': rack.serialNumber || (rack as any).serial_number || '',
+        'Rack Type': exportRackType(rack.rackTemplateCode || (rack as any).rack_template_code),
+        'Battery Pack Serial Number': '',
+        'Client Name': clientByKey.get(`RACK:${rack.id}`) || 'Not recorded',
+        Status: 'SOLD',
+      };
+      const packRows = packSerials.map(packSerial => ({
+        'Rack Serial Number': '',
+        'Rack Type': '',
+        'Battery Pack Serial Number': packSerial,
+        'Client Name': '',
+        Status: '',
+      }));
       return [rackSummary, ...packRows];
     });
   const workbook = XLSX.utils.book_new();

@@ -255,10 +255,10 @@ export const CEOMonitoringView: React.FC = () => {
     for (const [candidateLabel, serials] of Object.entries(serialMap)) {
       const candidateKey = normalizeDonutLabel(candidateLabel);
       if (candidateKey === key ||
-          (candidateKey === 'reusable' && (key === 'recycle' || key === 'reusable')) ||
-          (candidateKey === 'recycle' && (key === 'reusable' || key === 'recycle')) ||
-          (candidateKey === 'damage' && (key === 'scrap' || key === 'damage')) ||
-          (candidateKey === 'scrap' && (key === 'damage' || key === 'scrap'))) {
+        (candidateKey === 'reusable' && (key === 'recycle' || key === 'reusable')) ||
+        (candidateKey === 'recycle' && (key === 'reusable' || key === 'recycle')) ||
+        (candidateKey === 'damage' && (key === 'scrap' || key === 'damage')) ||
+        (candidateKey === 'scrap' && (key === 'damage' || key === 'scrap'))) {
         if (serials.length > 0) return serials;
       }
     }
@@ -440,7 +440,7 @@ export const CEOMonitoringView: React.FC = () => {
   const warehouseRackTypeLabel = (type: string) => {
     const match = type.match(/RACK_(\d+(?:\.\d+)?)KWH/i);
     if (!match) return type.replace(/^RACK_/i, '').replace(/_/g, ' ');
-    const power = match[1] === '70' ? '67.9' : match[1];
+    const power = match[1] === '70' ? '69.7' : match[1];
     return `${power} kWh`;
   };
   const warehouseBatteryTypeOptions = useMemo(() => {
@@ -628,7 +628,7 @@ export const CEOMonitoringView: React.FC = () => {
       .filter(([, value]) => value > 0)
       .sort(([left], [right]) => Number(right) - Number(left))
       .map(([power, value]) => ({
-        label: `${power === '70' ? '67.9' : power} kWh ${power === '25' ? 'Rack' : 'Cabinet'}`,
+        label: `${power === '70' ? '69.7' : power} kWh ${power === '25' ? 'Rack' : 'Cabinet'}`,
         value,
         color: reportColors.green,
       })));
@@ -904,13 +904,13 @@ export const CEOMonitoringView: React.FC = () => {
       const batteryReportRows = [...(source.batteryPackBuckets || [])]
         .sort((left: any, right: any) => Number(String(right.label || '').match(/\d+(?:\.\d+)?/)?.[0] || 0) - Number(String(left.label || '').match(/\d+(?:\.\d+)?/)?.[0] || 0))
         .map((row: any, index: number) => {
-        const label = String(row.label || 'Unnamed Pack');
-        return {
-          label,
-          value: numberOr(row.value),
-          capacityKwh: numberOr(row.capacityKwh),
-          color: ceoDonutPalette[index % ceoDonutPalette.length],
-        };
+          const label = String(row.label || 'Unnamed Pack');
+          return {
+            label,
+            value: numberOr(row.value),
+            capacityKwh: numberOr(row.capacityKwh),
+            color: ceoDonutPalette[index % ceoDonutPalette.length],
+          };
         });
       const cabinetReportRows = [{
         label: 'Cabinet · 7.5 kWh batteries',
@@ -934,7 +934,7 @@ export const CEOMonitoringView: React.FC = () => {
       const rackTypeTotals = new Map<string, { value: number; capacityKwh: number }>();
       const formatRackLabel = (rackType: string) => {
         const powerMatch = rackType.match(/RACK_(\d+(?:\.\d+)?)KWH/i);
-        const powerValue = powerMatch?.[1] === '70' ? '67.9' : powerMatch?.[1];
+        const powerValue = powerMatch?.[1] === '70' ? '69.7' : powerMatch?.[1];
         const power = powerValue ? `${powerValue}kWh` : rackType.replace(/^RACK_/i, '').replace(/_/g, ' ');
         const category = /RACK_25KWH/i.test(rackType) ? 'Rack' : 'Cabinet';
         return `${power.replace('kWh', ' kWh')} ${category}`;

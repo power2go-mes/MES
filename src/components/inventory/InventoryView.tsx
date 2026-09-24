@@ -32,9 +32,9 @@ const cellStatuses = [
   'IN_STOCK', 'FLOOR_STOCK', 'IN_MODULE', 'IN_PACK', 'IN_RACK', 'KARACHI_WAREHOUSE', 'LAHORE_WAREHOUSE', 'SOLD', 'SCRAP',
 ] as const;
 
-const displayRackSerial = (value: unknown) => String(value || '').replace(/70KWH/gi, '67.9KWH');
+const displayRackSerial = (value: unknown) => String(value || '').replace(/70KWH/gi, '69.7KWH');
 const displayBatterySerial = (value: unknown) => String(value || '').replace(/8KWH/gi, '7.5KWH');
-const displayRackTemplate = (value: unknown) => String(value || '').toUpperCase() === 'RACK_70KWH' ? '67.9 kWh' : String(value || '-');
+const displayRackTemplate = (value: unknown) => String(value || '').toUpperCase() === 'RACK_70KWH' ? '69.7 kWh' : String(value || '-');
 
 export const InventoryView: React.FC = () => {
   const { setActiveView, setActiveModuleId, setActiveBatteryId, setBatteryBuilderEditRequested, setQuickSearchQuery, refreshKey, addNotification, triggerRefresh, inventoryTab, setInventoryTab } = useApp();
@@ -116,13 +116,13 @@ export const InventoryView: React.FC = () => {
           : undefined;
         const warehouseFilterSelected = statusFilter === 'KARACHI_WAREHOUSE' || statusFilter === 'LAHORE_WAREHOUSE';
         const cellsPromise = api.getCells({
-            search: search || undefined,
-            lifecycleStatus: serverLifecycleStatus,
-            usedOnly: cellsView === 'USED' ? true : undefined,
-            limit: pageSize,
-            offset: page * pageSize,
-            fields: 'id,internal_serial,supplier_barcode,qr_code,supplier_id,batch_number,pallet_number,box_number,supplier_ocv_v,supplier_ir_mohm,production_ocv_v,production_ir_mohm,grade,status,lifecycle_status,reserved_for_order_id,reserved_for_battery_id,tested_at,created_at,updated_at,supplier:suppliers(name)',
-          });
+          search: search || undefined,
+          lifecycleStatus: serverLifecycleStatus,
+          usedOnly: cellsView === 'USED' ? true : undefined,
+          limit: pageSize,
+          offset: page * pageSize,
+          fields: 'id,internal_serial,supplier_barcode,qr_code,supplier_id,batch_number,pallet_number,box_number,supplier_ocv_v,supplier_ir_mohm,production_ocv_v,production_ir_mohm,grade,status,lifecycle_status,reserved_for_order_id,reserved_for_battery_id,tested_at,created_at,updated_at,supplier:suppliers(name)',
+        });
         const countsPromise = !search && !statusFilter
           ? api.getCellCounts()
           : Promise.resolve({ total: allCellsCount, used: usedCellsCount, available: 0, quarantined: 0 });
@@ -222,10 +222,10 @@ export const InventoryView: React.FC = () => {
       .filter(value => {
         const key = value.toUpperCase();
         if (seen.has(key)) return false;
-          seen.add(key);
-          return true;
-        });
-        };
+        seen.add(key);
+        return true;
+      });
+  };
 
   const exportCellReport = async () => {
     setExportingCells(true);
@@ -530,9 +530,9 @@ export const InventoryView: React.FC = () => {
               <p className="text-xs text-slate-500 mt-0.5">
                 Real-time material lifecycle tracking from raw cells to finished certified packs.
               </p>
+            </div>
+          </div>
         </div>
-      </div>
-      </div>
         <div className="inventory-tab-strip flex bg-slate-100/80 p-1.5 rounded-xl text-xs font-semibold border border-slate-200">
           <button onClick={() => { setActiveTab('CELLS'); setStatusFilter(''); }} className={`px-3.5 py-1.5 rounded-lg transition-all ${activeTab === 'CELLS' ? 'bg-white text-slate-900 shadow-2xs font-bold' : 'text-slate-600 hover:text-slate-900'}`}>Cells ({cells.length})</button>
           <button onClick={() => { setActiveTab('BMS'); setStatusFilter(''); }} className={`px-3.5 py-1.5 rounded-lg transition-all ${activeTab === 'BMS' ? 'bg-white text-slate-900 shadow-2xs font-bold' : 'text-slate-600 hover:text-slate-900'}`}>BMS ({bmsUnits.length})</button>
@@ -565,30 +565,30 @@ export const InventoryView: React.FC = () => {
           >
             <option value="">All Statuses</option>
 
-        {activeTab === 'BATTERIES' && (
-          <button
-            type="button"
-            onClick={() => void exportBatteryReport()}
-            disabled={exportingBatteryReport}
-            className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-xs font-bold text-slate-700 shadow-sm transition-colors hover:border-emerald-200 hover:bg-emerald-50 hover:text-emerald-700 disabled:cursor-wait disabled:opacity-60"
-            title="Export battery inventory to Excel"
-          >
-            <Download className="h-3.5 w-3.5" />
-            {exportingBatteryReport ? 'Exporting...' : 'Export Battery Report'}
-          </button>
-        )}
-        {activeTab === 'RACKS' && (
-          <button
-            type="button"
-            onClick={() => void exportRackReport()}
-            disabled={exportingRackReport}
-            className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-xs font-bold text-slate-700 shadow-sm transition-colors hover:border-emerald-200 hover:bg-emerald-50 hover:text-emerald-700 disabled:cursor-wait disabled:opacity-60"
-            title="Export rack inventory to Excel"
-          >
-            <Download className="h-3.5 w-3.5" />
-            {exportingRackReport ? 'Exporting...' : 'Export Rack Report'}
-          </button>
-        )}
+            {activeTab === 'BATTERIES' && (
+              <button
+                type="button"
+                onClick={() => void exportBatteryReport()}
+                disabled={exportingBatteryReport}
+                className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-xs font-bold text-slate-700 shadow-sm transition-colors hover:border-emerald-200 hover:bg-emerald-50 hover:text-emerald-700 disabled:cursor-wait disabled:opacity-60"
+                title="Export battery inventory to Excel"
+              >
+                <Download className="h-3.5 w-3.5" />
+                {exportingBatteryReport ? 'Exporting...' : 'Export Battery Report'}
+              </button>
+            )}
+            {activeTab === 'RACKS' && (
+              <button
+                type="button"
+                onClick={() => void exportRackReport()}
+                disabled={exportingRackReport}
+                className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-xs font-bold text-slate-700 shadow-sm transition-colors hover:border-emerald-200 hover:bg-emerald-50 hover:text-emerald-700 disabled:cursor-wait disabled:opacity-60"
+                title="Export rack inventory to Excel"
+              >
+                <Download className="h-3.5 w-3.5" />
+                {exportingRackReport ? 'Exporting...' : 'Export Rack Report'}
+              </button>
+            )}
             {activeTab === 'CELLS' ? (
               cellStatuses.map(status => <option key={status} value={status}>{formatCellStatus(status)}</option>)
             ) : (
@@ -665,17 +665,15 @@ export const InventoryView: React.FC = () => {
             <div className="flex bg-slate-100 p-1 rounded-xl text-xs font-semibold border border-slate-200">
               <button
                 onClick={() => { setCellsView('ALL'); setStatusFilter(''); }}
-                className={`px-4 py-1.5 rounded-lg transition-all ${
-                  cellsView === 'ALL' ? 'bg-white text-slate-900 shadow-sm font-bold' : 'text-slate-500 hover:text-slate-800'
-                }`}
+                className={`px-4 py-1.5 rounded-lg transition-all ${cellsView === 'ALL' ? 'bg-white text-slate-900 shadow-sm font-bold' : 'text-slate-500 hover:text-slate-800'
+                  }`}
               >
                 All Cells ({allCellsCount})
               </button>
               <button
                 onClick={() => { setCellsView('USED'); setStatusFilter(''); }}
-                className={`px-4 py-1.5 rounded-lg transition-all flex items-center gap-1.5 ${
-                  cellsView === 'USED' ? 'bg-black text-white shadow-sm font-bold' : 'text-slate-500 hover:text-slate-800'
-                }`}
+                className={`px-4 py-1.5 rounded-lg transition-all flex items-center gap-1.5 ${cellsView === 'USED' ? 'bg-black text-white shadow-sm font-bold' : 'text-slate-500 hover:text-slate-800'
+                  }`}
               >
                 <span className="w-1.5 h-1.5 rounded-full bg-green-500 inline-block"></span>
                 Used Cells ({usedCellsCount})
@@ -726,11 +724,11 @@ export const InventoryView: React.FC = () => {
             // Reservation is ownership, while status changes during testing and assembly.
             // Count each physical cell once so reserved and assigned are not double-counted.
             const isReserved = (cell: CellItem) => Boolean(cell.reservedForOrderId || cell.reservedForBatteryId);
-            const damage       = inventoryCells.filter(isDamage).length;
-            const reserved     = inventoryCells.filter(cell => !isDamage(cell) && isReserved(cell)).length;
-            const inProcess    = inventoryCells.filter(cell => !isDamage(cell) && isReserved(cell) && isInProcess(cell)).length;
-            const available     = inventoryCells.filter(cell => !isDamage(cell) && !isReserved(cell)).length;
-            const other        = Math.max(0, inventoryCells.length - damage - available - reserved);
+            const damage = inventoryCells.filter(isDamage).length;
+            const reserved = inventoryCells.filter(cell => !isDamage(cell) && isReserved(cell)).length;
+            const inProcess = inventoryCells.filter(cell => !isDamage(cell) && isReserved(cell) && isInProcess(cell)).length;
+            const available = inventoryCells.filter(cell => !isDamage(cell) && !isReserved(cell)).length;
+            const other = Math.max(0, inventoryCells.length - damage - available - reserved);
             return (
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                 {[
@@ -749,107 +747,107 @@ export const InventoryView: React.FC = () => {
             );
           })()}
 
-        <div className="bg-white rounded-2xl shadow-xs border border-slate-200 overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs font-mono">
-              <thead className="bg-slate-50 text-slate-500 font-semibold border-b border-slate-200 font-sans">
-                <tr>
-                  <th className="px-3 py-3 w-10">
-                    <input
-                      type="checkbox"
-                      checked={filteredCells.length > 0 && filteredCells.every(cell => selectedIds.CELLS.includes(cell.id))}
-                      onChange={() => toggleSelectAll('CELLS', filteredCells)}
-                      className="h-4 w-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500"
-                    />
-                  </th>
-                  <th className="px-5 py-3">Internal Serial</th>
-                  <th className="hidden px-5 py-3 md:table-cell">Supplier Barcode</th>
-                  <th className="hidden px-5 py-3 md:table-cell">Manufacturer</th>
-                  <th className="hidden px-5 py-3 md:table-cell">Pallet Number</th>
-                  <th className="px-5 py-3">Status</th>
-                  <th className="px-5 py-3 text-right font-sans">QR / Trace</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {displayedCells.map(cell => (
-                  <tr key={cell.id} className="hover:bg-slate-50/70 transition-colors">
-                    <td className="px-3 py-3.5">
+          <div className="bg-white rounded-2xl shadow-xs border border-slate-200 overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs font-mono">
+                <thead className="bg-slate-50 text-slate-500 font-semibold border-b border-slate-200 font-sans">
+                  <tr>
+                    <th className="px-3 py-3 w-10">
                       <input
                         type="checkbox"
-                        checked={selectedIds.CELLS.includes(cell.id)}
-                        onChange={() => toggleSelectItem('CELLS', cell.id)}
+                        checked={filteredCells.length > 0 && filteredCells.every(cell => selectedIds.CELLS.includes(cell.id))}
+                        onChange={() => toggleSelectAll('CELLS', filteredCells)}
                         className="h-4 w-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500"
                       />
-                    </td>
-                    <td className="px-5 py-3.5"><span className="inline-flex items-center gap-1 font-bold text-slate-900">{cell.internalSerial}<CopyToClipboardButton value={cell.internalSerial} label="Copy cell serial number" /></span></td>
-                    <td className="hidden px-5 py-3.5 text-slate-500 text-[11px] md:table-cell">{cell.supplierBarcode}</td>
-                    <td className="hidden px-5 py-3.5 text-slate-700 font-sans md:table-cell">{cell.supplierName}</td>
-                    <td className="hidden px-5 py-3.5 text-slate-400 text-[10px] md:table-cell">
-                      {cell.palletNumber || 'N/A'}
-                    </td>
-                    <td className="px-5 py-3.5 font-sans">
-                      <span className={`px-2.5 py-0.5 rounded-md text-[10px] font-bold border uppercase tracking-wider ${getStatusBadge(getCellDisplayStatus(cell))}`}>
-                        {formatCellStatus(getCellDisplayStatus(cell))}
-                      </span>
-                    </td>
-                    <td className="px-5 py-3.5 text-right space-x-1 font-sans">
-                      <button
-                        onClick={() => {
-                          setQrData({
-                            title: `Cell QR: ${cell.internalSerial}`,
-                            qrPayload: cell.supplierBarcode,
-                            serial: cell.internalSerial,
-                            itemType: 'CELL',
-                            metadata: {
-                              SUPPLIER: cell.supplierName,
-                              CAPACITY: `${cell.supplierCapacityAh} Ah`,
-                              OCV: `${cell.supplierOcvV} V`,
-                              IR: `${cell.supplierIrMilliOhm} mΩ`,
-                              STATUS: getCellDisplayStatus(cell),
-                            },
-                          });
-                          setQrModalOpen(true);
-                        }}
-                        className="p-1.5 text-slate-500 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors"
-                        title="Print QR"
-                      >
-                        <QrCode className="w-4 h-4" />
-                      </button>
-                      <button
-                        onClick={() => {
-                          setQuickSearchQuery(cell.internalSerial);
-                          setActiveView('traceability');
-                        }}
-                        className="p-1.5 text-slate-500 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors"
-                        title="Trace Genealogy"
-                      >
-                        <Eye className="w-4 h-4" />
-                      </button>
-                    </td>
+                    </th>
+                    <th className="px-5 py-3">Internal Serial</th>
+                    <th className="hidden px-5 py-3 md:table-cell">Supplier Barcode</th>
+                    <th className="hidden px-5 py-3 md:table-cell">Manufacturer</th>
+                    <th className="hidden px-5 py-3 md:table-cell">Pallet Number</th>
+                    <th className="px-5 py-3">Status</th>
+                    <th className="px-5 py-3 text-right font-sans">QR / Trace</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {displayedCells.map(cell => (
+                    <tr key={cell.id} className="hover:bg-slate-50/70 transition-colors">
+                      <td className="px-3 py-3.5">
+                        <input
+                          type="checkbox"
+                          checked={selectedIds.CELLS.includes(cell.id)}
+                          onChange={() => toggleSelectItem('CELLS', cell.id)}
+                          className="h-4 w-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500"
+                        />
+                      </td>
+                      <td className="px-5 py-3.5"><span className="inline-flex items-center gap-1 font-bold text-slate-900">{cell.internalSerial}<CopyToClipboardButton value={cell.internalSerial} label="Copy cell serial number" /></span></td>
+                      <td className="hidden px-5 py-3.5 text-slate-500 text-[11px] md:table-cell">{cell.supplierBarcode}</td>
+                      <td className="hidden px-5 py-3.5 text-slate-700 font-sans md:table-cell">{cell.supplierName}</td>
+                      <td className="hidden px-5 py-3.5 text-slate-400 text-[10px] md:table-cell">
+                        {cell.palletNumber || 'N/A'}
+                      </td>
+                      <td className="px-5 py-3.5 font-sans">
+                        <span className={`px-2.5 py-0.5 rounded-md text-[10px] font-bold border uppercase tracking-wider ${getStatusBadge(getCellDisplayStatus(cell))}`}>
+                          {formatCellStatus(getCellDisplayStatus(cell))}
+                        </span>
+                      </td>
+                      <td className="px-5 py-3.5 text-right space-x-1 font-sans">
+                        <button
+                          onClick={() => {
+                            setQrData({
+                              title: `Cell QR: ${cell.internalSerial}`,
+                              qrPayload: cell.supplierBarcode,
+                              serial: cell.internalSerial,
+                              itemType: 'CELL',
+                              metadata: {
+                                SUPPLIER: cell.supplierName,
+                                CAPACITY: `${cell.supplierCapacityAh} Ah`,
+                                OCV: `${cell.supplierOcvV} V`,
+                                IR: `${cell.supplierIrMilliOhm} mΩ`,
+                                STATUS: getCellDisplayStatus(cell),
+                              },
+                            });
+                            setQrModalOpen(true);
+                          }}
+                          className="p-1.5 text-slate-500 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors"
+                          title="Print QR"
+                        >
+                          <QrCode className="w-4 h-4" />
+                        </button>
+                        <button
+                          onClick={() => {
+                            setQuickSearchQuery(cell.internalSerial);
+                            setActiveView('traceability');
+                          }}
+                          className="p-1.5 text-slate-500 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors"
+                          title="Trace Genealogy"
+                        >
+                          <Eye className="w-4 h-4" />
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <div className="flex items-center justify-between gap-3 border-t border-slate-100 px-5 py-3 font-sans">
+              <span className="text-[11px] font-medium text-slate-400">
+                Showing {displayedCells.length} of {cellTotalLabel} cells
+              </span>
+              {hasMoreInventory && (
+                <>
+                  <button
+                    type="button"
+                    onClick={loadMoreInventory}
+                    disabled={loading}
+                    className="px-3.5 py-2 text-xs font-bold text-emerald-700 border border-emerald-200 rounded-lg hover:bg-emerald-50 transition-colors"
+                  >
+                    {loading ? 'Loading...' : 'Load more 25'}
+                  </button>
+                  <button type="button" onClick={() => void loadAllInventory()} disabled={loading} className="ml-2 px-3.5 py-2 text-xs font-bold text-emerald-700 border border-emerald-200 rounded-lg hover:bg-emerald-50 transition-colors">{loading ? 'Loading...' : 'Load all'}</button>
+                </>
+              )}
+            </div>
           </div>
-          <div className="flex items-center justify-between gap-3 border-t border-slate-100 px-5 py-3 font-sans">
-            <span className="text-[11px] font-medium text-slate-400">
-              Showing {displayedCells.length} of {cellTotalLabel} cells
-            </span>
-            {hasMoreInventory && (
-              <>
-                <button
-                  type="button"
-                  onClick={loadMoreInventory}
-                  disabled={loading}
-                  className="px-3.5 py-2 text-xs font-bold text-emerald-700 border border-emerald-200 rounded-lg hover:bg-emerald-50 transition-colors"
-                >
-                  {loading ? 'Loading...' : 'Load more 25'}
-                </button>
-                <button type="button" onClick={() => void loadAllInventory()} disabled={loading} className="ml-2 px-3.5 py-2 text-xs font-bold text-emerald-700 border border-emerald-200 rounded-lg hover:bg-emerald-50 transition-colors">{loading ? 'Loading...' : 'Load all'}</button>
-              </>
-            )}
-          </div>
-        </div>
         </div>
       )}
 
@@ -1111,91 +1109,91 @@ export const InventoryView: React.FC = () => {
                     }
                   };
                   return (
-                  <tr key={m.id} className="hover:bg-slate-50/70 transition-colors">
-                    <td className="px-3 py-3.5">
-                      <input
-                        type="checkbox"
-                        checked={selectedIds.MODULES.includes(m.id)}
-                        onChange={() => toggleSelectItem('MODULES', m.id)}
-                        className="h-4 w-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500"
-                      />
-                    </td>
-                    <td className="px-5 py-3.5"><span className="inline-flex items-center gap-1 font-bold text-slate-900">{m.serialNumber}<CopyToClipboardButton value={m.serialNumber} label="Copy module serial number" /></span></td>
-                    <td className="px-5 py-3.5 text-slate-600">{m.assignedBatterySerial || 'Not assigned'}</td>
-                    <td className="px-5 py-3.5 font-bold text-slate-800">{m.cells?.length ?? 0} cells</td>
-                    <td className="px-5 py-3.5 font-sans">
-                      <span className={`px-2.5 py-0.5 rounded-md text-[10px] font-bold border uppercase tracking-wider ${getStatusBadge(getModuleDisplayStatus(m))}`}>
-                        {getModuleDisplayStatus(m)}
-                      </span>
-                    </td>
-                    <td className="px-5 py-3.5 text-right font-sans">
-                      <button
-                        onClick={() => {
-                          setQrData({
-                            title: `Module QR Label: ${m.serialNumber}`,
-                            qrPayload: m.qrCode,
-                            serial: m.serialNumber,
-                            itemType: 'MODULE',
-                            metadata: {
-                              CELLS: m.cells.length,
-                              STATUS: m.status,
-                            },
-                          });
-                          setQrModalOpen(true);
-                        }}
-                        className="p-1.5 text-slate-500 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors"
-                        title="Print QR"
-                      >
-                        <QrCode className="w-4 h-4" />
-                      </button>
-                      <button
-                        onClick={() => {
-                          setQuickSearchQuery(m.serialNumber);
-                          setActiveView('traceability');
-                        }}
-                        className="p-1.5 text-slate-500 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors"
-                        title="View Full Genealogy"
-                      >
-                        <Eye className="w-4 h-4" />
-                      </button>
-                      <button
-                        onClick={() => {
-                          setActiveModuleId(m.id);
-                          setActiveView('workflow-module');
-                          addNotification('info', 'Module cells opened', `Editing cells for ${m.serialNumber}.`);
-                        }}
-                        className="p-1.5 text-slate-500 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors"
-                        title="Edit module cells"
-                      >
-                        <Layers className="w-4 h-4" />
-                      </button>
-                      <button
-                        onClick={editModuleSerial}
-                        className="p-1.5 text-slate-500 hover:text-amber-600 hover:bg-amber-50 rounded-lg transition-colors"
-                        title="Edit module serial"
-                      >
-                        <Pencil className="w-4 h-4" />
-                      </button>
-                      <button
-                        onClick={() => { setActiveModuleId(m.id); setActiveView('workflow-module'); }}
-                        className="p-1.5 text-slate-500 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors"
-                        title="Edit module details"
-                      >
-                        <Pencil className="w-4 h-4" />
-                      </button>
-                      <button
-                        onClick={async () => {
-                          if (!window.confirm(`Delete module ${m.serialNumber}?`)) return;
-                          try { await api.deleteModule(m.id); triggerRefresh(); }
-                          catch (err: any) { addNotification('error', 'Delete Failed', err.message); }
-                        }}
-                        className="p-1.5 text-slate-500 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
-                        title="Delete module"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    </td>
-                  </tr>
+                    <tr key={m.id} className="hover:bg-slate-50/70 transition-colors">
+                      <td className="px-3 py-3.5">
+                        <input
+                          type="checkbox"
+                          checked={selectedIds.MODULES.includes(m.id)}
+                          onChange={() => toggleSelectItem('MODULES', m.id)}
+                          className="h-4 w-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500"
+                        />
+                      </td>
+                      <td className="px-5 py-3.5"><span className="inline-flex items-center gap-1 font-bold text-slate-900">{m.serialNumber}<CopyToClipboardButton value={m.serialNumber} label="Copy module serial number" /></span></td>
+                      <td className="px-5 py-3.5 text-slate-600">{m.assignedBatterySerial || 'Not assigned'}</td>
+                      <td className="px-5 py-3.5 font-bold text-slate-800">{m.cells?.length ?? 0} cells</td>
+                      <td className="px-5 py-3.5 font-sans">
+                        <span className={`px-2.5 py-0.5 rounded-md text-[10px] font-bold border uppercase tracking-wider ${getStatusBadge(getModuleDisplayStatus(m))}`}>
+                          {getModuleDisplayStatus(m)}
+                        </span>
+                      </td>
+                      <td className="px-5 py-3.5 text-right font-sans">
+                        <button
+                          onClick={() => {
+                            setQrData({
+                              title: `Module QR Label: ${m.serialNumber}`,
+                              qrPayload: m.qrCode,
+                              serial: m.serialNumber,
+                              itemType: 'MODULE',
+                              metadata: {
+                                CELLS: m.cells.length,
+                                STATUS: m.status,
+                              },
+                            });
+                            setQrModalOpen(true);
+                          }}
+                          className="p-1.5 text-slate-500 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors"
+                          title="Print QR"
+                        >
+                          <QrCode className="w-4 h-4" />
+                        </button>
+                        <button
+                          onClick={() => {
+                            setQuickSearchQuery(m.serialNumber);
+                            setActiveView('traceability');
+                          }}
+                          className="p-1.5 text-slate-500 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors"
+                          title="View Full Genealogy"
+                        >
+                          <Eye className="w-4 h-4" />
+                        </button>
+                        <button
+                          onClick={() => {
+                            setActiveModuleId(m.id);
+                            setActiveView('workflow-module');
+                            addNotification('info', 'Module cells opened', `Editing cells for ${m.serialNumber}.`);
+                          }}
+                          className="p-1.5 text-slate-500 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors"
+                          title="Edit module cells"
+                        >
+                          <Layers className="w-4 h-4" />
+                        </button>
+                        <button
+                          onClick={editModuleSerial}
+                          className="p-1.5 text-slate-500 hover:text-amber-600 hover:bg-amber-50 rounded-lg transition-colors"
+                          title="Edit module serial"
+                        >
+                          <Pencil className="w-4 h-4" />
+                        </button>
+                        <button
+                          onClick={() => { setActiveModuleId(m.id); setActiveView('workflow-module'); }}
+                          className="p-1.5 text-slate-500 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors"
+                          title="Edit module details"
+                        >
+                          <Pencil className="w-4 h-4" />
+                        </button>
+                        <button
+                          onClick={async () => {
+                            if (!window.confirm(`Delete module ${m.serialNumber}?`)) return;
+                            try { await api.deleteModule(m.id); triggerRefresh(); }
+                            catch (err: any) { addNotification('error', 'Delete Failed', err.message); }
+                          }}
+                          className="p-1.5 text-slate-500 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                          title="Delete module"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </td>
+                    </tr>
                   );
                 })}
               </tbody>
