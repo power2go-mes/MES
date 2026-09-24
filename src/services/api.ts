@@ -2578,6 +2578,15 @@ async getUsers(): Promise<User[]> {
     const { error } = await rawSupabase.rpc('delete_module_transaction', { p_module_id: id });
     if (error) throw error;
   },
+  async updateModuleSerial(moduleId: string, serialSuffix: string): Promise<any> {
+    if (!rawSupabase) throw new Error('Supabase is not configured.');
+    const { data, error } = await rawSupabase.rpc('update_module_serial_transaction', {
+      p_module_id: moduleId,
+      p_serial_suffix: serialSuffix,
+    });
+    if (error) throw error;
+    return toAppValue(data);
+  },
 
   async getBatteries(params?: { limit?: number; offset?: number; search?: string; status?: string }): Promise<BatteryUnit[]> {
     const batteries: any[] = [];
@@ -5140,6 +5149,16 @@ async getUsers(): Promise<User[]> {
       p_template_code: templateCode,
       p_battery_ids: batteryIds,
       p_location: location || 'RACK_ASSEMBLY',
+    });
+    if (error) throw error;
+    return toAppValue(data);
+  },
+
+  async updateRackSerial(rackId: string, serialSuffix: string): Promise<any> {
+    if (!rawSupabase) throw new Error('Supabase is not configured.');
+    const { data, error } = await rawSupabase.rpc('update_rack_serial_transaction', {
+      p_rack_id: rackId,
+      p_serial_suffix: serialSuffix,
     });
     if (error) throw error;
     return toAppValue(data);

@@ -222,10 +222,10 @@ export const InventoryView: React.FC = () => {
       .filter(value => {
         const key = value.toUpperCase();
         if (seen.has(key)) return false;
-        seen.add(key);
-        return true;
-      });
-  };
+          seen.add(key);
+          return true;
+        });
+        };
 
   const exportCellReport = async () => {
     setExportingCells(true);
@@ -1092,7 +1092,25 @@ export const InventoryView: React.FC = () => {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {filteredModules.map(m => (
+                {filteredModules.map(m => {
+                  const editModuleSerial = async () => {
+                    const currentSuffix = String(m.serialNumber).match(/-(\d{5})$/)?.[1] || '';
+                    const nextSuffix = window.prompt(`Enter the last 5 digits for ${m.serialNumber}:`, currentSuffix)?.trim() || '';
+                    if (!nextSuffix) return;
+                    if (!/^\d{5}$/.test(nextSuffix)) {
+                      addNotification('error', 'Invalid Serial', 'Module serial suffix must contain exactly 5 digits.');
+                      return;
+                    }
+                    if (nextSuffix === currentSuffix) return;
+                    try {
+                      await api.updateModuleSerial(m.id, nextSuffix);
+                      addNotification('success', 'Module Serial Updated', `Module serial changed to ${m.serialNumber.replace(/-\d{5}$/, `-${nextSuffix}`)}.`);
+                      triggerRefresh();
+                    } catch (error: any) {
+                      addNotification('error', 'Serial Update Failed', error.message || 'Could not update module serial.');
+                    }
+                  };
+                  return (
                   <tr key={m.id} className="hover:bg-slate-50/70 transition-colors">
                     <td className="px-3 py-3.5">
                       <input
@@ -1152,6 +1170,13 @@ export const InventoryView: React.FC = () => {
                         <Layers className="w-4 h-4" />
                       </button>
                       <button
+                        onClick={editModuleSerial}
+                        className="p-1.5 text-slate-500 hover:text-amber-600 hover:bg-amber-50 rounded-lg transition-colors"
+                        title="Edit module serial"
+                      >
+                        <Pencil className="w-4 h-4" />
+                      </button>
+                      <button
                         onClick={() => { setActiveModuleId(m.id); setActiveView('workflow-module'); }}
                         className="p-1.5 text-slate-500 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors"
                         title="Edit module details"
@@ -1171,7 +1196,8 @@ export const InventoryView: React.FC = () => {
                       </button>
                     </td>
                   </tr>
-                ))}
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -1324,7 +1350,41 @@ export const InventoryView: React.FC = () => {
                   const displaySerial = displayRackSerial(serial);
                   const displayTemplate = displayRackTemplate(template);
                   const status = warehouseEntityStatuses[`RACK:${rack.id}`] || rack.status || 'UNKNOWN';
-                  return <tr key={rack.id} className="hover:bg-slate-50/70"><td className="px-3 py-3.5"><input type="checkbox" checked={selectedIds.RACKS.includes(rack.id)} onChange={() => toggleSelectItem('RACKS', rack.id)} className="h-4 w-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500" /></td><td className="px-5 py-3.5"><span className="inline-flex items-center gap-1 font-mono font-bold text-slate-900">{displaySerial}<CopyToClipboardButton value={String(serial)} label="Copy rack serial number" /></span></td><td className="px-5 py-3.5 font-semibold text-slate-700">{displayTemplate}</td><td className="px-5 py-3.5 text-slate-600">{rack.location || '-'}</td><td className="px-5 py-3.5"><span className={`rounded-md border px-2.5 py-0.5 text-[10px] font-bold uppercase ${getStatusBadge(status)}`}>{status}</span></td><td className="px-5 py-3.5 text-right font-sans space-x-1"><button onClick={() => { setQuickSearchQuery(serial); setActiveView('traceability'); }} className="p-1.5 text-slate-500 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors" title="View rack traceability"><Eye className="w-4 h-4" /></button><button onClick={() => { setQrData({ title: `Rack QR: ${displaySerial}`, qrPayload: rack.qrCode || rack.qr_code || `${serial}|RACK:${rack.id}`, serial: displaySerial, itemType: 'RACK', metadata: { TEMPLATE: displayTemplate, LOCATION: rack.location || '-', STATUS: status } }); setQrModalOpen(true); }} className="p-1.5 text-slate-500 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors" title="Print QR"><QrCode className="w-4 h-4" /></button><button onClick={() => { setActiveView('rack-assembly'); addNotification('info', 'Rack Assembly Opened', `Open the rack builder to edit ${displaySerial}.`); }} className="p-1.5 text-slate-500 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors" title="Edit rack"><Pencil className="w-4 h-4" /></button><button onClick={async () => { if (!window.confirm(`Delete rack ${displaySerial}? Its connected packs will be returned to inventory.`)) return; try { await api.deleteRack(rack.id); triggerRefresh(); } catch (err: any) { addNotification('error', 'Delete Failed', err.message); } }} className="p-1.5 text-slate-500 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors" title="Delete rack"><Trash2 className="w-4 h-4" /></button></td></tr>;
+                  const editRackSerial = async () => {
+                    const currentSuffix = String(serial).match(/-(\d{4})$/)?.[1] || '';
+                    const nextSuffix = window.prompt(`Enter the last 4 digits for ${displaySerial}:`, currentSuffix)?.trim() || '';
+                    if (!nextSuffix) return;
+                    if (!/^\d{4}$/.test(nextSuffix)) {
+                      addNotification('error', 'Invalid Serial', 'Rack serial suffix must contain exactly 4 digits.');
+                      return;
+                    }
+                    if (nextSuffix === currentSuffix) return;
+                    try {
+                      await api.updateRackSerial(rack.id, nextSuffix);
+                      addNotification('success', 'Rack Serial Updated', `Rack serial changed to ${String(serial).replace(/-\d{4}$/, `-${nextSuffix}`)}.`);
+                      triggerRefresh();
+                    } catch (error: any) {
+                      addNotification('error', 'Serial Update Failed', error.message || 'Could not update rack serial.');
+                    }
+                  };
+                  return (
+                    <tr key={rack.id} className="hover:bg-slate-50/70">
+                      <td className="px-3 py-3.5">
+                        <input type="checkbox" checked={selectedIds.RACKS.includes(rack.id)} onChange={() => toggleSelectItem('RACKS', rack.id)} className="h-4 w-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500" />
+                      </td>
+                      <td className="px-5 py-3.5"><span className="inline-flex items-center gap-1 font-mono font-bold text-slate-900">{displaySerial}<CopyToClipboardButton value={String(serial)} label="Copy rack serial number" /></span></td>
+                      <td className="px-5 py-3.5 font-semibold text-slate-700">{displayTemplate}</td>
+                      <td className="px-5 py-3.5 text-slate-600">{rack.location || '-'}</td>
+                      <td className="px-5 py-3.5"><span className={`rounded-md border px-2.5 py-0.5 text-[10px] font-bold uppercase ${getStatusBadge(status)}`}>{status}</span></td>
+                      <td className="px-5 py-3.5 text-right font-sans space-x-1">
+                        <button onClick={editRackSerial} className="p-1.5 text-slate-500 hover:text-amber-600 hover:bg-amber-50 rounded-lg transition-colors" title="Edit rack serial"><Pencil className="w-4 h-4" /></button>
+                        <button onClick={() => { setQuickSearchQuery(serial); setActiveView('traceability'); }} className="p-1.5 text-slate-500 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors" title="View rack traceability"><Eye className="w-4 h-4" /></button>
+                        <button onClick={() => { setQrData({ title: `Rack QR: ${displaySerial}`, qrPayload: rack.qrCode || rack.qr_code || `${serial}|RACK:${rack.id}`, serial: displaySerial, itemType: 'RACK', metadata: { TEMPLATE: displayTemplate, LOCATION: rack.location || '-', STATUS: status } }); setQrModalOpen(true); }} className="p-1.5 text-slate-500 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors" title="Print QR"><QrCode className="w-4 h-4" /></button>
+                        <button onClick={() => { setActiveView('rack-assembly'); addNotification('info', 'Rack Assembly Opened', `Open the rack builder to edit ${displaySerial}.`); }} className="p-1.5 text-slate-500 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors" title="Edit rack"><Pencil className="w-4 h-4" /></button>
+                        <button onClick={async () => { if (!window.confirm(`Delete rack ${displaySerial}? Its connected packs will be returned to inventory.`)) return; try { await api.deleteRack(rack.id); triggerRefresh(); } catch (err: any) { addNotification('error', 'Delete Failed', err.message); } }} className="p-1.5 text-slate-500 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors" title="Delete rack"><Trash2 className="w-4 h-4" /></button>
+                      </td>
+                    </tr>
+                  );
                 })}
                 {!loading && filteredRacks.length === 0 && <tr><td colSpan={6} className="px-5 py-12 text-center text-xs text-slate-400">No racks recorded.</td></tr>}
               </tbody>

@@ -2708,6 +2708,35 @@ begin
 end;
 $$ language plpgsql security definer;
 
+create or replace function public.update_module_serial_transaction(
+    p_module_id text,
+    p_serial_suffix text
+) returns jsonb language plpgsql security definer set search_path = public as $$
+declare
+    v_module public.modules%rowtype;
+    v_serial text;
+begin
+    perform public.require_permission('MANAGE_PRODUCTION');
+    if p_serial_suffix !~ '^\d{5}$' then
+        raise exception 'Module serial suffix must contain exactly 5 digits';
+    end if;
+
+    select * into v_module from public.modules where id = p_module_id for update;
+    if not found then raise exception 'Module % not found', p_module_id; end if;
+
+    v_serial := regexp_replace(v_module.serial_number, '-\d{5}$', '-' || p_serial_suffix);
+    if v_serial = v_module.serial_number then
+        raise exception 'Module serial must end with a five-digit number';
+    end if;
+    if exists (select 1 from public.modules where serial_number = v_serial and id <> v_module.id) then
+        raise exception 'Module serial % is already in use', v_serial;
+    end if;
+
+    update public.modules set serial_number = v_serial, updated_at = now() where id = v_module.id;
+    return jsonb_build_object('success', true, 'moduleId', v_module.id, 'serialNumber', v_serial);
+end;
+$$;
+grant execute on function public.update_module_serial_transaction(text, text) to authenticated;
 
 -- CANCEL PRODUCTION ORDER TRANSACTION
 create or replace function public.cancel_production_order_transaction(
@@ -3293,6 +3322,36 @@ begin
     perform public.record_genealogy_event('RACK', v_rack_id, 'ASSEMBLED', null, null, jsonb_build_object('template_code', p_template_code, 'battery_count', v_required));
     return jsonb_build_object('rackId', v_rack_id, 'serialNumber', v_serial, 'qrCode', 'RACK-QR-' || upper(substr(replace(v_rack_id, '-', ''), 1, 12)), 'status', 'IN_STOCK');
 end $$;
+
+create or replace function public.update_rack_serial_transaction(
+    p_rack_id text,
+    p_serial_suffix text
+) returns jsonb language plpgsql security definer set search_path = public as $$
+declare
+    v_rack public.racks%rowtype;
+    v_serial text;
+begin
+    perform public.require_permission('MANAGE_INVENTORY');
+    if p_serial_suffix !~ '^\d{4}$' then
+        raise exception 'Rack serial suffix must contain exactly 4 digits';
+    end if;
+
+    select * into v_rack from public.racks where id = p_rack_id for update;
+    if not found then raise exception 'Rack % not found', p_rack_id; end if;
+
+    v_serial := regexp_replace(v_rack.serial_number, '-\d{4}$', '-' || p_serial_suffix);
+    if v_serial = v_rack.serial_number then
+        raise exception 'Rack serial must end with a four-digit number';
+    end if;
+    if exists (select 1 from public.racks where serial_number = v_serial and id <> v_rack.id) then
+        raise exception 'Rack serial % is already in use', v_serial;
+    end if;
+
+    update public.racks set serial_number = v_serial, updated_at = now() where id = v_rack.id;
+    return jsonb_build_object('success', true, 'rackId', v_rack.id, 'serialNumber', v_serial);
+end;
+$$;
+grant execute on function public.update_rack_serial_transaction(text, text) to authenticated;
 
 create or replace function public.sell_rack_transaction(p_rack_id text, p_destination text, p_reference text)
 returns jsonb language plpgsql security definer set search_path = public as $$
