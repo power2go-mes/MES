@@ -361,7 +361,7 @@ async function loadWarehouseLocationSnapshot() {
     rawSupabase.from('modules').select('id, serial_number, battery_id'),
     rawSupabase.from('batteries').select('id, serial_number, product_templates(name, capacity_kwh)'),
     rawSupabase.from('rack_packs').select('battery_id, rack_id'),
-    rawSupabase.from('racks').select('id, serial_number, qr_code, rack_template_code, location'),
+    rawSupabase.from('racks').select('id, serial_number, qr_code, rack_template_code, location, status'),
     fetchAllRows('cells', 'id, lifecycle_status, status, internal_serial, supplier_barcode, grade, created_at'),
   ]);
   const warehouseMoves = warehouseResult.data || [];
@@ -369,6 +369,7 @@ async function loadWarehouseLocationSnapshot() {
   const batteries = batteriesResult.data || [];
   const rackPacks = rackPacksResult.data || [];
   const racks = racksResult.data || [];
+  const rackById = new Map((racks || []).map((rack: any) => [String(rack.id), rack]));
   const lifecycleByCellId = new Map<string, string>((cellsResult || []).map((cell: any) => [
     String(cell.id),
     String(cell.lifecycle_status || cell.status || ''),
@@ -401,6 +402,7 @@ async function loadWarehouseLocationSnapshot() {
     const entityId = canonicalEntityId(type, String(row.entity_id || ''));
     const location = normalizeWarehouseLocation(row.to_location);
     if (!type || !entityId) return;
+    if (type === 'RACK' && String(rackById.get(entityId)?.status || '').toUpperCase() === 'SOLD') return;
     const key = `${type}:${entityId}`;
     if (!latestByEntity.has(key)) latestByEntity.set(key, location);
   });
@@ -410,7 +412,7 @@ async function loadWarehouseLocationSnapshot() {
   (racks || []).forEach((rack: any) => {
     const rackId = String(rack?.id || '');
     const location = normalizeWarehouseLocation(rack?.location);
-    if (rackId && location) latestByEntity.set(`RACK:${rackId}`, location);
+    if (rackId && location && String(rack?.status || '').toUpperCase() !== 'SOLD') latestByEntity.set(`RACK:${rackId}`, location);
   });
 
   const moduleIdsByBattery = new Map<string, string[]>();
