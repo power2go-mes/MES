@@ -25,6 +25,7 @@ import {
 } from 'lucide-react';
 import { CopyToClipboardButton } from '../common/CopyToClipboardButton';
 import { preferredLifecycleStatus } from '../../services/api';
+import { normalizeBatterySerial } from '../../lib/batteryNaming';
 
 interface TraceNode {
   key: string;
@@ -39,7 +40,7 @@ interface TraceNode {
 const fmt = (v: any): string =>
   v === undefined || v === null || v === '' ? 'Not recorded' : String(v);
 
-const displayBatterySerial = (value: unknown): string => String(value || '').replace(/8KWH/gi, '7.5KWH');
+const displayBatterySerial = normalizeBatterySerial;
 
 const fmtDateOnly = (v: any): string => {
   if (v === undefined || v === null || v === '') return 'Not recorded';

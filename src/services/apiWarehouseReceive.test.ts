@@ -2,6 +2,12 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { buildWarehouseLocationBuckets, buildWarehouseReceiveResult, preferredLifecycleStatus } from './api';
+import { normalizeBatteryName, normalizeBatterySerial } from '../lib/batteryNaming';
+
+test('battery names and serials use the 7.5KWH label', () => {
+  assert.equal(normalizeBatterySerial('P2G-BP-8KWH-0001'), 'P2G-BP-7.5KWH-0001');
+  assert.equal(normalizeBatteryName('8 kWh Battery Pack'), '7.5 kWh Battery Pack');
+});
 
 test('sold lifecycle status remains authoritative over a warehouse location', () => {
   assert.equal(preferredLifecycleStatus('SOLD', 'KARACHI_WAREHOUSE'), 'SOLD');

@@ -19,6 +19,7 @@ import {
 
 import { buildCompletedBatteryReleasePlan, createBulkBatteryInitialization, dedupeModuleCellAssignments, type BulkBatteryRow } from './bulkBatteryInitializer';
 import { supabase as rawSupabase } from '../lib/supabaseBrowser';
+import { normalizeBatteryName, normalizeBatterySerial } from '../lib/batteryNaming';
 
 const columnAliases: Record<string, string> = {
   bmsConfig: 'bms_config_json',
@@ -192,12 +193,12 @@ export function preferredLifecycleStatus(status: unknown, warehouseStatus?: stri
 
 export function normalizeBatteryRecord(battery: any): any {
   const serialNumber = normalizeBatterySerial(battery?.serial_number ?? battery?.serialNumber ?? battery?.id);
-  const productName = String(
+  const productName = normalizeBatteryName(String(
     battery?.product_templates?.name
     ?? battery?.productName
     ?? battery?.product_name
     ?? 'Unknown Pack',
-  ).trim() || 'Unknown Pack';
+  ).trim() || 'Unknown Pack');
   const currentStep = String(battery?.current_step ?? battery?.currentStep ?? 'UNKNOWN').trim() || 'UNKNOWN';
   return {
     ...battery,
@@ -206,10 +207,6 @@ export function normalizeBatteryRecord(battery: any): any {
     currentStep,
     status: battery?.status || 'UNKNOWN',
   };
-}
-
-function normalizeBatterySerial(value: unknown): string {
-  return String(value || '').trim().replace(/(7\.5|8)KWH/gi, (_, capacity) => `${capacity}KWH`);
 }
 
 function moduleSerialPrefix(date = new Date()): string {
@@ -976,14 +973,14 @@ export const api = {
       const moduleProgressBuckets = Array.from(moduleStatusCounts.entries()).map(([label, value]) => ({ label, value }));
       const livePackCounts = new Map<string, number>();
       (liveBatteries || []).forEach((battery: any) => {
-        const name = battery.product_templates?.name || 'Unnamed Pack';
+        const name = normalizeBatteryName(battery.product_templates?.name || 'Unnamed Pack');
         livePackCounts.set(name, (livePackCounts.get(name) || 0) + 1);
       });
       const livePackBuckets = Array.from(livePackCounts.entries()).map(([label, value]) => ({
         label,
         value,
         capacityKwh: (liveBatteries || [])
-          .filter((battery: any) => (battery.product_templates?.name || 'Unnamed Pack') === label)
+          .filter((battery: any) => normalizeBatteryName(battery.product_templates?.name || 'Unnamed Pack') === label)
           .reduce((total: number, battery: any) => total + (Number(battery.product_templates?.capacity_kwh) || 0), 0),
       }));
       const capacityProducedKwh = (liveBatteries || [])
@@ -1105,8 +1102,8 @@ export const api = {
       const warehouseStatusSerialNumbers = {
         'Karachi Racks': (liveRacks || []).filter((rack: any) => String(latestByEntity.get(`RACK:${rack.id}`) || '').toUpperCase() === 'KARACHI').map((rack: any) => String(rack.serial_number || rack.serialNumber || '')).filter(Boolean),
         'Lahore Racks': (liveRacks || []).filter((rack: any) => String(latestByEntity.get(`RACK:${rack.id}`) || '').toUpperCase() === 'LAHORE').map((rack: any) => String(rack.serial_number || rack.serialNumber || '')).filter(Boolean),
-        'Karachi Battery Packs': (liveBatteries || []).filter((battery: any) => String(latestByEntity.get(`BATTERY:${battery.id}`) || '').toUpperCase() === 'KARACHI').map((battery: any) => String(battery.serial_number || battery.serialNumber || '')).filter(Boolean),
-        'Lahore Battery Packs': (liveBatteries || []).filter((battery: any) => String(latestByEntity.get(`BATTERY:${battery.id}`) || '').toUpperCase() === 'LAHORE').map((battery: any) => String(battery.serial_number || battery.serialNumber || '')).filter(Boolean),
+        'Karachi Battery Packs': (liveBatteries || []).filter((battery: any) => String(latestByEntity.get(`BATTERY:${battery.id}`) || '').toUpperCase() === 'KARACHI').map((battery: any) => normalizeBatterySerial(battery.serial_number || battery.serialNumber)).filter(Boolean),
+        'Lahore Battery Packs': (liveBatteries || []).filter((battery: any) => String(latestByEntity.get(`BATTERY:${battery.id}`) || '').toUpperCase() === 'LAHORE').map((battery: any) => normalizeBatterySerial(battery.serial_number || battery.serialNumber)).filter(Boolean),
       };
       const rackTypeSerialNumbers = new Map<string, string[]>();
       (liveRacks || []).forEach((rack: any) => {
@@ -1123,7 +1120,7 @@ export const api = {
       const batteryPackSerialNumbersByLabel: Record<string, string[]> = {};
       (liveBatteries || []).forEach((battery: any) => {
         const name = battery.product_templates?.name || 'Unnamed Pack';
-        const serial = String(battery.serial_number || battery.serialNumber || '');
+        const serial = normalizeBatterySerial(battery.serial_number || battery.serialNumber);
         if (!serial) return;
         const labelKey = String(name || 'Unnamed Pack');
         batteryPackSerialNumbersByLabel[labelKey] = [...(batteryPackSerialNumbersByLabel[labelKey] || []), serial];
@@ -1217,7 +1214,7 @@ export const api = {
           : (Array.isArray(data?.batteryPackTrend) ? data.batteryPackTrend : []),
         moduleTypeTrend,
         soldRackSerialNumbers: (soldRacks || []).map((rack: any) => String(rack.serial_number || rack.serialNumber || '')).filter(Boolean),
-        soldBatterySerialNumbers: (soldBatteries || []).map((battery: any) => String(battery.serial_number || battery.serialNumber || '')).filter(Boolean),
+        soldBatterySerialNumbers: (soldBatteries || []).map((battery: any) => normalizeBatterySerial(battery.serial_number || battery.serialNumber)).filter(Boolean),
         warehouseStatusSerialNumbers,
         rackStatusSerialNumbersByType: Object.fromEntries(rackTypeSerialNumbers.entries()),
         batteryPackSerialNumbersByLabel,
@@ -2741,7 +2738,7 @@ export const api = {
     return (data || []).map((battery: any) => ({
       id: battery.id,
       serialNumber: normalizeBatterySerial(battery.serialNumber || battery.serial_number || battery.id),
-      productName: battery.productTemplates?.name || battery.product_templates?.name || '',
+      productName: normalizeBatteryName(battery.productTemplates?.name || battery.product_templates?.name || ''),
       capacityKwh: Number(battery.productTemplates?.capacityKwh ?? battery.product_templates?.capacity_kwh ?? 0) || undefined,
       productionOrderId: battery.productionOrderId || battery.production_order_id,
       currentStep: battery.currentStep || battery.current_step,

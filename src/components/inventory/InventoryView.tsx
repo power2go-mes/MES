@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useApp } from '../../context/AppContext';
 import { useAuth } from '../../context/AuthContext';
 import { api, preferredLifecycleStatus } from '../../services/api';
+import { normalizeBatterySerial } from '../../lib/batteryNaming';
 import { CellItem, BMSItem, BMUItem, ModuleItem, BatteryUnit } from '../../types';
 import { downloadBatteryReport, downloadCellReport, downloadRackReport } from '../../lib/cellReportExport';
 import { QRCodeModal } from '../common/QRCodeModal';
@@ -33,7 +34,7 @@ const cellStatuses = [
 ] as const;
 
 const displayRackSerial = (value: unknown) => String(value || '').replace(/70KWH/gi, '69.7KWH');
-const displayBatterySerial = (value: unknown) => String(value || '').replace(/8KWH/gi, '7.5KWH');
+const displayBatterySerial = normalizeBatterySerial;
 const displayRackTemplate = (value: unknown) => String(value || '').toUpperCase() === 'RACK_70KWH' ? '69.7 kWh' : String(value || '-');
 
 export const InventoryView: React.FC = () => {
