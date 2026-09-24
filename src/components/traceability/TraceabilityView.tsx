@@ -496,6 +496,7 @@ export const TraceabilityView: React.FC = () => {
       const result = await api.universalTrace(q);
       if (requestId !== searchRequestRef.current) return;
       setTrace(result);
+      setQuery(displayTraceIdentifier(result));
       setError(null);
     } catch (err: any) {
       if (requestId !== searchRequestRef.current) return;
