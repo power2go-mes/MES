@@ -3382,6 +3382,104 @@ begin
     return jsonb_build_object('rackId', v_rack.id, 'status', 'SOLD');
 end $$;
 
+create or replace function public.return_sold_entity_to_warehouse(p_entity_type text, p_entity_id text)
+returns jsonb language plpgsql security definer set search_path = public as $$
+declare
+        v_entity_id text := trim(p_entity_id);
+        v_location text;
+        v_battery public.batteries%rowtype;
+        v_rack public.racks%rowtype;
+begin
+        perform public.require_permission('MANAGE_PRODUCTION');
+
+        if p_entity_type = 'BATTERY' then
+                select * into v_battery from public.batteries
+                where id = v_entity_id or serial_number = v_entity_id
+                for update;
+                if not found then raise exception 'Battery % not found', p_entity_id; end if;
+                if v_battery.lifecycle_status <> 'SOLD' and v_battery.status <> 'DISPATCHED' then raise exception 'Battery is not sold'; end if;
+                v_entity_id := v_battery.id;
+
+                select upper(trim(to_location)) into v_location
+                from public.warehouse_movements
+                where entity_type = 'BATTERY'
+                    and entity_id = v_entity_id
+                    and movement_type in ('RECEIVE', 'MOVE')
+                    and upper(trim(to_location)) in ('KARACHI', 'LAHORE')
+                order by moved_at desc
+                limit 1;
+                if v_location is null then raise exception 'No previous warehouse location is recorded for battery %', v_battery.serial_number; end if;
+
+                update public.batteries
+                set status = 'WAREHOUSE', current_step = 'WAREHOUSE', lifecycle_status = 'IN_STOCK', updated_at = now()
+                where id = v_entity_id;
+                update public.modules set lifecycle_status = 'IN_PACK', updated_at = now()
+                where battery_id = v_entity_id and lifecycle_status = 'SOLD';
+                update public.cells c set lifecycle_status = 'IN_PACK', updated_at = now()
+                where c.lifecycle_status = 'SOLD'
+                    and (c.reserved_for_battery_id = v_entity_id or exists (
+                            select 1 from public.module_cells mc
+                            join public.modules m on m.id = mc.module_id
+                            where mc.cell_id = c.id and m.battery_id = v_entity_id
+                    ));
+
+                insert into public.warehouse_movements (id, entity_type, entity_id, movement_type, from_location, to_location, reference, moved_by, moved_at)
+                values ('mov-' || gen_random_uuid()::text, 'BATTERY', v_entity_id, 'RETURN', 'SOLD', v_location, 'Sale returned to warehouse', auth.uid(), now());
+                insert into public.audit_logs (entity_type, entity_id, action, actor, result, details)
+                values ('BATTERY', v_entity_id, 'RETURN_TO_WAREHOUSE', coalesce(auth.uid()::text, 'SYSTEM'), 'SUCCESS', 'Returned to ' || v_location);
+
+                return jsonb_build_object('success', true, 'entityType', 'BATTERY', 'entityId', v_entity_id, 'location', v_location, 'status', 'WAREHOUSE');
+        elsif p_entity_type = 'RACK' then
+                select * into v_rack from public.racks
+                where id = v_entity_id or serial_number = v_entity_id or qr_code = v_entity_id
+                for update;
+                if not found then raise exception 'Rack % not found', p_entity_id; end if;
+                if v_rack.status <> 'SOLD' then raise exception 'Rack is not sold'; end if;
+                v_entity_id := v_rack.id;
+                v_location := case when upper(trim(v_rack.location)) in ('KARACHI', 'LAHORE') then upper(trim(v_rack.location)) end;
+                if v_location is null then
+                        select upper(trim(to_location)) into v_location
+                        from public.warehouse_movements
+                        where entity_type = 'RACK'
+                            and entity_id = v_entity_id
+                            and movement_type in ('RECEIVE', 'MOVE')
+                            and upper(trim(to_location)) in ('KARACHI', 'LAHORE')
+                        order by moved_at desc
+                        limit 1;
+                end if;
+                if v_location is null then raise exception 'No previous warehouse location is recorded for rack %', v_rack.serial_number; end if;
+
+                update public.racks set status = 'IN_STOCK', location = v_location, updated_at = now()
+                where id = v_entity_id;
+                update public.batteries
+                set status = 'WAREHOUSE', current_step = 'WAREHOUSE', lifecycle_status = 'IN_RACK', updated_at = now()
+                where id in (select battery_id from public.rack_packs where rack_id = v_entity_id);
+                update public.modules set lifecycle_status = 'IN_RACK', updated_at = now()
+                where battery_id in (select battery_id from public.rack_packs where rack_id = v_entity_id);
+                update public.cells c set lifecycle_status = 'IN_RACK', updated_at = now()
+                where c.lifecycle_status = 'SOLD'
+                    and (c.reserved_for_battery_id in (select battery_id from public.rack_packs where rack_id = v_entity_id) or exists (
+                            select 1 from public.module_cells mc
+                            join public.modules m on m.id = mc.module_id
+                            where mc.cell_id = c.id
+                                and m.battery_id in (select battery_id from public.rack_packs where rack_id = v_entity_id)
+                    ));
+
+                insert into public.warehouse_movements (id, entity_type, entity_id, movement_type, from_location, to_location, reference, moved_by, moved_at)
+                values ('mov-' || gen_random_uuid()::text, 'RACK', v_entity_id, 'RETURN', 'SOLD', v_location, 'Sale returned to warehouse', auth.uid(), now());
+                insert into public.lifecycle_events(entity_type, entity_id, from_status, to_status, reason, recorded_by)
+                values ('RACK', v_entity_id, 'SOLD', 'IN_STOCK', 'Returned to ' || v_location || ' warehouse', auth.uid());
+                insert into public.audit_logs (entity_type, entity_id, action, actor, result, details)
+                values ('RACK', v_entity_id, 'RETURN_TO_WAREHOUSE', coalesce(auth.uid()::text, 'SYSTEM'), 'SUCCESS', 'Returned to ' || v_location);
+
+                return jsonb_build_object('success', true, 'entityType', 'RACK', 'entityId', v_entity_id, 'location', v_location, 'status', 'IN_STOCK');
+        else
+                raise exception 'Unsupported sale entity type %', p_entity_type;
+        end if;
+end $$;
+grant execute on function public.return_sold_entity_to_warehouse(text, text) to authenticated;
+notify pgrst, 'reload schema';
+
 create or replace function public.delete_rack_transaction(p_rack_id text)
 returns void language plpgsql security definer set search_path = public as $$
 declare

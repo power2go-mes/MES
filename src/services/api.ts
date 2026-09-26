@@ -4722,8 +4722,8 @@ export const api = {
     const addRefs = (entityType: string, rows: any[], serialField: string) => rows.forEach(row => {
       const id = String(row.id || '');
       if (!id) return;
-      const serial = row[serialField] || row.serial_number || row.qr_code || id;
-      const qrCode = row.qr_code || row[serialField] || row.serial_number || id;
+      const serial = row[toAppColumn(serialField)] || row[serialField] || row.serialNumber || row.serial_number || id;
+      const qrCode = row.qrCode || row.qr_code || row[toAppColumn(serialField)] || row[serialField] || row.serialNumber || row.serial_number || id;
       refs.set(`${entityType}:${id}`, { serialNumber: serial, qrCode });
     });
     addRefs('RACK', rackRows, 'serial_number');
@@ -4822,6 +4822,16 @@ export const api = {
     const { data, error } = await rawSupabase.from('sale_history').update({ client_name: clientName, updated_at: new Date().toISOString() }).eq('id', id).select().single();
     if (error) throw error;
     return data;
+  },
+
+  async returnSoldEntityToWarehouse(entityType: 'BATTERY' | 'RACK', entityId: string): Promise<any> {
+    if (!rawSupabase) throw new Error('Supabase is not configured.');
+    const { data, error } = await rawSupabase.rpc('return_sold_entity_to_warehouse', {
+      p_entity_type: entityType,
+      p_entity_id: entityId,
+    });
+    if (error) throw error;
+    return toAppValue(data);
   },
 
   async deleteSaleHistory(id: string): Promise<void> {

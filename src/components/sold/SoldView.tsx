@@ -2,6 +2,8 @@ import React, { useEffect, useState } from 'react';
 import { useApp } from '../../context/AppContext';
 import { api } from '../../services/api';
 import { normalizeRackTemplateLabel } from '../../lib/rackNaming';
+import { normalizeBatterySerial } from '../../lib/batteryNaming';
+import { normalizeRackSerial } from '../../lib/rackNaming';
 import { BatteryUnit, RackUnit } from '../../types';
 import { PackageCheck, Pencil, RefreshCw, Search, ShoppingCart, Trash2 } from 'lucide-react';
 
@@ -58,7 +60,7 @@ export const SoldView: React.FC = () => {
   };
 
   const saveEdit = async () => {
-    if (!editingSale || !editClient.trim()) return;
+    if (!editingSale?.persisted || !editClient.trim()) return;
     setSaving(true);
     try {
       await api.updateSaleHistory(editingSale.id, editClient.trim());
@@ -67,6 +69,22 @@ export const SoldView: React.FC = () => {
       addNotification('success', 'Sale Updated', `${editingSale.serialNumber} client was updated.`);
     } catch (error: any) {
       addNotification('error', 'Update Failed', error.message || 'Could not update sale history.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const returnToWarehouse = async (sale: SaleHistoryItem) => {
+    if (!window.confirm(`Return ${sale.serialNumber} to its previous warehouse location?`)) return;
+    setSaving(true);
+    try {
+      const result = await api.returnSoldEntityToWarehouse(sale.entityType, sale.entityId);
+      setEditingSale(null);
+      setHistory(current => current.filter(item => item.id !== sale.id));
+      addNotification('success', 'Returned to Warehouse', `${sale.serialNumber} was returned to ${result.location}.`);
+      triggerRefresh();
+    } catch (error: any) {
+      addNotification('error', 'Return Failed', error.message || 'Could not return the item to warehouse.');
     } finally {
       setSaving(false);
     }
@@ -180,10 +198,10 @@ export const SoldView: React.FC = () => {
           <div><h2 className="text-xs font-bold uppercase tracking-wider text-slate-600">Sale history</h2><p className="mt-1 text-xs text-slate-500">All successfully sold battery packs and racks.</p></div>
           <span className="text-xs font-bold text-slate-500">{history.length} records</span>
         </div>
-        {history.length === 0 ? <div className="p-5 text-xs text-slate-500">No sale history found.</div> : <div className="overflow-x-auto"><table className="w-full min-w-[720px] text-left text-xs"><thead className="bg-slate-50 text-[10px] font-black uppercase tracking-wider text-slate-500"><tr><th className="p-3">Type</th><th className="p-3">Serial</th><th className="p-3">Client</th><th className="p-3">Sold at</th><th className="p-3 text-right">Actions</th></tr></thead><tbody className="divide-y divide-slate-100">{history.map(sale => <tr key={sale.id}><td className="p-3 font-bold">{sale.entityType === 'BATTERY' ? 'Battery Pack' : 'Rack'}</td><td className="p-3 font-mono font-bold">{sale.serialNumber}</td><td className="p-3">{sale.clientName}</td><td className="p-3 text-slate-500">{new Date(sale.soldAt).toLocaleString()}</td><td className="p-3"><div className="flex justify-end gap-1"><button type="button" onClick={() => startEdit(sale)} disabled={saving || !sale.persisted} title={sale.persisted ? 'Edit client' : 'Legacy sale: history record not stored'} className="inline-flex items-center gap-1 rounded-md border border-slate-200 px-2 py-1 text-[10px] font-semibold text-slate-600 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"><Pencil className="h-3 w-3" />Edit</button><button type="button" onClick={() => void deleteSale(sale)} disabled={saving || !sale.persisted} title={sale.persisted ? 'Delete history record' : 'Legacy sale: history record not stored'} className="inline-flex items-center gap-1 rounded-md border border-red-200 px-2 py-1 text-[10px] font-semibold text-red-600 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-40"><Trash2 className="h-3 w-3" />Delete</button></div></td></tr>)}</tbody></table></div>}
+        {history.length === 0 ? <div className="p-5 text-xs text-slate-500">No sale history found.</div> : <div className="overflow-x-auto"><table className="w-full min-w-[720px] text-left text-xs"><thead className="bg-slate-50 text-[10px] font-black uppercase tracking-wider text-slate-500"><tr><th className="p-3">Type</th><th className="p-3">Serial</th><th className="p-3">Client</th><th className="p-3">Sold at</th><th className="p-3 text-right">Actions</th></tr></thead><tbody className="divide-y divide-slate-100">{history.map(sale => <tr key={sale.id}><td className="p-3 font-bold">{sale.entityType === 'BATTERY' ? 'Battery Pack' : 'Rack'}</td><td className="p-3 font-mono font-bold">{sale.entityType === 'BATTERY' ? normalizeBatterySerial(sale.serialNumber) : normalizeRackSerial(sale.serialNumber)}</td><td className="p-3">{sale.clientName}</td><td className="p-3 text-slate-500">{new Date(sale.soldAt).toLocaleString()}</td><td className="p-3"><div className="flex justify-end gap-1"><button type="button" onClick={() => startEdit(sale)} disabled={saving} title={sale.persisted ? 'Edit client or return to warehouse' : 'Legacy sale: return to warehouse'} className="inline-flex items-center gap-1 rounded-md border border-slate-200 px-2 py-1 text-[10px] font-semibold text-slate-600 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"><Pencil className="h-3 w-3" />Edit</button><button type="button" onClick={() => void deleteSale(sale)} disabled={saving || !sale.persisted} title={sale.persisted ? 'Delete history record' : 'Legacy sale: history record not stored'} className="inline-flex items-center gap-1 rounded-md border border-red-200 px-2 py-1 text-[10px] font-semibold text-red-600 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-40"><Trash2 className="h-3 w-3" />Delete</button></div></td></tr>)}</tbody></table></div>}
       </section>
 
-      {editingSale && <div className="bg-white rounded-2xl border border-emerald-200 p-4 shadow-xs"><div className="flex flex-col gap-3 md:flex-row md:items-end"><label className="flex-1 text-xs font-bold text-slate-600">Client for {editingSale.serialNumber}<input value={editClient} onChange={event => setEditClient(event.target.value)} className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-xs" /></label><button type="button" onClick={() => void saveEdit()} disabled={saving || !editClient.trim()} className="rounded-lg bg-emerald-600 px-4 py-2 text-xs font-bold text-white disabled:bg-slate-300">Save</button><button type="button" onClick={() => setEditingSale(null)} className="rounded-lg border border-slate-200 px-4 py-2 text-xs font-semibold text-slate-600">Cancel</button></div></div>}
+      {editingSale && <div className="bg-white rounded-2xl border border-emerald-200 p-4 shadow-xs"><div className="flex flex-col gap-3 md:flex-row md:items-end"><label className="flex-1 text-xs font-bold text-slate-600">Client for {editingSale.serialNumber}<input value={editClient} onChange={event => setEditClient(event.target.value)} disabled={!editingSale.persisted} className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-xs disabled:bg-slate-50" /></label><button type="button" onClick={() => void saveEdit()} disabled={saving || !editingSale.persisted || !editClient.trim()} className="rounded-lg bg-emerald-600 px-4 py-2 text-xs font-bold text-white disabled:bg-slate-300">Save</button><button type="button" onClick={() => setEditingSale(null)} className="rounded-lg border border-slate-200 px-4 py-2 text-xs font-semibold text-slate-600">Cancel</button></div><div className="mt-4 border-t border-slate-100 pt-3"><button type="button" onClick={() => void returnToWarehouse(editingSale)} disabled={saving} className="inline-flex items-center gap-2 rounded-lg border border-emerald-200 px-4 py-2 text-xs font-bold text-emerald-700 hover:bg-emerald-50 disabled:opacity-50"><PackageCheck className="h-4 w-4" />Return to warehouse</button></div></div>}
     </div>
   );
 };

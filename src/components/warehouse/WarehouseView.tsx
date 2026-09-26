@@ -1,6 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { useApp } from '../../context/AppContext';
 import { api } from '../../services/api';
+import { normalizeBatterySerial } from '../../lib/batteryNaming';
+import { normalizeRackSerial } from '../../lib/rackNaming';
 import { BatteryUnit, ModuleItem, RackUnit } from '../../types';
 import { PackageCheck, Pencil, RefreshCw, ScanLine, Trash2 } from 'lucide-react';
 import { ScannerModal } from '../common/ScannerModal';
@@ -49,6 +51,16 @@ export const WarehouseView: React.FC = () => {
         api.getRacks({ summaryOnly: true }),
         api.getModules({ includeCells: false }),
       ]);
+      const serialByEntity = new Map<string, string>();
+      allBatteries.forEach(item => serialByEntity.set(`BATTERY:${item.id}`, item.serialNumber));
+      allRacks.forEach(item => serialByEntity.set(`RACK:${item.id}`, item.serialNumber));
+      allModules.forEach(item => serialByEntity.set(`MODULE:${item.id}`, item.serialNumber));
+      const enrichedHistory = history.map((movement: any) => {
+        const entityType = String(movement.entityType || movement.entity_type || '').toUpperCase();
+        const entityId = String(movement.entityId || movement.entity_id || '');
+        const serialNumber = serialByEntity.get(`${entityType}:${entityId}`);
+        return serialNumber ? { ...movement, entitySerial: serialNumber } : movement;
+      });
       const rackBatteryIds = new Set(allRacks.flatMap(rack => rack.batteryIds || []));
       setBatteries(allBatteries.filter(b => (
         ['FINISHED', 'RELEASED', 'WAREHOUSE'].includes(b.status)
@@ -56,7 +68,7 @@ export const WarehouseView: React.FC = () => {
       ) && !['SOLD', 'QUARANTINED'].includes(b.status) && !rackBatteryIds.has(b.id)) as BatteryUnit[]);
       setRacks(allRacks.filter(rack => rack.status !== 'SOLD' && rack.status !== 'SCRAP'));
       setModules(allModules.filter(module => !module.batteryId && module.lifecycleStatus !== 'SOLD' && module.lifecycleStatus !== 'SCRAP'));
-      setMovements(history);
+      setMovements(enrichedHistory);
     } catch (error: any) {
       addNotification('error', 'Warehouse Load Failed', error.message || 'Could not load warehouse data.');
     } finally {
@@ -189,7 +201,7 @@ export const WarehouseView: React.FC = () => {
         </div>
       )}
       <ScannerModal isOpen={scannerOpen} onClose={() => setScannerOpen(false)} onScan={value => { setScannerOpen(false); void receiveIdentifiers([value]); }} title={`Scan ${receiveType}`} subtitle={`Scan a ${receiveType.toLowerCase()} identifier for ${location} warehouse`} />
-      <div className="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden"><div className="p-4 border-b border-slate-100 text-xs font-bold uppercase tracking-wider text-slate-600">Movement History</div><div className="overflow-x-auto"><table className="w-full min-w-[760px] text-left text-xs"><thead className="bg-slate-50"><tr><th className="p-3">Entity</th><th className="p-3">From</th><th className="p-3">To</th><th className="p-3">Time</th><th className="p-3">Actions</th></tr></thead><tbody className="divide-y divide-slate-100">{movements.map(m => { const entityType = String(m.entityType || m.entity_type || '').toUpperCase() as 'MODULE' | 'BATTERY' | 'RACK'; const entityId = String(m.entityId || m.entity_id || ''); const label = String(m.entitySerial || entityId || m.id); const canManage = ['MODULE', 'BATTERY', 'RACK'].includes(entityType) && Boolean(entityId); return <tr key={m.id}><td className="p-3 font-mono">{label}</td><td className="p-3">{m.fromLocation || m.from_location || '-'}</td><td className="p-3">{m.toLocation || m.to_location}</td><td className="p-3">{new Date(m.movedAt || m.moved_at).toLocaleString()}</td><td className="p-3"><div className="flex items-center gap-1">{canManage && <><button type="button" onClick={() => openEditLocation(entityType, entityId, label)} className="inline-flex items-center gap-1 rounded-md border border-slate-200 px-2 py-1 text-[10px] font-semibold text-slate-600 hover:bg-slate-50"><Pencil className="h-3 w-3" />Edit</button><button type="button" onClick={() => void removeFromWarehouse(entityType, entityId, label)} disabled={saving} className="inline-flex items-center gap-1 rounded-md border border-red-200 px-2 py-1 text-[10px] font-semibold text-red-600 hover:bg-red-50 disabled:opacity-50"><Trash2 className="h-3 w-3" />Delete</button></>}</div></td></tr>; })}</tbody></table></div></div>
+      <div className="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden"><div className="p-4 border-b border-slate-100 text-xs font-bold uppercase tracking-wider text-slate-600">Movement History</div><div className="overflow-x-auto"><table className="w-full min-w-[760px] text-left text-xs"><thead className="bg-slate-50"><tr><th className="p-3">Entity</th><th className="p-3">From</th><th className="p-3">To</th><th className="p-3">Time</th><th className="p-3">Actions</th></tr></thead><tbody className="divide-y divide-slate-100">{movements.map(m => { const entityType = String(m.entityType || m.entity_type || '').toUpperCase() as 'MODULE' | 'BATTERY' | 'RACK'; const entityId = String(m.entityId || m.entity_id || ''); const serial = String(m.entitySerial || entityId || m.id); const label = entityType === 'BATTERY' ? normalizeBatterySerial(serial) : entityType === 'RACK' ? normalizeRackSerial(serial) : serial; const canManage = ['MODULE', 'BATTERY', 'RACK'].includes(entityType) && Boolean(entityId); return <tr key={m.id}><td className="p-3 font-mono">{label}</td><td className="p-3">{m.fromLocation || m.from_location || '-'}</td><td className="p-3">{m.toLocation || m.to_location}</td><td className="p-3">{new Date(m.movedAt || m.moved_at).toLocaleString()}</td><td className="p-3"><div className="flex items-center gap-1">{canManage && <><button type="button" onClick={() => openEditLocation(entityType, entityId, label)} className="inline-flex items-center gap-1 rounded-md border border-slate-200 px-2 py-1 text-[10px] font-semibold text-slate-600 hover:bg-slate-50"><Pencil className="h-3 w-3" />Edit</button><button type="button" onClick={() => void removeFromWarehouse(entityType, entityId, label)} disabled={saving} className="inline-flex items-center gap-1 rounded-md border border-red-200 px-2 py-1 text-[10px] font-semibold text-red-600 hover:bg-red-50 disabled:opacity-50"><Trash2 className="h-3 w-3" />Delete</button></>}</div></td></tr>; })}</tbody></table></div></div>
     </div>
   );
 };
