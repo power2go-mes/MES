@@ -4705,41 +4705,52 @@ export const api = {
       idsByType.set(entityType, ids);
     });
 
-    const loadRefs = async (entityType: string, table: string, fields: string) => {
+    const loadRefs = async (entityType: string, table: string, fields: string, identityFields: string[]) => {
       const ids = idsByType.get(entityType) || [];
       if (ids.length === 0) return [] as any[];
-      const { data, error } = await supabase.from(table).select(fields).in('id', ids);
-      if (error) throw error;
-      return data || [];
+      const rowsById = new Map<string, any>();
+      await Promise.all(identityFields.map(async field => {
+        const { data, error } = await supabase.from(table).select(fields).in(field, ids);
+        if (error) throw error;
+        (data || []).forEach((row: any) => rowsById.set(String(row.id), row));
+      }));
+      return Array.from(rowsById.values());
     };
-    const [rackRows, batteryRows, moduleRows, cellRows] = await Promise.all([
-      loadRefs('RACK', 'racks', 'id,serial_number,qr_code'),
-      loadRefs('BATTERY', 'batteries', 'id,serial_number'),
-      loadRefs('MODULE', 'modules', 'id,serial_number'),
-      loadRefs('CELL', 'cells', 'id,internal_serial,qr_code'),
+    const [rackRows, batteryRows, moduleRows, cellRows, bmsRows, bmuRows] = await Promise.all([
+      loadRefs('RACK', 'racks', 'id,serial_number,qr_code', ['id', 'serialNumber', 'qrCode']),
+      loadRefs('BATTERY', 'batteries', 'id,serial_number', ['id', 'serialNumber']),
+      loadRefs('MODULE', 'modules', 'id,serial_number', ['id', 'serialNumber']),
+      loadRefs('CELL', 'cells', 'id,internal_serial,qr_code,supplier_barcode', ['id', 'internalSerial', 'qrCode', 'supplierBarcode']),
+      loadRefs('BMS', 'bms_units', 'id,serial_number', ['id', 'serialNumber']),
+      loadRefs('BMU', 'bmu_units', 'id,serial_number', ['id', 'serialNumber']),
     ]);
-    const refs = new Map<string, { serialNumber?: string; qrCode?: string }>();
+    const refs = new Map<string, { id: string; serialNumber?: string; qrCode?: string }>();
     const addRefs = (entityType: string, rows: any[], serialField: string) => rows.forEach(row => {
       const id = String(row.id || '');
       if (!id) return;
-      const serial = row[toAppColumn(serialField)] || row[serialField] || row.serialNumber || row.serial_number || id;
+      const serial = row[toAppColumn(serialField)] || row[serialField] || row.serialNumber || row.serial_number || '';
       const qrCode = row.qrCode || row.qr_code || row[toAppColumn(serialField)] || row[serialField] || row.serialNumber || row.serial_number || id;
-      refs.set(`${entityType}:${id}`, { serialNumber: serial, qrCode });
+      const metadata = { id, serialNumber: serial, qrCode };
+      [id, serial, qrCode, row.supplierBarcode, row.supplier_barcode]
+        .filter(Boolean)
+        .forEach(identifier => refs.set(`${entityType}:${identifier}`, metadata));
     });
     addRefs('RACK', rackRows, 'serial_number');
     addRefs('BATTERY', batteryRows, 'serial_number');
     addRefs('MODULE', moduleRows, 'serial_number');
     addRefs('CELL', cellRows, 'internal_serial');
+    addRefs('BMS', bmsRows, 'serial_number');
+    addRefs('BMU', bmuRows, 'serial_number');
 
     const enriched = movements.map((movement: any) => {
       const entityType = String(movement.entity_type || movement.entityType || '').toUpperCase();
       const entityIdValue = String(movement.entity_id || movement.entityId || '');
       const metadata = entityIdValue ? refs.get(`${entityType}:${entityIdValue}`) : null;
-      const serialNumber = metadata?.serialNumber || entityIdValue || movement.serial_number || movement.serialNumber || movement.id;
+      const serialNumber = metadata?.serialNumber || movement.serial_number || movement.serialNumber || '';
       return {
         ...movement,
         entityType,
-        entityId: entityIdValue,
+        entityId: metadata?.id || entityIdValue,
         entitySerial: serialNumber,
       };
     });
@@ -4824,20 +4835,20 @@ export const api = {
     return data;
   },
 
+  async deleteSaleHistory(id: string): Promise<void> {
+    if (!rawSupabase) throw new Error('Supabase is not configured.');
+    const { error } = await rawSupabase.from('sale_history').delete().eq('id', id);
+    if (error) throw error;
+  },
+
   async returnSoldEntityToWarehouse(entityType: 'BATTERY' | 'RACK', entityId: string): Promise<any> {
     if (!rawSupabase) throw new Error('Supabase is not configured.');
-    const { data, error } = await rawSupabase.rpc('return_sold_entity_to_warehouse', {
+    const { data, error } = await rawSupabase.rpc('return_sold_entity_to_warehouse_transaction', {
       p_entity_type: entityType,
       p_entity_id: entityId,
     });
     if (error) throw error;
     return toAppValue(data);
-  },
-
-  async deleteSaleHistory(id: string): Promise<void> {
-    if (!rawSupabase) throw new Error('Supabase is not configured.');
-    const { error } = await rawSupabase.from('sale_history').delete().eq('id', id);
-    if (error) throw error;
   },
 
   async receiveBattery(batteryId: string, location: string): Promise<any> {
