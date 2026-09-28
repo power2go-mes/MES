@@ -177,8 +177,12 @@ export const InventoryView: React.FC = () => {
         setHasMoreInventory(moreAvailable);
         setInventoryPage(page);
       } else if (activeTab === 'BATTERIES') {
-        const res = await api.getBatteries({ limit: pageSize, offset: page * pageSize, search, status: statusFilter });
+        const [res, rackRows] = await Promise.all([
+          api.getBatteries({ limit: pageSize, offset: page * pageSize, search, status: statusFilter }),
+          api.getRacks({ summaryOnly: true }),
+        ]);
         setBatteries(previous => append ? [...previous, ...res] : res);
+        setRacks(rackRows);
         moreAvailable = res.length === pageSize;
         setHasMoreInventory(moreAvailable);
         setInventoryPage(page);
@@ -1228,6 +1232,7 @@ export const InventoryView: React.FC = () => {
                     />
                   </th>
                   <th className="px-5 py-3">Pack Serial</th>
+                  <th className="px-5 py-3">Rack Serial</th>
                   <th className="px-5 py-3">BMS Serial</th>
                   <th className="px-5 py-3">BMU Serial</th>
                   <th className="px-5 py-3">Progress</th>
@@ -1236,7 +1241,10 @@ export const InventoryView: React.FC = () => {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {filteredBatteries.map(b => (
+                {filteredBatteries.map(b => {
+                  const assignedRack = racks.find(rack => (rack.batteryIds || []).includes(b.id));
+                  const rackSerial = assignedRack?.serialNumber || assignedRack?.serial_number;
+                  return (
                   <tr key={b.id} className="hover:bg-slate-50/70 transition-colors">
                     <td className="px-3 py-3.5">
                       <input
@@ -1247,6 +1255,7 @@ export const InventoryView: React.FC = () => {
                       />
                     </td>
                     <td className="px-5 py-3.5"><span className="inline-flex items-center gap-1 font-bold text-slate-900">{displayBatterySerial(b.serialNumber)}<CopyToClipboardButton value={b.serialNumber} label="Copy battery serial number" /></span></td>
+                    <td className="px-5 py-3.5 text-emerald-700">{rackSerial ? displayRackSerial(rackSerial) : 'NONE'}</td>
                     <td className="px-5 py-3.5 text-emerald-700">{b.bms?.serialNumber || 'NONE'}</td>
                     <td className="px-5 py-3.5 text-emerald-700">{b.bmu?.serialNumber || 'NONE'}</td>
                     <td className="px-5 py-3.5 font-bold text-emerald-600">{b.progressPercent}%</td>
@@ -1321,7 +1330,8 @@ export const InventoryView: React.FC = () => {
                       </button>
                     </td>
                   </tr>
-                ))}
+                  );
+                })}
               </tbody>
             </table>
           </div>
