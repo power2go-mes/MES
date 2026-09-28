@@ -3476,6 +3476,18 @@ begin
             limit 1;
         end if;
         if v_location is null or v_location not in ('KARACHI', 'LAHORE') then
+            select upper(trim(wm.to_location)) into v_location
+            from public.warehouse_movements wm
+            join public.rack_packs rp on rp.rack_id = v_rack.id
+            join public.batteries b on b.id = rp.battery_id
+            where wm.entity_type = 'BATTERY'
+              and wm.entity_id in (b.id, b.serial_number)
+              and wm.movement_type <> 'DISPATCH'
+              and upper(trim(wm.to_location)) in ('KARACHI', 'LAHORE')
+            order by wm.moved_at desc
+            limit 1;
+        end if;
+        if v_location is null or v_location not in ('KARACHI', 'LAHORE') then
             raise exception 'No previous Karachi or Lahore warehouse found for rack %', v_rack.serial_number;
         end if;
 
