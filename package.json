@@ -1,7 +1,7 @@
 {
   "name": "react-example",
   "engines": {
-    "node": "20.x"
+    "node": "24.x"
   },
   "version": "0.0.0",
   "type": "module",
