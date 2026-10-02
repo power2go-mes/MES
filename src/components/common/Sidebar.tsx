@@ -36,7 +36,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
   const { activeView, setActiveView, setActiveBatteryId, setBatteryBuilderEditRequested, inventoryTab, setInventoryTab, notifications } = useApp();
   const { currentUser, profile, logout } = useAuth();
   const canManageUsers = currentUser?.roleId === 'role-admin' || currentUser?.role === 'admin';
-  const isCeo = currentUser?.roleId === 'role-ceo' || currentUser?.role === 'ceo';
+  const isCeo = currentUser?.roleId === 'role-ceo' || currentUser?.role === 'ceo' || currentUser?.roleId === 'role-inventory-manager' || currentUser?.role === 'inventory-manager';
   const [openSections, setOpenSections] = useState<Record<string, boolean>>({});
   const [showNotifications, setShowNotifications] = useState(false);
   const [showProfile, setShowProfile] = useState(false);

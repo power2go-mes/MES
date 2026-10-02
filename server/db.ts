@@ -162,6 +162,7 @@ class Database {
       ...[
         ['role-operator', 'Operator'],
         ['role-ceo', 'CEO'],
+        ['role-inventory-manager', 'Inventory Manager'],
       ].map(([id, name]) => ({
         id,
         name,

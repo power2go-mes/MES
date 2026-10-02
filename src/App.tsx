@@ -46,7 +46,7 @@ const AppContent: React.FC = () => {
     setMobileNavOpen(false);
   };
   const canManageUsers = currentUser?.roleId === 'role-admin' || currentUser?.role === 'admin';
-  const isCeo = currentUser?.roleId === 'role-ceo' || currentUser?.role === 'ceo';
+  const isCeo = currentUser?.roleId === 'role-ceo' || currentUser?.role === 'ceo' || currentUser?.roleId === 'role-inventory-manager' || currentUser?.role === 'inventory-manager';
   const ceoViews = new Set(['ceo-monitoring', 'inventory', 'traceability']);
   const effectiveView: NavView = isCeo && !ceoViews.has(activeView) ? 'ceo-monitoring' : activeView;
 

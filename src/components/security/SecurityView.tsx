@@ -103,12 +103,22 @@ export const SecurityView: React.FC = () => {
   const [roleName, setRoleName] = useState('');
   const [roleStatus, setRoleStatus] = useState<'ACTIVE' | 'INACTIVE'>('ACTIVE');
   const [rolePerms, setRolePerms] = useState<string[]>([]);
-  const roleOptions = roles.some(role => role.id === 'role-ceo')
+  const roleOptionsRaw = roles.some(role => role.id === 'role-ceo')
     ? roles
     : [...roles, {
       id: 'role-ceo',
       name: 'CEO',
       description: 'Read-only CEO Monitoring, Inventory, and Traceability access',
+      status: 'ACTIVE' as const,
+      permissions: ['READ_MES'],
+    } as Role];
+    
+  const roleOptions = roleOptionsRaw.some(role => role.id === 'role-inventory-manager')
+    ? roleOptionsRaw
+    : [...roleOptionsRaw, {
+      id: 'role-inventory-manager',
+      name: 'Inventory Manager',
+      description: 'Read-only Inventory Manager Monitoring, Inventory, and Traceability access',
       status: 'ACTIVE' as const,
       permissions: ['READ_MES'],
     } as Role];
