@@ -70,7 +70,6 @@ async function deploySchema() {
       'move_pallet_to_floor_transaction',
       'assemble_rack_transaction',
       'sell_rack_transaction',
-      'return_sold_entity_to_warehouse',
       'scrap_entity_transaction'
     ];
 

@@ -2,13 +2,17 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { buildWarehouseLocationBuckets, buildWarehouseReceiveResult, preferredLifecycleStatus } from './api';
-import { legacyBatterySerialLookup, normalizeBatteryName, normalizeBatterySerial } from '../lib/batteryNaming';
+import { batterySerialCapacityToken, legacyBatterySerialLookup, normalizeBatteryName, normalizeBatterySerial } from '../lib/batteryNaming';
 import { legacyRackSerialLookup, normalizeRackCapacity, normalizeRackSerial, normalizeRackTemplateLabel } from '../lib/rackNaming';
 
 test('battery names and serials use the 7.5KWH label', () => {
   assert.equal(normalizeBatterySerial('P2G-BP-8KWH-0001'), 'P2G-BP-7.5KWH-0001');
   assert.equal(normalizeBatteryName('8 kWh Battery Pack'), '7.5 kWh Battery Pack');
   assert.equal(legacyBatterySerialLookup('P2G-BP-7.5KWH-0001'), 'P2G-BP-8KWH-0001');
+  assert.equal(batterySerialCapacityToken('P2G-BP-5KWH-0001'), '5KWH');
+  assert.equal(batterySerialCapacityToken(5), '5KWH');
+  assert.equal(batterySerialCapacityToken('P2G-BP-8KWH-0001'), '7.5KWH');
+  assert.equal(batterySerialCapacityToken(7.5), '7.5KWH');
 });
 
 test('rack names and serials use the 67.5KWH label', () => {

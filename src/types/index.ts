@@ -193,6 +193,7 @@ export interface CellItem {
   lifecycleStatus?: LifecycleStatus;
   reservedForOrderId?: string;
   reservedForBatteryId?: string;
+  assignedBatterySerial?: string;
   assignedToModuleId?: string;
   moduleSlotIndex?: number;
   quarantineReason?: string;

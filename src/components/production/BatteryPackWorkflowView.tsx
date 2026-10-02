@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from "react";
 import { useApp } from "../../context/AppContext";
 import { useAuth } from "../../context/AuthContext";
 import { api } from "../../services/api";
+import { batterySerialCapacityToken } from "../../lib/batteryNaming";
 import { BatteryUnit, ProductTemplate } from "../../types";
 import { ReleasedBatteryQrModal } from "../common/ReleasedBatteryQrModal";
 import { ScannerModal } from "../common/ScannerModal";
@@ -341,8 +342,9 @@ export const BatteryPackWorkflowView: React.FC = () => {
 
   const handleEditBatterySerial = async () => {
     if (!battery) return;
+    const capacityToken = batterySerialCapacityToken(product?.capacityKwh ?? battery.serialNumber);
     const nextSerial = window.prompt(
-      "Battery serial number (must contain 7.5KWH)",
+      `Battery serial number (must contain ${capacityToken})`,
       battery.serialNumber,
     );
     if (nextSerial === null) return;
@@ -355,11 +357,11 @@ export const BatteryPackWorkflowView: React.FC = () => {
       );
       return;
     }
-    if (!/7\.5KWH/.test(normalizedSerial)) {
+    if (!normalizedSerial.includes(capacityToken)) {
       addNotification(
         "error",
         "Serial update failed",
-        "Battery serial must include 7.5KWH.",
+        `Battery serial must include ${capacityToken}.`,
       );
       return;
     }

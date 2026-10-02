@@ -2135,7 +2135,7 @@ export const api = {
     }
   },
 
-  async getCells(params?: { status?: string; lifecycleStatus?: string; search?: string; limit?: number; offset?: number; usedOnly?: boolean; fields?: string }): Promise<CellItem[]> {
+  async getCells(params?: { status?: string; lifecycleStatus?: string; search?: string; limit?: number; offset?: number; usedOnly?: boolean; includeBatterySerial?: boolean; fields?: string }): Promise<CellItem[]> {
     const pageSize = 1000;
     const requestedLimit = params?.limit && params.limit > 0 ? params.limit : undefined;
     const requestedOffset = params?.offset && params.offset > 0 ? params.offset : 0;
@@ -2211,7 +2211,7 @@ export const api = {
     }
 
     const resultCells = requestedLimit === undefined ? cells : cells.slice(0, requestedLimit);
-    if (params?.usedOnly === true && resultCells.length > 0 && rawSupabase) {
+    if ((params?.usedOnly === true || params?.includeBatterySerial === true) && resultCells.length > 0 && rawSupabase) {
       const cellIds = resultCells.map(cell => cell.id).filter(Boolean);
       const { data: assignments } = await rawSupabase
         .from('module_cells')
@@ -2222,15 +2222,17 @@ export const api = {
         ...(assignments || []).map((assignment: any) => assignment.module?.battery_id).filter(Boolean),
       ]));
       const { data: linkedBatteries } = batteryIds.length > 0
-        ? await rawSupabase.from('batteries').select('id,status').in('id', batteryIds)
+        ? await rawSupabase.from('batteries').select('id,status,serial_number').in('id', batteryIds)
         : { data: [] as any[] };
       const batteryStatusById = new Map((linkedBatteries || []).map((battery: any) => [battery.id, battery.status]));
+      const batterySerialById = new Map((linkedBatteries || []).map((battery: any) => [battery.id, normalizeBatterySerial(battery.serial_number || battery.id)]));
       const locationByCellId = new Map((assignments || []).map((assignment: any) => {
         const batteryId = assignment.module?.battery_id || null;
         return [assignment.cell_id, {
           moduleId: assignment.module_id,
           batteryId,
           batteryStatus: batteryId ? batteryStatusById.get(batteryId) : undefined,
+          batterySerial: batteryId ? batterySerialById.get(batteryId) : undefined,
         }];
       }));
       return resultCells.map(cell => {
@@ -2238,9 +2240,10 @@ export const api = {
           moduleId: undefined,
           batteryId: cell.reservedForBatteryId,
           batteryStatus: batteryStatusById.get(cell.reservedForBatteryId),
+          batterySerial: batterySerialById.get(cell.reservedForBatteryId),
         } : undefined);
         return location
-          ? { ...cell, assignedToModuleId: location.moduleId, reservedForBatteryId: cell.reservedForBatteryId || location.batteryId, assignedBatteryStatus: location.batteryStatus }
+          ? { ...cell, assignedToModuleId: location.moduleId, reservedForBatteryId: cell.reservedForBatteryId || location.batteryId, assignedBatteryStatus: location.batteryStatus, assignedBatterySerial: location.batterySerial }
           : cell;
       });
     }
@@ -4843,12 +4846,34 @@ export const api = {
 
   async returnSoldEntityToWarehouse(entityType: 'BATTERY' | 'RACK', entityId: string): Promise<any> {
     if (!rawSupabase) throw new Error('Supabase is not configured.');
-    const { data, error } = await rawSupabase.rpc('return_sold_entity_to_warehouse_transaction', {
-      p_entity_type: entityType,
-      p_entity_id: entityId,
-    });
-    if (error) throw error;
-    return toAppValue(data);
+    
+    if (entityType === 'BATTERY') {
+      const { error: bErr } = await rawSupabase.from('batteries')
+        .update({ status: 'WAREHOUSE', current_step: 'WAREHOUSE', lifecycle_status: 'IN_STOCK', updated_at: new Date().toISOString() })
+        .eq('id', entityId);
+      if (bErr) throw bErr;
+      
+      await rawSupabase.from('modules')
+        .update({ lifecycle_status: 'IN_PACK', updated_at: new Date().toISOString() })
+        .eq('battery_id', entityId);
+        
+      await rawSupabase.from('cells')
+        .update({ lifecycle_status: 'IN_PACK', updated_at: new Date().toISOString() })
+        .eq('reserved_for_battery_id', entityId);
+    } else {
+      const { error: rErr } = await rawSupabase.from('racks')
+        .update({ status: 'IN_STOCK', updated_at: new Date().toISOString() })
+        .eq('id', entityId);
+      if (rErr) throw rErr;
+    }
+    
+    const { error: hErr } = await rawSupabase.from('sale_history')
+      .delete()
+      .eq('entity_type', entityType)
+      .eq('entity_id', entityId);
+    if (hErr) throw hErr;
+    
+    return { location: 'IN_STOCK' };
   },
 
   async receiveBattery(batteryId: string, location: string): Promise<any> {

@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useApp } from '../../context/AppContext';
 import { useAuth } from '../../context/AuthContext';
 import { api, preferredLifecycleStatus } from '../../services/api';
-import { normalizeBatterySerial } from '../../lib/batteryNaming';
+import { batterySerialCapacityToken, normalizeBatterySerial } from '../../lib/batteryNaming';
 import { normalizeRackSerial } from '../../lib/rackNaming';
 import { CellItem, BMSItem, BMUItem, ModuleItem, BatteryUnit } from '../../types';
 import { downloadBatteryReport, downloadCellReport, downloadRackReport } from '../../lib/cellReportExport';
@@ -121,6 +121,7 @@ export const InventoryView: React.FC = () => {
           search: search || undefined,
           lifecycleStatus: serverLifecycleStatus,
           usedOnly: cellsView === 'USED' ? true : undefined,
+          includeBatterySerial: true,
           limit: pageSize,
           offset: page * pageSize,
           fields: 'id,internal_serial,supplier_barcode,qr_code,supplier_id,batch_number,pallet_number,box_number,supplier_ocv_v,supplier_ir_mohm,production_ocv_v,production_ir_mohm,grade,status,lifecycle_status,reserved_for_order_id,reserved_for_battery_id,tested_at,created_at,updated_at,supplier:suppliers(name)',
@@ -251,6 +252,35 @@ export const InventoryView: React.FC = () => {
       addNotification('error', 'Cell export failed', error?.message || 'Unable to export the cell inventory report.');
     } finally {
       setExportingCells(false);
+    }
+  };
+
+  const editCellBatterySerial = async (cell: CellItem) => {
+    const batteryId = cell.reservedForBatteryId;
+    const currentSerial = cell.assignedBatterySerial;
+    if (!batteryId || !currentSerial) return;
+
+    const capacityToken = batterySerialCapacityToken(currentSerial);
+    const nextSerial = window.prompt(`Battery serial number (must contain ${capacityToken})`, currentSerial);
+    if (nextSerial === null) return;
+
+    const normalizedSerial = nextSerial.trim().toUpperCase();
+    if (!normalizedSerial) {
+      addNotification('error', 'Serial update failed', 'Battery serial number cannot be empty.');
+      return;
+    }
+    if (!normalizedSerial.includes(capacityToken)) {
+      addNotification('error', 'Serial update failed', `Battery serial must include ${capacityToken}.`);
+      return;
+    }
+    if (normalizedSerial === currentSerial) return;
+
+    try {
+      await api.updateBattery(batteryId, { serialNumber: normalizedSerial });
+      addNotification('success', 'Battery Serial Updated', `Battery serial changed to ${normalizedSerial}.`);
+      triggerRefresh();
+    } catch (error: any) {
+      addNotification('error', 'Serial Update Failed', error.message || 'Could not update battery serial.');
     }
   };
 
@@ -770,6 +800,7 @@ export const InventoryView: React.FC = () => {
                     <th className="hidden px-5 py-3 md:table-cell">Supplier Barcode</th>
                     <th className="hidden px-5 py-3 md:table-cell">Manufacturer</th>
                     <th className="hidden px-5 py-3 md:table-cell">Pallet Number</th>
+                    <th className="hidden px-5 py-3 md:table-cell">Battery Pack Serial</th>
                     <th className="px-5 py-3">Status</th>
                     <th className="px-5 py-3 text-right font-sans">QR / Trace</th>
                   </tr>
@@ -790,6 +821,25 @@ export const InventoryView: React.FC = () => {
                       <td className="hidden px-5 py-3.5 text-slate-700 font-sans md:table-cell">{cell.supplierName}</td>
                       <td className="hidden px-5 py-3.5 text-slate-400 text-[10px] md:table-cell">
                         {cell.palletNumber || 'N/A'}
+                      </td>
+                      <td className="hidden px-5 py-3.5 text-emerald-700 text-[11px] md:table-cell">
+                        {cell.assignedBatterySerial ? (
+                          <span className="inline-flex items-center gap-1 font-bold">
+                            {cell.assignedBatterySerial}
+                            <CopyToClipboardButton value={cell.assignedBatterySerial} label="Copy battery pack serial number" />
+                            {cell.reservedForBatteryId && (
+                              <button
+                                type="button"
+                                onClick={() => void editCellBatterySerial(cell)}
+                                className="rounded-md p-1 text-slate-500 transition-colors hover:bg-emerald-50 hover:text-emerald-700"
+                                title="Edit battery pack serial number"
+                                aria-label="Edit battery pack serial number"
+                              >
+                                <Pencil className="h-3.5 w-3.5" />
+                              </button>
+                            )}
+                          </span>
+                        ) : '—'}
                       </td>
                       <td className="px-5 py-3.5 font-sans">
                         <span className={`px-2.5 py-0.5 rounded-md text-[10px] font-bold border uppercase tracking-wider ${getStatusBadge(getCellDisplayStatus(cell))}`}>
@@ -1244,6 +1294,31 @@ export const InventoryView: React.FC = () => {
                 {filteredBatteries.map(b => {
                   const assignedRack = racks.find(rack => (rack.batteryIds || []).includes(b.id));
                   const rackSerial = assignedRack?.serialNumber || assignedRack?.serial_number;
+                  const editBatterySerial = async () => {
+                    const currentSerial = b.serialNumber;
+                    const capacityToken = batterySerialCapacityToken(b.packTemplateCode || currentSerial);
+                    const nextSerial = window.prompt(`Battery serial number (must contain ${capacityToken})`, currentSerial);
+                    if (nextSerial === null) return;
+                    const normalizedSerial = nextSerial.trim().toUpperCase();
+                    if (!normalizedSerial) {
+                      addNotification("error", "Serial update failed", "Battery serial number cannot be empty.");
+                      return;
+                    }
+                    if (!normalizedSerial.includes(capacityToken)) {
+                      addNotification("error", "Serial update failed", `Battery serial must include ${capacityToken}.`);
+                      return;
+                    }
+                    if (normalizedSerial === currentSerial) return;
+
+                    try {
+                      await api.updateBattery(b.id, { serialNumber: normalizedSerial });
+                      addNotification('success', 'Battery Serial Updated', `Battery serial changed to ${normalizedSerial}.`);
+                      triggerRefresh();
+                    } catch (error: any) {
+                      addNotification('error', 'Serial Update Failed', error.message || 'Could not update battery serial.');
+                    }
+                  };
+
                   return (
                   <tr key={b.id} className="hover:bg-slate-50/70 transition-colors">
                     <td className="px-3 py-3.5">
@@ -1255,7 +1330,16 @@ export const InventoryView: React.FC = () => {
                       />
                     </td>
                     <td className="px-5 py-3.5"><span className="inline-flex items-center gap-1 font-bold text-slate-900">{displayBatterySerial(b.serialNumber)}<CopyToClipboardButton value={b.serialNumber} label="Copy battery serial number" /></span></td>
-                    <td className="px-5 py-3.5 text-emerald-700">{rackSerial ? displayRackSerial(rackSerial) : 'NONE'}</td>
+                    <td className="px-5 py-3.5 text-emerald-700">
+                      {rackSerial ? (
+                        <span className="inline-flex items-center gap-1 font-bold">
+                          {displayRackSerial(rackSerial)}
+                          <CopyToClipboardButton value={rackSerial} label="Copy rack serial number" />
+                        </span>
+                      ) : (
+                        'NONE'
+                      )}
+                    </td>
                     <td className="px-5 py-3.5 text-emerald-700">{b.bms?.serialNumber || 'NONE'}</td>
                     <td className="px-5 py-3.5 text-emerald-700">{b.bmu?.serialNumber || 'NONE'}</td>
                     <td className="px-5 py-3.5 font-bold text-emerald-600">{b.progressPercent}%</td>
@@ -1304,6 +1388,13 @@ export const InventoryView: React.FC = () => {
                         title="Export reports"
                       >
                         <Download className="w-4 h-4" />
+                      </button>
+                      <button
+                        onClick={editBatterySerial}
+                        className="p-1.5 text-slate-500 hover:text-amber-600 hover:bg-amber-50 rounded-lg transition-colors"
+                        title="Edit battery serial"
+                      >
+                        <Pencil className="w-4 h-4" />
                       </button>
                       <button
                         onClick={() => {
