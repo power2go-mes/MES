@@ -66,7 +66,7 @@ const rackPowerColors: Record<string, string> = {
   '70': reportColors.blue,
   '75': reportColors.blue,
 };
-type ChartRow = DashboardChartRow;
+type ChartRow = DashboardChartRow & { capacityKwh?: number };
 
 const DistributionDonut: React.FC<{ distribution: DashboardDistribution; ariaLabel: string; showShare?: boolean; extraRows?: ChartRow[]; large?: boolean; compactLegend?: boolean; legendBelow?: boolean; showSegmentLabels?: boolean; showSegmentLabelLines?: boolean; showLegendValues?: boolean; legendLabelClassName?: string; stackLegend?: boolean; legendMarginLeft?: boolean; legendMarginRight?: boolean; donutMarginLeft?: boolean; donutMarginTop?: boolean; balancedVerticalMargin?: boolean; dropdowns?: Array<{ label: string; open: boolean; onToggle: () => void; serials: string[] }> }> = ({ distribution, ariaLabel, showShare = true, extraRows = [], large = true, compactLegend = true, legendBelow = false, showSegmentLabels = false, showSegmentLabelLines = false, showLegendValues = true, legendLabelClassName = 'text-[12px] text-slate-600', stackLegend = false, legendMarginLeft = false, legendMarginRight = false, donutMarginLeft = false, donutMarginTop = false, balancedVerticalMargin = false, dropdowns = [] }) => {
   const visible = distribution.rows.filter((row) => row.value > 0 && row.share > 0);
@@ -875,43 +875,9 @@ export const CEOMonitoringView: React.FC = () => {
       const reusableScrapCount = reusableCellIds.size;
       const scrapCellCount = numberOr(source.cellBuckets?.find((row: any) => ['SCRAP', 'DAMAGE'].includes(String(row.label || '').toUpperCase()))?.value);
       const damageScrapCount = scrapCellCount;
-      const statusRows = (statuses: string[], sourceRows: any[], colorMap: Record<string, string>, defaultCapacityKwh: (status: string) => number = () => 0) => {
-        const values = new Map((sourceRows || []).map((row: any) => [String(row.label).replace(/_/g, ' ').toUpperCase(), { value: numberOr(row.value), capacityKwh: numberOr(row.capacityKwh) }]));
-        return statuses.map((status) => ({
-          label: status.replace(/_/g, ' '),
-          value: values.get(status.replace(/_/g, ' ').toUpperCase())?.value || 0,
-          capacityKwh: values.get(status.replace(/_/g, ' ').toUpperCase())?.capacityKwh || (values.get(status.replace(/_/g, ' ').toUpperCase())?.value || 0) * defaultCapacityKwh(status),
-          color: ceoStatusColors[status.replace(/_/g, ' ')] || Object.entries(colorMap).find(([label]) => label.toUpperCase() === status.replace(/_/g, ' ').toUpperCase())?.[1] || reportColors.slate,
-        }));
-      };
-      const cellReportRows = statusRows(
-        ['In Stock', 'Floor Stock', 'In Module', 'In Pack', 'In Rack', 'Karachi Warehouse', 'Lahore Warehouse', 'Sold'],
-        source.cellBuckets,
-        statusColors,
-        () => CELL_CAPACITY_KWH,
-      ).concat([
-        { label: 'Damage', value: damageScrapCount, capacityKwh: damageScrapCount * CELL_CAPACITY_KWH, color: statusColors.Damage || statusColors.Scrap },
-        { label: 'Recycle', value: reusableScrapCount, capacityKwh: reusableScrapCount * CELL_CAPACITY_KWH, color: ceoDonutPalette[5] },
-      ]).map((row) => row.label === 'In Module'
-        ? { ...row, label: 'In Module (standalone)' }
-        : row);
-      const moduleReportRows = statusRows(
-        ['8S', '12S'],
-        source.moduleTypeBuckets,
-        { '8S': ceoDonutPalette[0], '12S': ceoDonutPalette[5] },
-        (status) => status === '12S' ? 3.75 : 2.5,
-      );
-      const batteryReportRows = [...(source.batteryPackBuckets || [])]
-        .sort((left: any, right: any) => Number(String(right.label || '').match(/\d+(?:\.\d+)?/)?.[0] || 0) - Number(String(left.label || '').match(/\d+(?:\.\d+)?/)?.[0] || 0))
-        .map((row: any, index: number) => {
-          const label = String(row.label || 'Unnamed Pack');
-          return {
-            label,
-            value: numberOr(row.value),
-            capacityKwh: numberOr(row.capacityKwh),
-            color: ceoDonutPalette[index % ceoDonutPalette.length],
-          };
-        });
+      const cellReportRows = [...cellRows, ...damageReusableRows];
+      const moduleReportRows = moduleData;
+      const batteryReportRows = batteryPackData;
       const cabinetReportRows = [{
         label: 'Cabinet · 7.5 kWh batteries',
         value: cabinetProduced,
@@ -1008,9 +974,9 @@ export const CEOMonitoringView: React.FC = () => {
         doc.text(subtitle, margin, 18);
         doc.setTextColor(...ink);
       };
-      const drawDonut = (x: number, y: number, radius: number, rows: { label: string; value: number; capacityKwh: number; color: string }[], title: string, legendOnRight = false, legendRightX = pageWidth - margin, showShare = true, capacityFormatter = formatMwh, includeValueInLegend = false, rightLegendOffset: number | undefined = undefined, legendRowGap = 10) => {
+      const drawDonut = (x: number, y: number, radius: number, rows: { label: string; value: number; capacityKwh?: number; color: string }[], title: string, legendOnRight = false, legendRightX = pageWidth - margin, showShare = true, capacityFormatter = formatMwh, includeValueInLegend = false, rightLegendOffset: number | undefined = undefined, legendRowGap = 10) => {
         const total = rows.reduce((sum, row) => sum + row.value, 0);
-        const totalCapacityKwh = rows.reduce((sum, row) => sum + row.capacityKwh, 0);
+        const totalCapacityKwh = rows.reduce((sum, row) => sum + (row.capacityKwh || 0), 0);
         if (total === 0) {
           doc.setFont('helvetica', 'bold');
           reportFontSize(9);
@@ -1063,7 +1029,7 @@ export const CEOMonitoringView: React.FC = () => {
             doc.setTextColor(...muted);
             if (includeValueInLegend) {
               const unitLabel = title === 'CELL INVENTORY' ? ' cells' : '';
-              doc.text(`${row.label} (${formatCellRowMwh(row.capacityKwh)}) ${formatNumber(row.value)}${unitLabel}`, legendX + 5, legendY - 2.6);
+              doc.text(`${row.label} (${formatCellRowMwh(row.capacityKwh || 0)}) ${formatNumber(row.value)}${unitLabel}`, legendX + 5, legendY - 2.6);
               return;
             }
             doc.text(row.label, legendX + 5, legendY);
@@ -1072,7 +1038,7 @@ export const CEOMonitoringView: React.FC = () => {
             doc.text(formatNumber(row.value), legendRightX - 23, legendY + 1, { align: 'right' });
             doc.setFont('helvetica', 'normal');
             doc.setTextColor(...muted);
-            doc.text(formatMwh(row.capacityKwh), legendRightX, legendY + 1, { align: 'right' });
+            doc.text(formatMwh(row.capacityKwh || 0), legendRightX, legendY + 1, { align: 'right' });
             return;
           }
           const legendColumn = index < 4 ? 0 : 1;
@@ -1084,10 +1050,10 @@ export const CEOMonitoringView: React.FC = () => {
           doc.setFont('helvetica', 'normal');
           reportFontSize(5.2);
           doc.setTextColor(...muted);
-          doc.text(`${row.label} ${formatNumber(row.value)} · ${formatMwh(row.capacityKwh)}`, legendX + 3, legendY);
+          doc.text(`${row.label} ${formatNumber(row.value)} · ${formatMwh(row.capacityKwh || 0)}`, legendX + 3, legendY);
         });
       };
-      const drawBars = (x: number, y: number, width: number, height: number, rows: { label: string; value: number; capacityKwh: number; color: string }[], title: string, compactSingle = false, showEnergy = true, preserveOrder = false, narrowBars = false) => {
+      const drawBars = (x: number, y: number, width: number, height: number, rows: { label: string; value: number; capacityKwh?: number; color: string }[], title: string, compactSingle = false, showEnergy = true, preserveOrder = false, narrowBars = false) => {
         doc.setFont('helvetica', 'bold');
         reportFontSize(9);
         doc.setTextColor(...ink);
@@ -1128,13 +1094,13 @@ export const CEOMonitoringView: React.FC = () => {
           if (showEnergy) {
             doc.setFont('helvetica', 'normal');
             reportFontSize(5);
-            doc.text(formatMwh(row.capacityKwh), barX + barWidth / 2, barTop - 2, { align: 'center' });
+            doc.text(formatMwh(row.capacityKwh || 0), barX + barWidth / 2, barTop - 2, { align: 'center' });
           }
           reportFontSize(5.8);
           doc.text(row.label, cellX + cellWidth / 2, baseline + 4, { align: 'center', maxWidth: cellWidth - 3 });
         });
       };
-      const drawSingleKpi = (x: number, y: number, width: number, rows: { label: string; value: number; capacityKwh: number; color: string }[], title: string) => {
+      const drawSingleKpi = (x: number, y: number, width: number, rows: { label: string; value: number; capacityKwh?: number; color: string }[], title: string) => {
         const row = rows[0];
         doc.setFont('helvetica', 'bold');
         reportFontSize(9);
@@ -1158,7 +1124,7 @@ export const CEOMonitoringView: React.FC = () => {
         doc.setTextColor(...muted);
         doc.text(row.label, x + 8, y + 10, { maxWidth: width - 16 });
         reportFontSize(6);
-        doc.text(formatMwh(row.capacityKwh), x + width - 8, y + 3, { align: 'right' });
+        doc.text(formatMwh(row.capacityKwh || 0), x + width - 8, y + 3, { align: 'right' });
         reportFontSize(5.8);
         doc.text('Nominal capacity', x + width - 8, y + 10, { align: 'right' });
       };
@@ -1235,13 +1201,13 @@ export const CEOMonitoringView: React.FC = () => {
       drawBars(rightChartX, 171, chartWidth, 34, bmuReportRows, 'BMU INVENTORY - TOTAL / AVAILABLE / USED', false, false, true);
       drawBars(leftChartX, 230, chartWidth, 32, scrapReportRows, 'DAMAGE STATUS');
       drawBars(rightChartX, 230, chartWidth, 32, soldReportRows, 'SOLD STATUS');
-      const reportRows = (rows: { label: string; value: number; capacityKwh: number }[]) => {
+      const reportRows = (rows: { label: string; value: number; capacityKwh?: number }[]) => {
         const total = rows.reduce((summary, row) => ({
           value: summary.value + row.value,
-          capacityKwh: summary.capacityKwh + row.capacityKwh,
+          capacityKwh: summary.capacityKwh + (row.capacityKwh || 0),
         }), { value: 0, capacityKwh: 0 });
         return [
-          ...rows.map((row) => [row.label, formatNumber(row.value), formatMwh(row.capacityKwh)]),
+          ...rows.map((row) => [row.label, formatNumber(row.value), formatMwh(row.capacityKwh || 0)]),
           ['TOTAL', formatNumber(total.value), formatMwh(total.capacityKwh)],
         ];
       };
