@@ -4521,14 +4521,35 @@ export const api = {
   },
 
   async getReusableCellIds(): Promise<string[]> {
-    const { data, error } = await supabase
-      .from('quarantine_records')
-      .select('entity_id, disposed_of_as')
-      .eq('entity_type', 'CELL');
-    if (error) throw error;
+    let allRecords: any[] = [];
+    let offset = 0;
+    const pageSize = 1000;
+    let hasMore = true;
+
+    while (hasMore) {
+      const { data, error } = await supabase
+        .from('quarantine_records')
+        .select('entity_id, disposed_of_as')
+        .eq('entity_type', 'CELL')
+        .range(offset, offset + pageSize - 1);
+      
+      if (error) throw error;
+      
+      if (data && data.length > 0) {
+        allRecords = allRecords.concat(data);
+        offset += pageSize;
+      } else {
+        hasMore = false;
+      }
+      
+      if (!data || data.length < pageSize) {
+        hasMore = false;
+      }
+    }
+
     // Filter in JS using toUpperCase() to match any casing — same logic as the dashboard (line 893)
     return Array.from(new Set(
-      (data || [])
+      allRecords
         .filter((record: any) => ['RELEASE_APPROVED', 'REWORK', 'REUSABLE', 'RECYCLE'].includes(String(record.disposed_of_as || '').toUpperCase()))
         .map((record: any) => String(record.entity_id || ''))
         .filter(Boolean),
