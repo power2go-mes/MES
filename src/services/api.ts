@@ -4524,10 +4524,15 @@ export const api = {
     const { data, error } = await supabase
       .from('quarantine_records')
       .select('entity_id, disposed_of_as')
-      .eq('entity_type', 'CELL')
-      .in('disposed_of_as', ['RELEASE_APPROVED', 'REWORK', 'REUSABLE', 'RECYCLE']);
+      .eq('entity_type', 'CELL');
     if (error) throw error;
-    return Array.from(new Set((data || []).map((record: any) => String(record.entity_id || '')).filter(Boolean)));
+    // Filter in JS using toUpperCase() to match any casing — same logic as the dashboard (line 893)
+    return Array.from(new Set(
+      (data || [])
+        .filter((record: any) => ['RELEASE_APPROVED', 'REWORK', 'REUSABLE', 'RECYCLE'].includes(String(record.disposed_of_as || '').toUpperCase()))
+        .map((record: any) => String(record.entity_id || ''))
+        .filter(Boolean),
+    ));
   },
 
   async quarantineItem(payload: { itemType: string; itemId: string; reason: string; userId?: string }): Promise<any> {

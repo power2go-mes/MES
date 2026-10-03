@@ -205,7 +205,7 @@ const getCellClassification = (cell: CellItem, warehouseStatuses: Record<string,
   const warehouseStatus = String(warehouseStatuses[getCellId(cell)] || '').trim().toUpperCase();
   if (warehouseStatus === 'KARACHI_WAREHOUSE' || warehouseStatus === 'LAHORE_WAREHOUSE') return warehouseStatus;
   const lifecycleStatus = getCellLifecycleStatus(cell);
-  const productionGrade = String((cell as any).productionGrade || (cell as any).production_grade || '').trim().toUpperCase();
+  const productionGrade = String((cell as any).productionGrade || (cell as any).production_grade || (cell as any).grade || '').trim().toUpperCase();
   const cellStatus = String(cell.status || '').trim().toUpperCase();
   // Check REUSABLE FIRST — also check quarantine RELEASE_APPROVED records (reusableCellIds)
   if (['REUSABLE', 'RECYCLE', 'REWORK', 'RELEASE_APPROVED'].includes(lifecycleStatus) || ['REUSABLE', 'RECYCLE'].includes(productionGrade)) return 'REUSABLE';
