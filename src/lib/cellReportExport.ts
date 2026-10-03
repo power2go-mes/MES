@@ -66,9 +66,10 @@ const exportBatterySerial = (battery: BatteryUnit) => {
 const autoFitColumns = (sheet: XLSX.WorkSheet, rows: Record<string, unknown>[]) => {
   const headers = rows.length > 0 ? Object.keys(rows[0]) : [];
   sheet['!cols'] = headers.map(header => {
-    const longestValue = Math.max(
+    // Use reduce instead of spread to avoid RangeError on large datasets (10k+ rows)
+    const longestValue = rows.reduce(
+      (max, row) => Math.max(max, String(row[header] ?? '').length),
       header.length,
-      ...rows.map(row => String(row[header] ?? '').length),
     );
     return { wch: Math.min(Math.max(longestValue + 2, 10), 45) };
   });
@@ -174,6 +175,7 @@ type CellDashboardSummary = {
 
 type CellExportOptions = {
   warehouseStatuses?: Record<string, string>;
+  reusableCellIds?: Set<string>;
 };
 
 type WarehouseExportRow = {
@@ -185,7 +187,7 @@ type WarehouseExportRow = {
 
 const cellClassificationStatuses = [
   'IN_STOCK', 'FLOOR_STOCK', 'IN_MODULE', 'IN_PACK', 'IN_RACK',
-  'KARACHI_WAREHOUSE', 'LAHORE_WAREHOUSE', 'SOLD', 'SCRAP',
+  'KARACHI_WAREHOUSE', 'LAHORE_WAREHOUSE', 'SOLD', 'SCRAP', 'DAMAGE', 'REUSABLE', 'RECYCLE',
 ];
 const classificationRank = new Map(cellClassificationStatuses.map((status, index) => [status, index]));
 const getClassificationRank = (value: unknown) => classificationRank.get(
@@ -199,12 +201,18 @@ const sortByClassification = <T extends { Classification: string; 'Serial Number
 
 const getCellId = (cell: CellItem) => String(cell.id || '');
 const getCellLifecycleStatus = (cell: CellItem) => String(cell.lifecycleStatus || (cell as any).lifecycle_status || '').trim().toUpperCase();
-const getCellClassification = (cell: CellItem, warehouseStatuses: Record<string, string>) => {
+const getCellClassification = (cell: CellItem, warehouseStatuses: Record<string, string>, reusableCellIds?: Set<string>) => {
   const warehouseStatus = String(warehouseStatuses[getCellId(cell)] || '').trim().toUpperCase();
   if (warehouseStatus === 'KARACHI_WAREHOUSE' || warehouseStatus === 'LAHORE_WAREHOUSE') return warehouseStatus;
   const lifecycleStatus = getCellLifecycleStatus(cell);
+  const productionGrade = String((cell as any).productionGrade || (cell as any).production_grade || '').trim().toUpperCase();
   const cellStatus = String(cell.status || '').trim().toUpperCase();
-  if (lifecycleStatus === 'SCRAP' || ['QUARANTINED', 'REJECTED'].includes(cellStatus)) return 'SCRAP';
+  // Check REUSABLE FIRST — also check quarantine RELEASE_APPROVED records (reusableCellIds)
+  if (['REUSABLE', 'RECYCLE', 'REWORK', 'RELEASE_APPROVED'].includes(lifecycleStatus) || ['REUSABLE', 'RECYCLE'].includes(productionGrade)) return 'REUSABLE';
+  if (reusableCellIds?.has(getCellId(cell))) return 'REUSABLE';
+  // Then damage / quarantine
+  if (['DAMAGE', 'DAMAGED', 'SCRAP', 'QUARANTINED'].includes(lifecycleStatus) || ['DAMAGE', 'DAMAGED', 'SCRAP', 'QUARANTINED'].includes(productionGrade)) return 'DAMAGE';
+  if (lifecycleStatus === 'SCRAP' || ['QUARANTINED', 'REJECTED'].includes(cellStatus)) return 'DAMAGE';
   return cellClassificationStatuses.includes(lifecycleStatus) ? lifecycleStatus : lifecycleStatus || 'UNKNOWN';
 };
 
@@ -215,27 +223,18 @@ export const downloadCellReport = (
 ) => {
   if (cells.length === 0) throw new Error('No cell records are available to export.');
   const warehouseStatuses = options.warehouseStatuses || {};
+  const reusableCellIds = options.reusableCellIds;
   const cellRows = sortByClassification(cells.map(cell => ({
+    'Serial Number': cell.internalSerial || (cell as any).internal_serial || '',
     'Supplier Barcode': cell.supplierBarcode || (cell as any).supplier_barcode || '',
-    'Pallet Number': cell.palletNumber || (cell as any).pallet_number || '',
-    manufacturer_name: (cell as CellItem & { manufacturerName?: string; manufacturer_name?: string }).manufacturerName
-      || (cell as CellItem & { manufacturerName?: string; manufacturer_name?: string }).manufacturer_name
-      || (cell as CellItem & { supplier?: { name?: string } }).supplier?.name
-      || '',
-    Classification: formatClassificationLabel(getCellClassification(cell, warehouseStatuses)),
+    'Pallet No.': cell.palletNumber || (cell as any).pallet_number || '',
+    Classification: formatClassificationLabel(getCellClassification(cell, warehouseStatuses, reusableCellIds)),
   })));
   const workbook = XLSX.utils.book_new();
-  if (dashboardSummary) {
-    const summaryRows = dashboardSummary.rows.length > 0
-      ? dashboardSummary.rows.map(row => ({ Status: row.label || '', Quantity: Number(row.value) || 0 }))
-      : Object.entries(cellRows.reduce<Record<string, number>>((counts, row) => {
-        counts[row.Classification] = (counts[row.Classification] || 0) + 1;
-        return counts;
-      }, {})).map(([Status, Quantity]) => ({ Status, Quantity }));
-    const summaryTotal = Number(dashboardSummary.total) || dashboardSummary.rows.reduce((sum, row) => sum + (Number(row.value) || 0), 0);
-    const summaryQuantity = dashboardSummary.rows.length > 0 ? summaryTotal : cellRows.length;
-    summaryRows.forEach(row => { row.Status = formatClassificationLabel(row.Status); });
-    summaryRows.push({ Status: 'Total', Quantity: summaryQuantity });
+  if (dashboardSummary && dashboardSummary.rows.length > 0) {
+    const summaryRows = dashboardSummary.rows.map(row => ({ Status: formatClassificationLabel(row.label || ''), Quantity: Number(row.value) || 0 }));
+    const summaryTotal = Number(dashboardSummary.total) || summaryRows.reduce((sum, row) => sum + row.Quantity, 0);
+    summaryRows.push({ Status: 'Total', Quantity: summaryTotal });
     const summarySheet = createExportSheet(summaryRows, false);
     XLSX.utils.book_append_sheet(workbook, summarySheet, 'CEO Dashboard Summary');
   }

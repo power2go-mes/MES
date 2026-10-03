@@ -237,19 +237,20 @@ export const InventoryView: React.FC = () => {
   const exportCellReport = async () => {
     setExportingCells(true);
     try {
-      const [exportCells, counts, warehouseStatuses] = await Promise.all([
-        api.getCells(),
+      const [exportCells, counts, warehouseStatuses, reusableCellIdList] = await Promise.all([
+        api.getCells({ fields: '*' }),
         api.getCellCounts(),
         api.getWarehouseCellStatuses(),
+        api.getReusableCellIds(),
       ]);
       if (exportCells.length === 0) throw new Error('No cell records are available to export.');
       downloadCellReport(exportCells, {
         rows: [],
         total: counts.total,
-      }, { warehouseStatuses });
+      }, { warehouseStatuses, reusableCellIds: new Set(reusableCellIdList) });
       addNotification('success', 'Cell report exported', `${exportCells.length.toLocaleString()} cell records were exported.`);
     } catch (error: any) {
-      addNotification('error', 'Cell export failed', error?.message || 'Unable to export the cell inventory report.');
+      addNotification('error', 'Cell export failed', error?.message || error?.details || String(error) || 'Unable to export the cell inventory report.');
     } finally {
       setExportingCells(false);
     }

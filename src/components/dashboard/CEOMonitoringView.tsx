@@ -281,36 +281,21 @@ export const CEOMonitoringView: React.FC = () => {
 
     const refresh = async () => {
       const requestId = ++refreshRequestId.current;
-      try {
-        const [res, reusableCellIds] = await Promise.all([
-          api.getDashboardStats(undefined, undefined, (summary: any) => {
-            if (!cancelled && requestId === refreshRequestId.current) {
-              setStats((current: any) => {
-                const nextStats = current && Object.keys(current).length > 0 ? current : summary;
-                cachedCeoStats = nextStats;
-                return nextStats;
-              });
-              setLoading(false);
-            }
-          }),
-          api.getReusableCellIds().catch(() => []),
-        ]);
-
-        const reusableCellIdSet = new Set(reusableCellIds);
-
-        const existingDamageValue = numberOr(res.cellBuckets?.find((row: any) => ['SCRAP', 'DAMAGE'].includes(String(row.label || '').toUpperCase()))?.value);
-        const existingReusableValue = numberOr(res.cellBuckets?.find((row: any) => ['RECYCLE', 'REUSABLE'].includes(String(row.label || '').toUpperCase()))?.value);
+      const patchStatsData = (data: any) => {
+        if (!data) return data;
+        const existingDamageValue = numberOr(data.cellBuckets?.find((row: any) => ['SCRAP', 'DAMAGE'].includes(String(row.label || '').toUpperCase()))?.value);
+        const existingReusableValue = numberOr(data.cellBuckets?.find((row: any) => ['RECYCLE', 'REUSABLE'].includes(String(row.label || '').toUpperCase()))?.value);
         const scrapCellCount = existingDamageValue || 0;
         const reusableSerialCount = new Set([
-          ...(res.damageReusableSerialNumbers?.Reusable || []),
-          ...(res.damageReusableSerialNumbers?.Recycle || []),
+          ...(data.damageReusableSerialNumbers?.Reusable || []),
+          ...(data.damageReusableSerialNumbers?.Recycle || []),
         ].filter(Boolean)).size;
         const reusableCount = existingReusableValue > 0
           ? existingReusableValue
-          : Math.max(numberOr(res.reusableCellCount, 0), reusableCellIdSet.size, reusableSerialCount);
+          : Math.max(numberOr(data.reusableCellCount, 0), reusableSerialCount);
         const reusableToReclassify = existingReusableValue > 0 ? 0 : reusableCount;
         const patchedBuckets = normalizeCellBucketLabels(
-          (res.cellBuckets || [])
+          (data.cellBuckets || [])
             .filter((row: any) => !['SCRAP', 'DAMAGE', 'RECYCLE', 'REUSABLE'].includes(String(row.label || '').toUpperCase()))
             .map((row: any) => String(row.label || '').toUpperCase() === 'FLOOR STOCK'
               ? { ...row, value: Math.max(0, numberOr(row.value) - reusableToReclassify) }
@@ -320,9 +305,24 @@ export const CEOMonitoringView: React.FC = () => {
               { label: 'Reusable', value: reusableCount },
             ]),
         );
+        return { ...data, cellBuckets: patchedBuckets };
+      };
+
+      try {
+        const res = await api.getDashboardStats(undefined, undefined, (summary: any) => {
+          if (!cancelled && requestId === refreshRequestId.current) {
+            setStats((current: any) => {
+              const patchedSummary = patchStatsData(summary);
+              const nextStats = current && Object.keys(current).length > 0 ? current : patchedSummary;
+              cachedCeoStats = nextStats;
+              return nextStats;
+            });
+            setLoading(false);
+          }
+        });
 
         if (!cancelled && requestId === refreshRequestId.current) {
-          const nextStats = { ...res, cellBuckets: patchedBuckets };
+          const nextStats = patchStatsData(res);
           cachedCeoStats = nextStats;
           setStats(nextStats);
           setLoadError(null);
@@ -766,18 +766,19 @@ export const CEOMonitoringView: React.FC = () => {
     setExportingCells(true);
     try {
       const { downloadCellReport } = await import('../../lib/cellReportExport');
-      const [cells, counts, warehouseStatuses] = await Promise.all([
-        api.getCells(),
+      const [cells, counts, warehouseStatuses, reusableCellIdList] = await Promise.all([
+        api.getCells({ fields: '*' }),
         api.getCellCounts(),
         api.getWarehouseCellStatuses(),
+        api.getReusableCellIds(),
       ]);
       downloadCellReport(cells, {
         rows: (source.cellBuckets || []).map((row: any) => ({ label: String(row.label || ''), value: Number(row.value) || 0 })),
         total: Number(source.cellTotal || inventory.totalCells || counts.total || 0),
-      }, { warehouseStatuses });
+      }, { warehouseStatuses, reusableCellIds: new Set(reusableCellIdList) });
       addNotification('success', 'Cell report exported', `${counts.total.toLocaleString()} cell records were exported.`);
     } catch (error: any) {
-      addNotification('error', 'Cell export failed', error?.message || 'Unable to export the cell inventory report.');
+      addNotification('error', 'Cell export failed', error?.message || error?.details || String(error) || 'Unable to export the cell inventory report.');
     } finally {
       setExportingCells(false);
     }
@@ -863,21 +864,26 @@ export const CEOMonitoringView: React.FC = () => {
       const { jsPDF } = await import('jspdf');
       const reportDate = new Date().toISOString().slice(0, 10);
       const rangeLabel = 'All available data';
-      const [quarantineRecords] = await Promise.all([
-        api.getQuarantineRecords().catch(() => []),
-      ]);
-      const reusableCellIds = new Set(quarantineRecords.filter((record: any) => {
-        const entityType = String(record.entityType || record.entity_type || '').toUpperCase();
-        const entityId = String(record.entityId || record.entity_id || '');
-        const disposition = String(record.disposition || '').toUpperCase();
-        return entityType === 'CELL' && entityId && ['RELEASE_APPROVED', 'REWORK'].includes(disposition);
-      }).map((record: any) => String(record.entityId || record.entity_id)));
-      const reusableScrapCount = reusableCellIds.size;
       const scrapCellCount = numberOr(source.cellBuckets?.find((row: any) => ['SCRAP', 'DAMAGE'].includes(String(row.label || '').toUpperCase()))?.value);
       const damageScrapCount = scrapCellCount;
-      const cellReportRows = [...cellRows, ...damageReusableRows];
-      const moduleReportRows = moduleData;
-      const batteryReportRows = batteryPackData;
+      const reusableScrapCount = damageReusableRows.find(row => row.label === 'Reusable')?.value || 0;
+      const cellReportRows = [...cellRows].map((row, index) => ({
+        ...row,
+        color: ceoStatusColors[row.label] ?? ceoDonutPalette[index % ceoDonutPalette.length],
+        capacityKwh: row.value * CELL_CAPACITY_KWH
+      }));
+      const moduleReportRows = moduleData.map(row => ({
+        ...row,
+        capacityKwh: row.value * (String(row.label).includes('12S') ? 3.75 : 2.5)
+      }));
+      const batteryReportRows = batteryPackData.map(row => {
+        const match = String(row.label).match(/(\d+(?:\.\d+)?)/);
+        const power = match ? Number(match[1]) : 0;
+        return {
+          ...row,
+          capacityKwh: row.value * power
+        };
+      });
       const cabinetReportRows = [{
         label: 'Cabinet · 7.5 kWh batteries',
         value: cabinetProduced,
@@ -897,36 +903,14 @@ export const CEOMonitoringView: React.FC = () => {
         { label: 'Battery Pack units', value: soldBatteryCount, capacityKwh: soldBatteryCellCapacityKwh, color: ceoDonutPalette[1] },
         { label: 'Rack units', value: soldRackCount, capacityKwh: soldRackCellCapacityKwh, color: ceoDonutPalette[0] },
       ];
-      const rackTypeTotals = new Map<string, { value: number; capacityKwh: number }>();
-      const formatRackLabel = (rackType: string) => {
-        const powerMatch = rackType.match(/RACK_(\d+(?:\.\d+)?)KWH/i);
-        const powerValue = powerMatch?.[1] === '70' ? '67.5' : powerMatch?.[1];
-        const power = powerValue ? `${powerValue}kWh` : rackType.replace(/^RACK_/i, '').replace(/_/g, ' ');
-        const category = /RACK_25KWH/i.test(rackType) ? 'Rack' : 'Cabinet';
-        return `${power.replace('kWh', ' kWh')} ${category}`;
-      };
-      (source.rackStatusBuckets || []).forEach((row: any) => {
-        const typeRows = Array.isArray(row.rackTypes) ? row.rackTypes : [];
-        typeRows.forEach((type: any) => {
-          const rackType = String(type.rackType || 'UNKNOWN_RACK');
-          if (!/RACK_(25|45|60|70|75)KWH/i.test(rackType)) return;
-          const current = rackTypeTotals.get(rackType) || { value: 0, capacityKwh: 0 };
-          current.value += numberOr(type.value);
-          current.capacityKwh += numberOr(type.capacityKwh);
-          rackTypeTotals.set(rackType, current);
-        });
+      const rackReportRows = rackData.map(row => {
+        const match = String(row.label).match(/(\d+(?:\.\d+)?)/);
+        const power = match ? Number(match[1]) : 0;
+        return {
+          ...row,
+          capacityKwh: row.value * power
+        };
       });
-      const rackReportRows = Array.from(rackTypeTotals.entries())
-        .sort(([leftType], [rightType]) => {
-          const leftPower = Number(leftType.match(/RACK_(\d+(?:\.\d+)?)KWH/i)?.[1] || Number.MAX_SAFE_INTEGER);
-          const rightPower = Number(rightType.match(/RACK_(\d+(?:\.\d+)?)KWH/i)?.[1] || Number.MAX_SAFE_INTEGER);
-          return leftPower - rightPower;
-        })
-        .map(([rackType, totals], index) => ({
-          label: formatRackLabel(rackType),
-          ...totals,
-          color: ceoDonutPalette[index % ceoDonutPalette.length],
-        }));
       const controllerInventory = source.controllerInventory || {};
       const bmsTotal = numberOr(controllerInventory.totalBms);
       const bmuTotal = numberOr(controllerInventory.totalBmu);
