@@ -120,10 +120,27 @@ export const ModuleWorkflowView: React.FC = () => {
     if (!loading && hasMoreFloorCells) void loadFloorCells([], floorPage + 1);
   };
 
-  const addCellByBarcode = (barcode: string) => {
+  const addCellByBarcode = async (barcode: string) => {
     const normalized = barcode.trim().toLowerCase();
     if (!normalized) return;
-    const cell = floorCells.find(item => [item.id, item.internalSerial, item.supplierBarcode].some(value => String(value || '').toLowerCase() === normalized));
+    
+    let cell = floorCells.find(item => [item.id, item.internalSerial, item.supplierBarcode].some(value => String(value || '').toLowerCase() === normalized));
+    
+    if (!cell) {
+      try {
+        const foundCells = await api.getCells({ lifecycleStatus: 'FLOOR_STOCK', search: barcode, limit: 1 });
+        if (foundCells && foundCells.length > 0) {
+          cell = foundCells[0];
+          setFloorCells(current => {
+            if (current.some(c => c.id === cell!.id)) return current;
+            return [cell!, ...current];
+          });
+        }
+      } catch (error) {
+        console.error('Error fetching cell:', error);
+      }
+    }
+
     if (!cell) {
       addNotification('error', 'Cell Not Available', `${barcode} is not in FLOOR_STOCK.`);
       return;
@@ -148,9 +165,12 @@ export const ModuleWorkflowView: React.FC = () => {
     setSelectedCellIds(current => [...current, cell.id]);
   };
 
-  const submitManualCells = (event: React.FormEvent) => {
+  const submitManualCells = async (event: React.FormEvent) => {
     event.preventDefault();
-    manualBarcodes.split(/[\n,;\t]+/).filter(Boolean).forEach(addCellByBarcode);
+    const barcodes = manualBarcodes.split(/[\n,;\t]+/).filter(Boolean);
+    for (const barcode of barcodes) {
+      await addCellByBarcode(barcode);
+    }
     setManualBarcodes('');
   };
 
@@ -280,7 +300,7 @@ export const ModuleWorkflowView: React.FC = () => {
         </section>}
       </div>
       {draftModule && <div className="mx-auto mt-4 max-w-6xl rounded-xl border border-slate-200 bg-slate-50 p-3"><div className="mb-2 flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-slate-500"><GripVertical className="h-4 w-4" />Drag cells to reorder module slots</div><div className="flex flex-wrap gap-2">{testRows.map((row, index) => { const cell = selectedCells.find(item => item.id === row.cellId); return <div key={row.cellId} draggable onDragStart={() => setDraggedCellId(row.cellId)} onDragOver={event => event.preventDefault()} onDrop={() => { if (draggedCellId) moveCellBefore(draggedCellId, row.cellId); setDraggedCellId(null); }} className="cursor-grab rounded-lg border border-emerald-200 bg-white px-3 py-2 text-[10px] font-bold text-slate-700 active:cursor-grabbing"><span className="mr-1 text-emerald-600">{index + 1}.</span>{cell?.internalSerial || row.cellId}</div>; })}</div></div>}
-      <ScannerModal isOpen={scannerOpen} onClose={() => { setScannerOpen(false); setEditingCellIndex(null); }} onScan={barcode => { setScannerOpen(false); addCellByBarcode(barcode); }} title={editingCellIndex !== null ? 'Replace cell in this module slot' : 'Scan floor-stock cell'} subtitle={editingCellIndex !== null ? 'Scan a different FLOOR_STOCK cell to replace the selected slot.' : 'Only cells currently in FLOOR_STOCK can be assigned to this module'} />
+      <ScannerModal isOpen={scannerOpen} onClose={() => { setScannerOpen(false); setEditingCellIndex(null); }} onScan={barcode => { setScannerOpen(false); void addCellByBarcode(barcode); }} title={editingCellIndex !== null ? 'Replace cell in this module slot' : 'Scan floor-stock cell'} subtitle={editingCellIndex !== null ? 'Scan a different FLOOR_STOCK cell to replace the selected slot.' : 'Only cells currently in FLOOR_STOCK can be assigned to this module'} />
       <QRCodeModal isOpen={Boolean(qrModule)} onClose={() => setQrModule(null)} title="Module Traceability QR" qrPayload={qrModule?.qr_code || qrModule?.qrCode || `${qrModule?.serial_number}|MODULE:${qrModule?.id}` || ''} serialNumber={qrModule?.serial_number || 'MODULE'} itemType="MODULE" metadata={{ type: qrModule?.module_type || moduleType, status: qrModule?.status || 'CELLS_ASSIGNED' }} />
     </div>
   );
