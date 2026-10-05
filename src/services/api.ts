@@ -221,6 +221,29 @@ function moduleSerialSequence(serial: unknown): number {
   return match ? Number(match[1]) || 0 : 0;
 }
 
+export async function getNextGlobalSequence(table: string, prefixStart: string, regex: RegExp): Promise<number> {
+  let maxSeq = 0;
+  for (let offset = 0; ; offset += 1000) {
+    const { data, error } = await supabase
+      .from(table)
+      .select('serial_number')
+      .like('serial_number', `${prefixStart}%`)
+      .range(offset, offset + 999);
+    
+    if (error || !data || data.length === 0) break;
+    
+    for (const row of data) {
+      const match = String(row.serial_number).match(regex);
+      if (match) {
+         maxSeq = Math.max(maxSeq, Number(match[1]) || 0);
+      }
+    }
+    
+    if (data.length < 1000) break;
+  }
+  return maxSeq + 1;
+}
+
 function reconcileDashboardCellBuckets(buckets: any[], totalCells: any): any[] {
   if (!Array.isArray(buckets)) return [];
 
@@ -1812,14 +1835,7 @@ export const api = {
       const moduleCellInserts: any[] = [];
       const moduleTestsInserts: any[] = [];
       const modulePrefix = moduleSerialPrefix(now);
-      const { data: existingModuleSerials, error: moduleSerialError } = await supabase
-        .from('modules')
-        .select('serial_number');
-      if (moduleSerialError) throw new Error(`Failed to verify module serials: ${moduleSerialError.message}`);
-      let moduleSequence = Math.max(
-        0,
-        ...(existingModuleSerials || []).map((module: any) => moduleSerialSequence(module.serial_number)),
-      ) + 1;
+      let moduleSequence = await getNextGlobalSequence('modules', 'P2G-MOD-', /-(\d+)$/);
 
       params.batchPlan.batteries.forEach((plan: any, batteryIndex: number) => {
         const battery = batteriesData?.[batteryIndex];
@@ -2887,14 +2903,7 @@ export const api = {
       const batId = `bat-${Date.now()}-${q}`;
       const batSerial = `${prod.serialPrefix}-${String(Date.now() + q + 1).padStart(6, '0')}`;
       const modulePrefix = moduleSerialPrefix();
-      const { data: existingModuleSerials, error: moduleSerialError } = await supabase
-        .from('modules')
-        .select('serial_number');
-      if (moduleSerialError) throw moduleSerialError;
-      let moduleSequence = Math.max(
-        0,
-        ...(existingModuleSerials || []).map((module: any) => moduleSerialSequence(module.serial_number)),
-      ) + 1;
+      let moduleSequence = await getNextGlobalSequence('modules', 'P2G-MOD-', /-(\d+)$/);
       batteryIds.push(batId);
 
       // Create modules based on product configuration
