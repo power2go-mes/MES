@@ -687,12 +687,12 @@ const handleError = (res: Response) => {
 function mapSupabaseProfile(raw: any): User {
   return {
     id: raw.id,
-    name: raw.full_name || raw.email?.split('@')[0] || 'Operator',
+    name: raw.fullName || raw.full_name || raw.email?.split('@')[0] || 'Operator',
     username: raw.username || raw.email?.split('@')[0] || 'operator',
     email: raw.email || '',
-    roleId: raw.role_id,
+    roleId: raw.roleId || raw.role_id,
     role: raw.role?.name || 'operator',
-    badgeId: raw.badge_id || '',
+    badgeId: raw.badgeId || raw.badge_id || '',
     status: raw.status || 'ACTIVE',
   };
 }
@@ -767,7 +767,7 @@ export const api = {
       permissions.push(grant.permissionId);
       permissionsByRole.set(grant.roleId, permissions);
     });
-    return (roles || []).filter((role: any) => ['role-admin', 'role-operator'].includes(role.id)).map((role: any) => ({
+    return (roles || []).map((role: any) => ({
       ...role,
       permissions: role.permissions?.includes('ALL')
         ? ['ALL']
@@ -776,13 +776,21 @@ export const api = {
   },
 
   async createRole(role: Partial<Role>, userId?: string): Promise<Role> {
-    throw new Error('Only Administrator and Operator roles are supported.');
+    const id = role.id || `role-${Date.now()}`;
+    const { data, error } = await supabase.from('roles').insert([{
+      id,
+      name: role.name,
+      description: role.description,
+      status: role.status || 'ACTIVE',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    }]).select();
+    if (error) throw error;
+    if (role.permissions) await this.replaceRolePermissions(id, role.permissions);
+    return { ...(data?.[0] || {}), permissions: role.permissions || [] };
   },
 
   async updateRole(id: string, role: Partial<Role>, userId?: string): Promise<Role> {
-    if (!['role-admin', 'role-operator'].includes(id)) {
-      throw new Error('Only Administrator and Operator roles are supported.');
-    }
     const { data, error } = await supabase.from('roles').update({
       name: role.name || undefined,
       description: role.description || undefined,
@@ -797,21 +805,30 @@ export const api = {
   async replaceRolePermissions(roleId: string, permissions: string[]): Promise<void> {
     const { error: deleteError } = await supabase.from('role_permissions').delete().eq('roleId', roleId);
     if (deleteError) throw deleteError;
-    if (permissions.length === 0 || permissions.includes('ALL')) {
-      if (permissions.includes('ALL')) {
-        const { error } = await supabase.from('role_permissions').insert({ roleId, permissionId: 'ALL' });
-        if (error) throw error;
-      }
+    if (permissions.length === 0) return;
+    
+    // Inject legacy permissions to satisfy existing backend RLS policies
+    const legacyPermissions = ['READ_MES', 'MANAGE_PRODUCTION', 'MANAGE_INVENTORY'];
+    const allPermissions = Array.from(new Set([...permissions, ...legacyPermissions]));
+
+    if (allPermissions.includes('ALL')) {
+      const { error } = await supabase.from('role_permissions').insert({ roleId, permissionId: 'ALL' });
+      if (error) throw error;
       return;
     }
     const { error } = await supabase.from('role_permissions').insert(
-      permissions.map(permissionId => ({ roleId, permissionId })),
+      allPermissions.map(permissionId => ({ roleId, permissionId })),
     );
     if (error) throw error;
   },
 
   async deleteRole(id: string, userId?: string): Promise<any> {
-    throw new Error('Administrator and Operator roles cannot be deleted.');
+    if (['role-admin', 'role-operator'].includes(id)) {
+      throw new Error('Default Administrator and Operator roles cannot be deleted.');
+    }
+    const { error } = await supabase.from('roles').delete().eq('id', id);
+    if (error) throw error;
+    return { success: true };
   },
 
   // Dashboard stats

@@ -34,8 +34,8 @@ type SidebarProps = {
 
 export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
   const { activeView, setActiveView, setActiveBatteryId, setBatteryBuilderEditRequested, inventoryTab, setInventoryTab, notifications } = useApp();
-  const { currentUser, profile, logout } = useAuth();
-  const canManageUsers = currentUser?.roleId === 'role-admin' || currentUser?.role === 'admin';
+  const { currentUser, profile, logout, hasPermission } = useAuth();
+  const canManageUsers = hasPermission('security.view') || currentUser?.roleId === 'role-admin' || currentUser?.role === 'admin';
   const isCeo = currentUser?.roleId === 'role-ceo' || currentUser?.role === 'ceo' || currentUser?.roleId === 'role-inventory-manager' || currentUser?.role === 'inventory-manager';
   const [openSections, setOpenSections] = useState<Record<string, boolean>>({});
   const [showNotifications, setShowNotifications] = useState(false);
@@ -87,7 +87,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
         {/* QUICK ACCESS */}
         <div className="space-y-1">
           <div className="mb-1.5 px-3 text-[9px] font-black uppercase tracking-widest text-slate-400">Quick Access</div>
-          {!isCeo && <button
+          {hasPermission('dashboard.view') && <button
             onClick={() => setActiveView('dashboard')}
             className={`w-full flex items-center space-x-2.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
               activeView === 'dashboard'
@@ -98,7 +98,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
             <LayoutDashboard className="w-3.5 h-3.5" />
             <span>Dashboard</span>
           </button>}
-          <button
+          {(hasPermission('ceo_monitoring.view') || isCeo) && <button
             onClick={() => setActiveView('ceo-monitoring')}
             className={`w-full flex items-center space-x-2.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
               activeView === 'ceo-monitoring'
@@ -108,8 +108,8 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
           >
             <BarChart3 className="w-3.5 h-3.5" />
             <span>CEO Monitoring</span>
-          </button>
-          {!isCeo && <button
+          </button>}
+          {hasPermission('production_flow.view') && <button
             onClick={() => setActiveView('production-flow')}
             className={`w-full flex items-center space-x-2.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
               activeView === 'production-flow' ? 'bg-emerald-600 text-white shadow-xs' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
@@ -121,80 +121,59 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
         </div>
 
         {/* FOUR-STAGE PRODUCTION */}
-        <div className={isCeo ? 'hidden' : undefined}>
+        {(hasPermission('container_floor.view') || hasPermission('workflow_module.view') || hasPermission('workflow_pack.view') || hasPermission('rack_assembly.view')) && <div>
           <div className="mb-1.5 px-3 text-[9px] font-black uppercase tracking-widest text-slate-400">Production workflow</div>
           <div className="space-y-0.5">
-            {[
-              ['container-floor', 'Container to Floor', Truck],
-              ['workflow-module', 'Module Assembly', Layers],
-              ['workflow-pack', 'Pack Assembly', Boxes],
-              ['rack-assembly', 'Rack Assembly', PackageCheck],
-            ].map(([view, label, Icon]) => <button key={String(view)} onClick={() => { if (view === 'workflow-pack') { setActiveBatteryId(null); setBatteryBuilderEditRequested(false); } setActiveView(view as any); }} className={`w-full flex items-center space-x-2.5 px-3 py-2 rounded-lg text-xs font-semibold transition-all ${activeView === view ? 'bg-emerald-600 text-white shadow-xs' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'}`}><Icon className="w-3.5 h-3.5" /><span>{String(label)}</span></button>)}
+            {hasPermission('container_floor.view') && <button onClick={() => { setActiveView('container-floor'); }} className={`w-full flex items-center space-x-2.5 px-3 py-2 rounded-lg text-xs font-semibold transition-all ${activeView === 'container-floor' ? 'bg-emerald-600 text-white shadow-xs' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'}`}><Truck className="w-3.5 h-3.5" /><span>Container to Floor</span></button>}
+            {hasPermission('workflow_module.view') && <button onClick={() => { setActiveView('workflow-module'); }} className={`w-full flex items-center space-x-2.5 px-3 py-2 rounded-lg text-xs font-semibold transition-all ${activeView === 'workflow-module' ? 'bg-emerald-600 text-white shadow-xs' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'}`}><Layers className="w-3.5 h-3.5" /><span>Module Assembly</span></button>}
+            {hasPermission('workflow_pack.view') && <button onClick={() => { setActiveBatteryId(null); setBatteryBuilderEditRequested(false); setActiveView('workflow-pack'); }} className={`w-full flex items-center space-x-2.5 px-3 py-2 rounded-lg text-xs font-semibold transition-all ${activeView === 'workflow-pack' ? 'bg-emerald-600 text-white shadow-xs' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'}`}><Boxes className="w-3.5 h-3.5" /><span>Pack Assembly</span></button>}
+            {hasPermission('rack_assembly.view') && <button onClick={() => { setActiveView('rack-assembly'); }} className={`w-full flex items-center space-x-2.5 px-3 py-2 rounded-lg text-xs font-semibold transition-all ${activeView === 'rack-assembly' ? 'bg-emerald-600 text-white shadow-xs' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'}`}><PackageCheck className="w-3.5 h-3.5" /><span>Rack Assembly</span></button>}
           </div>
-        </div>
+        </div>}
 
         {/* INVENTORY */}
-        <div>
-          {isCeo ? (
-            <div className="space-y-0.5">
-              <div className="mb-1.5 px-3 text-[9px] font-black uppercase tracking-widest text-slate-400">Inventory</div>
-              <button onClick={() => handleInventoryClick('CELLS')} className={`w-full flex items-center space-x-2.5 px-3 py-2 rounded-lg text-xs transition-all ${isInventoryActive('CELLS') ? 'bg-slate-100 text-slate-900 font-bold' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'}`}><Cpu className="w-3.5 h-3.5 text-slate-400 shrink-0" /><span>Cell Inventory</span></button>
-              <button onClick={() => handleInventoryClick('BMS')} className={`w-full flex items-center space-x-2.5 px-3 py-2 rounded-lg text-xs transition-all ${isInventoryActive('BMS') ? 'bg-slate-100 text-slate-900 font-bold' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'}`}><Activity className="w-3.5 h-3.5 text-slate-400 shrink-0" /><span>BMS Inventory</span></button>
-              <button onClick={() => handleInventoryClick('BMU')} className={`w-full flex items-center space-x-2.5 px-3 py-2 rounded-lg text-xs transition-all ${isInventoryActive('BMU') ? 'bg-slate-100 text-slate-900 font-bold' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'}`}><Activity className="w-3.5 h-3.5 text-slate-400 shrink-0" /><span>BMU Inventory</span></button>
-              <button onClick={() => handleInventoryClick('MODULES')} className={`w-full flex items-center space-x-2.5 px-3 py-2 rounded-lg text-xs transition-all ${isInventoryActive('MODULES') ? 'bg-slate-100 text-slate-900 font-bold' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'}`}><Layers className="w-3.5 h-3.5 text-slate-400 shrink-0" /><span>Module Inventory</span></button>
-              <button onClick={() => handleInventoryClick('BATTERIES')} className={`w-full flex items-center space-x-2.5 px-3 py-2 rounded-lg text-xs transition-all ${isInventoryActive('BATTERIES') ? 'bg-slate-100 text-slate-900 font-bold' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'}`}><PackageCheck className="w-3.5 h-3.5 text-slate-400 shrink-0" /><span>Battery Inventory</span></button>
-              <button onClick={() => handleInventoryClick('RACKS')} className={`w-full flex items-center space-x-2.5 px-3 py-2 rounded-lg text-xs transition-all ${isInventoryActive('RACKS') ? 'bg-slate-100 text-slate-900 font-bold' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'}`}><PackageCheck className="w-3.5 h-3.5 text-slate-400 shrink-0" /><span>Rack Inventory</span></button>
-            </div>
-          ) : (
+        {(hasPermission('inventory_cells.view') || hasPermission('inventory_bms.view') || hasPermission('inventory_bmu.view') || hasPermission('inventory_modules.view') || hasPermission('inventory_batteries.view') || hasPermission('inventory_racks.view') || hasPermission('warehouse.view') || hasPermission('sold.view') || isCeo) && <div>
             <>
               <button type="button" onClick={() => toggleSection('inventory')} aria-expanded={Boolean(openSections.inventory)} className="w-full flex items-center justify-between px-3 mb-1.5 text-left">
                 <span className="text-[9px] font-black uppercase tracking-widest text-slate-400">Inventory</span>
                 {openSections.inventory ? <ChevronDown className="w-3.5 h-3.5 text-slate-400" /> : <ChevronRight className="w-3.5 h-3.5 text-slate-400" />}
               </button>
               {openSections.inventory && <div className="space-y-0.5">
-                <button onClick={() => handleInventoryClick('CELLS')} className={`w-full flex items-center space-x-2.5 px-3 py-2 rounded-lg text-xs transition-all ${isInventoryActive('CELLS') ? 'bg-slate-100 text-slate-900 font-bold' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'}`}><Cpu className="w-3.5 h-3.5 text-slate-400 shrink-0" /><span>Cell Inventory</span></button>
-                <button onClick={() => handleInventoryClick('BMS')} className={`w-full flex items-center space-x-2.5 px-3 py-2 rounded-lg text-xs transition-all ${isInventoryActive('BMS') ? 'bg-slate-100 text-slate-900 font-bold' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'}`}><Activity className="w-3.5 h-3.5 text-slate-400 shrink-0" /><span>BMS Inventory</span></button>
-                <button onClick={() => handleInventoryClick('BMU')} className={`w-full flex items-center space-x-2.5 px-3 py-2 rounded-lg text-xs transition-all ${isInventoryActive('BMU') ? 'bg-slate-100 text-slate-900 font-bold' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'}`}><Activity className="w-3.5 h-3.5 text-slate-400 shrink-0" /><span>BMU Inventory</span></button>
-                <button onClick={() => handleInventoryClick('MODULES')} className={`w-full flex items-center space-x-2.5 px-3 py-2 rounded-lg text-xs transition-all ${isInventoryActive('MODULES') ? 'bg-slate-100 text-slate-900 font-bold' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'}`}><Layers className="w-3.5 h-3.5 text-slate-400 shrink-0" /><span>Module Inventory</span></button>
-                <button onClick={() => handleInventoryClick('BATTERIES')} className={`w-full flex items-center space-x-2.5 px-3 py-2 rounded-lg text-xs transition-all ${isInventoryActive('BATTERIES') ? 'bg-slate-100 text-slate-900 font-bold' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'}`}><PackageCheck className="w-3.5 h-3.5 text-slate-400 shrink-0" /><span>Battery Inventory</span></button>
-                <button onClick={() => handleInventoryClick('RACKS')} className={`w-full flex items-center space-x-2.5 px-3 py-2 rounded-lg text-xs transition-all ${isInventoryActive('RACKS') ? 'bg-slate-100 text-slate-900 font-bold' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'}`}><PackageCheck className="w-3.5 h-3.5 text-slate-400 shrink-0" /><span>Rack Inventory</span></button>
-                {!isCeo && <button onClick={() => setActiveView('warehouse')} className={`w-full flex items-center space-x-2.5 px-3 py-2 rounded-lg text-xs transition-all ${activeView === 'warehouse' ? 'bg-slate-100 text-slate-900 font-bold' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'}`}><PackageCheck className="w-3.5 h-3.5 text-slate-400 shrink-0" /><span>Warehouse</span></button>}
-                {!isCeo && <button onClick={() => setActiveView('sold')} className={`w-full flex items-center space-x-2.5 px-3 py-2 rounded-lg text-xs transition-all ${activeView === 'sold' ? 'bg-slate-100 text-slate-900 font-bold' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'}`}><PackageCheck className="w-3.5 h-3.5 text-slate-400 shrink-0" /><span>Sold</span></button>}
+                {(hasPermission('inventory_cells.view') || isCeo) && <button onClick={() => handleInventoryClick('CELLS')} className={`w-full flex items-center space-x-2.5 px-3 py-2 rounded-lg text-xs transition-all ${isInventoryActive('CELLS') ? 'bg-slate-100 text-slate-900 font-bold' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'}`}><Cpu className="w-3.5 h-3.5 text-slate-400 shrink-0" /><span>Cell Inventory</span></button>}
+                {(hasPermission('inventory_bms.view') || isCeo) && <button onClick={() => handleInventoryClick('BMS')} className={`w-full flex items-center space-x-2.5 px-3 py-2 rounded-lg text-xs transition-all ${isInventoryActive('BMS') ? 'bg-slate-100 text-slate-900 font-bold' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'}`}><Activity className="w-3.5 h-3.5 text-slate-400 shrink-0" /><span>BMS Inventory</span></button>}
+                {(hasPermission('inventory_bmu.view') || isCeo) && <button onClick={() => handleInventoryClick('BMU')} className={`w-full flex items-center space-x-2.5 px-3 py-2 rounded-lg text-xs transition-all ${isInventoryActive('BMU') ? 'bg-slate-100 text-slate-900 font-bold' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'}`}><Activity className="w-3.5 h-3.5 text-slate-400 shrink-0" /><span>BMU Inventory</span></button>}
+                {(hasPermission('inventory_modules.view') || isCeo) && <button onClick={() => handleInventoryClick('MODULES')} className={`w-full flex items-center space-x-2.5 px-3 py-2 rounded-lg text-xs transition-all ${isInventoryActive('MODULES') ? 'bg-slate-100 text-slate-900 font-bold' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'}`}><Layers className="w-3.5 h-3.5 text-slate-400 shrink-0" /><span>Module Inventory</span></button>}
+                {(hasPermission('inventory_batteries.view') || isCeo) && <button onClick={() => handleInventoryClick('BATTERIES')} className={`w-full flex items-center space-x-2.5 px-3 py-2 rounded-lg text-xs transition-all ${isInventoryActive('BATTERIES') ? 'bg-slate-100 text-slate-900 font-bold' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'}`}><PackageCheck className="w-3.5 h-3.5 text-slate-400 shrink-0" /><span>Battery Inventory</span></button>}
+                {(hasPermission('inventory_racks.view') || isCeo) && <button onClick={() => handleInventoryClick('RACKS')} className={`w-full flex items-center space-x-2.5 px-3 py-2 rounded-lg text-xs transition-all ${isInventoryActive('RACKS') ? 'bg-slate-100 text-slate-900 font-bold' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'}`}><PackageCheck className="w-3.5 h-3.5 text-slate-400 shrink-0" /><span>Rack Inventory</span></button>}
+                {hasPermission('warehouse.view') && <button onClick={() => setActiveView('warehouse')} className={`w-full flex items-center space-x-2.5 px-3 py-2 rounded-lg text-xs transition-all ${activeView === 'warehouse' ? 'bg-slate-100 text-slate-900 font-bold' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'}`}><PackageCheck className="w-3.5 h-3.5 text-slate-400 shrink-0" /><span>Warehouse</span></button>}
+                {hasPermission('sold.view') && <button onClick={() => setActiveView('sold')} className={`w-full flex items-center space-x-2.5 px-3 py-2 rounded-lg text-xs transition-all ${activeView === 'sold' ? 'bg-slate-100 text-slate-900 font-bold' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'}`}><PackageCheck className="w-3.5 h-3.5 text-slate-400 shrink-0" /><span>Sold</span></button>}
               </div>}
             </>
-          )}
-        </div>
+        </div>}
 
         {/* IMPORT & TRACE */}
-        <div>
-          {isCeo ? (
-            <div className="space-y-0.5">
-              <div className="mb-1.5 px-3 text-[9px] font-black uppercase tracking-widest text-slate-400">Import &amp; Trace</div>
-              <button onClick={() => setActiveView('traceability')} className={`w-full flex items-center space-x-2.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${activeView === 'traceability' ? 'bg-slate-900 text-white shadow-xs' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'}`}><GitMerge className="w-3.5 h-3.5 text-slate-400" /><span>Genealogy</span></button>
-            </div>
-          ) : (
+        {(hasPermission('traceability.view') || hasPermission('supplier_import.view') || hasPermission('scrap.view') || isCeo) && <div>
             <>
               <button type="button" onClick={() => toggleSection('reports')} aria-expanded={Boolean(openSections.reports)} className="w-full flex items-center justify-between px-3 mb-1.5 text-left">
                 <span className="text-[9px] font-black uppercase tracking-widest text-slate-400">Import &amp; Trace</span>
                 {openSections.reports ? <ChevronDown className="w-3.5 h-3.5 text-slate-400" /> : <ChevronRight className="w-3.5 h-3.5 text-slate-400" />}
               </button>
               {openSections.reports && <div className="space-y-0.5">
-                <button onClick={() => setActiveView('supplier')} className={`w-full flex items-center space-x-2.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${activeView === 'supplier' ? 'bg-slate-900 text-white shadow-xs' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'}`}><Truck className="w-3.5 h-3.5 text-slate-400" /><span>Supplier Import</span></button>
-                <button onClick={() => setActiveView('traceability')} className={`w-full flex items-center space-x-2.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${activeView === 'traceability' ? 'bg-slate-900 text-white shadow-xs' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'}`}><GitMerge className="w-3.5 h-3.5 text-slate-400" /><span>Genealogy</span></button>
-                <button onClick={() => setActiveView('scrap')} className={`w-full flex items-center space-x-2.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${activeView === 'scrap' ? 'bg-red-700 text-white shadow-xs' : 'text-slate-600 hover:bg-red-50 hover:text-red-800'}`}><Flame className="w-3.5 h-3.5 text-red-500" /><span>Damage</span></button>
+                {hasPermission('supplier_import.view') && <button onClick={() => setActiveView('supplier')} className={`w-full flex items-center space-x-2.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${activeView === 'supplier' ? 'bg-slate-900 text-white shadow-xs' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'}`}><Truck className="w-3.5 h-3.5 text-slate-400" /><span>Supplier Import</span></button>}
+                {(hasPermission('traceability.view') || isCeo) && <button onClick={() => setActiveView('traceability')} className={`w-full flex items-center space-x-2.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${activeView === 'traceability' ? 'bg-slate-900 text-white shadow-xs' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'}`}><GitMerge className="w-3.5 h-3.5 text-slate-400" /><span>Genealogy</span></button>}
+                {hasPermission('scrap.view') && <button onClick={() => setActiveView('scrap')} className={`w-full flex items-center space-x-2.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${activeView === 'scrap' ? 'bg-red-700 text-white shadow-xs' : 'text-slate-600 hover:bg-red-50 hover:text-red-800'}`}><Flame className="w-3.5 h-3.5 text-red-500" /><span>Damage</span></button>}
               </div>}
             </>
-          )}
-        </div>
+        </div>}
 
         {/* SETUPS */}
-        <div className={isCeo ? 'hidden' : undefined}>
+        {(hasPermission('products.view') || canManageUsers) && <div>
           <button type="button" onClick={() => toggleSection('setups')} aria-expanded={Boolean(openSections.setups)} className="w-full flex items-center justify-between px-3 mb-1.5 text-left">
             <span className="text-[9px] font-black uppercase tracking-widest text-slate-400">Setups</span>
             {openSections.setups ? <ChevronDown className="w-3.5 h-3.5 text-slate-400" /> : <ChevronRight className="w-3.5 h-3.5 text-slate-400" />}
           </button>
           {openSections.setups && <div className="space-y-0.5">
-            <button
+            {hasPermission('products.view') && <button
               onClick={() => setActiveView('products')}
               className={`w-full flex items-center space-x-2.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
                 activeView === 'products'
@@ -204,7 +183,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
             >
               <Sliders className="w-3.5 h-3.5 text-slate-400" />
               <span>Product Types</span>
-            </button>
+            </button>}
 
             {canManageUsers && (
               <button
@@ -220,7 +199,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
               </button>
             )}
           </div>}
-        </div>
+        </div>}
 
       </nav>
 

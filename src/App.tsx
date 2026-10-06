@@ -34,7 +34,7 @@ const SoldView = lazy(() => import('./components/sold/SoldView').then(module => 
 
 const AppContent: React.FC = () => {
   const { activeView, setActiveView, sidebarOpen, setSidebarOpen, notifications, dismissNotification } = useApp();
-  const { isAuthenticated, authLoading, currentUser } = useAuth();
+  const { isAuthenticated, authLoading, currentUser, hasPermission } = useAuth();
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [visitedViews, setVisitedViews] = useState<NavView[]>(() => [activeView]);
   const openSidebar = () => {
@@ -45,18 +45,13 @@ const AppContent: React.FC = () => {
     setSidebarOpen(false);
     setMobileNavOpen(false);
   };
-  const canManageUsers = currentUser?.roleId === 'role-admin' || currentUser?.role === 'admin';
+  const canManageUsers = hasPermission('security.view') || currentUser?.roleId === 'role-admin' || currentUser?.role === 'admin';
   const isCeo = currentUser?.roleId === 'role-ceo' || currentUser?.role === 'ceo' || currentUser?.roleId === 'role-inventory-manager' || currentUser?.role === 'inventory-manager';
-  const ceoViews = new Set(['ceo-monitoring', 'inventory', 'traceability']);
-  const effectiveView: NavView = isCeo && !ceoViews.has(activeView) ? 'ceo-monitoring' : activeView;
+  const effectiveView: NavView = activeView;
 
   useEffect(() => {
     setVisitedViews(previous => previous.includes(effectiveView) ? previous : [...previous, effectiveView]);
   }, [effectiveView]);
-
-  useEffect(() => {
-    if (isCeo && !ceoViews.has(activeView)) setActiveView('ceo-monitoring');
-  }, [activeView, isCeo, setActiveView]);
 
   // If auth is still loading (initial check in progress), show nothing
   if (authLoading) {

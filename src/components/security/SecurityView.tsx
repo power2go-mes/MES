@@ -6,17 +6,39 @@ import { Role, User } from '../../types';
 import { Shield, Users, Key, Plus, X, Edit3, Trash2, Lock, Unlock, AlertTriangle, UserCheck, UserX } from 'lucide-react';
 
 const ALL_MODULES = [
+  // Quick Access
   { id: 'dashboard', name: 'Dashboard', hasView: true, hasAdd: false, hasEdit: false, hasDelete: false },
-  { id: 'cells', name: 'Cells (Inventory, OCV, Grading)', hasView: true, hasAdd: true, hasEdit: true, hasDelete: true },
-  { id: 'modules', name: 'Modules (Assembly, Welding, QC)', hasView: true, hasAdd: true, hasEdit: true, hasDelete: true },
-  { id: 'battery_pack', name: 'Battery Pack (Assembly, IR, Final QC)', hasView: true, hasAdd: true, hasEdit: true, hasDelete: true },
-  { id: 'bms', name: 'BMS (Acknowledge, Test, Assign)', hasView: true, hasAdd: true, hasEdit: true, hasDelete: true },
-  { id: 'bmu', name: 'BMU (Acknowledge, Test, Assign)', hasView: true, hasAdd: true, hasEdit: true, hasDelete: true },
-  { id: 'inventory', name: 'Inventory & Stock Management', hasView: true, hasAdd: true, hasEdit: true, hasDelete: true },
-  { id: 'production', name: 'Production Orders & 2D Twin', hasView: true, hasAdd: true, hasEdit: true, hasDelete: true },
-  { id: 'products', name: 'Product Configurator & Templates', hasView: true, hasAdd: true, hasEdit: true, hasDelete: true },
-  { id: 'traceability', name: 'Genealogy & Traceability', hasView: true, hasAdd: false, hasEdit: false, hasDelete: false },
-  { id: 'security', name: 'Security (Users & Roles)', hasView: true, hasAdd: true, hasEdit: true, hasDelete: true },
+  { id: 'ceo_monitoring', name: 'CEO Monitoring', hasView: true, hasAdd: false, hasEdit: false, hasDelete: false },
+  { id: 'production_flow', name: 'Production Flow', hasView: true, hasAdd: false, hasEdit: false, hasDelete: false },
+
+  // Production Workflow
+  { id: 'container_floor', name: 'Container to Floor', hasView: true, hasAdd: true, hasEdit: true, hasDelete: true },
+  { id: 'workflow_module', name: 'Module Assembly', hasView: true, hasAdd: true, hasEdit: true, hasDelete: true },
+  { id: 'workflow_pack', name: 'Pack Assembly', hasView: true, hasAdd: true, hasEdit: true, hasDelete: true },
+  { id: 'rack_assembly', name: 'Rack Assembly', hasView: true, hasAdd: true, hasEdit: true, hasDelete: true },
+
+  // Inventory
+  { id: 'inventory_cells', name: 'Cell Inventory', hasView: true, hasAdd: true, hasEdit: true, hasDelete: true },
+  { id: 'inventory_bms', name: 'BMS Inventory', hasView: true, hasAdd: true, hasEdit: true, hasDelete: true },
+  { id: 'inventory_bmu', name: 'BMU Inventory', hasView: true, hasAdd: true, hasEdit: true, hasDelete: true },
+  { id: 'inventory_modules', name: 'Module Inventory', hasView: true, hasAdd: true, hasEdit: true, hasDelete: true },
+  { id: 'inventory_batteries', name: 'Battery Inventory', hasView: true, hasAdd: true, hasEdit: true, hasDelete: true },
+  { id: 'inventory_racks', name: 'Rack Inventory', hasView: true, hasAdd: true, hasEdit: true, hasDelete: true },
+  { id: 'warehouse', name: 'Warehouse', hasView: true, hasAdd: false, hasEdit: false, hasDelete: false },
+  { id: 'sold', name: 'Sold', hasView: true, hasAdd: false, hasEdit: false, hasDelete: false },
+
+  // Import & Trace
+  { id: 'supplier_import', name: 'Supplier Import', hasView: true, hasAdd: true, hasEdit: false, hasDelete: false },
+  { id: 'traceability', name: 'Genealogy', hasView: true, hasAdd: false, hasEdit: false, hasDelete: false },
+  { id: 'scrap', name: 'Damage / Scrap', hasView: true, hasAdd: true, hasEdit: true, hasDelete: false },
+
+  // Setups
+  { id: 'products', name: 'Product Types', hasView: true, hasAdd: true, hasEdit: true, hasDelete: true },
+  { id: 'security', name: 'Security', hasView: true, hasAdd: true, hasEdit: true, hasDelete: true },
+  
+  // Others
+  { id: 'planning', name: 'Production Planning', hasView: true, hasAdd: true, hasEdit: true, hasDelete: true },
+  { id: 'audit', name: 'Audit Trail', hasView: true, hasAdd: false, hasEdit: false, hasDelete: false },
 ];
 
 const CUSTOM_PERMISSION_GROUPS = [
@@ -77,11 +99,11 @@ const CUSTOM_PERMISSION_GROUPS = [
 ];
 
 export const SecurityView: React.FC = () => {
-  const { currentUser, isAuthenticated } = useAuth();
+  const { currentUser, isAuthenticated, hasPermission } = useAuth();
   const { addNotification } = useApp();
 
   const currentProfile = currentUser;
-  const canManageUsers = currentUser?.roleId === 'role-admin' || currentUser?.role === 'admin';
+  const canManageUsers = hasPermission('security.view') || currentUser?.roleId === 'role-admin' || currentUser?.role === 'admin';
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'users' | 'roles'>('users');
@@ -110,7 +132,7 @@ export const SecurityView: React.FC = () => {
       name: 'CEO',
       description: 'Read-only CEO Monitoring, Inventory, and Traceability access',
       status: 'ACTIVE' as const,
-      permissions: ['READ_MES'],
+      permissions: ['dashboard.view', 'ceo_monitoring.view', 'inventory_cells.view', 'inventory_bms.view', 'inventory_bmu.view', 'inventory_modules.view', 'inventory_batteries.view', 'inventory_racks.view', 'traceability.view'],
     } as Role];
     
   const roleOptions = roleOptionsRaw.some(role => role.id === 'role-inventory-manager')
@@ -120,7 +142,7 @@ export const SecurityView: React.FC = () => {
       name: 'Inventory Manager',
       description: 'Read-only Inventory Manager Monitoring, Inventory, and Traceability access',
       status: 'ACTIVE' as const,
-      permissions: ['READ_MES'],
+      permissions: ['dashboard.view', 'ceo_monitoring.view', 'inventory_cells.view', 'inventory_bms.view', 'inventory_bmu.view', 'inventory_modules.view', 'inventory_batteries.view', 'inventory_racks.view', 'traceability.view'],
     } as Role];
 
   const loadData = async () => {
@@ -466,7 +488,7 @@ export const SecurityView: React.FC = () => {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 text-xs text-slate-700">
-                {roles.map(r => {
+                {roleOptions.map(r => {
                   const assignedCount = users.filter(user => user.roleId === r.id).length;
                   const activeCount = users.filter(user => user.roleId === r.id && user.status === 'ACTIVE').length;
                   return (

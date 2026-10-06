@@ -46,15 +46,11 @@ export const InventoryView: React.FC = () => {
   const setActiveTab = setInventoryTab;
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('');
-  const [cellsView, setCellsView] = useState<'ALL' | 'USED'>('ALL');
-
   const [cells, setCells] = useState<CellItem[]>([]);
-  const [allCells, setAllCells] = useState<CellItem[]>([]);
-  const [cellBuckets, setCellBuckets] = useState<Array<{ cellId: string; bucket: 'AVAILABLE' | 'RESERVED' | 'IN_PROCESS' | 'DAMAGE' }>>([]);
   const [warehouseCellStatuses, setWarehouseCellStatuses] = useState<Record<string, string>>({});
   const [warehouseEntityStatuses, setWarehouseEntityStatuses] = useState<Record<string, string>>({});
   const [allCellsCount, setAllCellsCount] = useState(0);
-  const [usedCellsCount, setUsedCellsCount] = useState(0);
+  const [dashboardStats, setDashboardStats] = useState<any>(null);
   const [inventoryPage, setInventoryPage] = useState(0);
   const [hasMoreInventory, setHasMoreInventory] = useState(false);
   const [bmsUnits, setBmsUnits] = useState<BMSItem[]>([]);
@@ -104,7 +100,7 @@ export const InventoryView: React.FC = () => {
       void loadInventory(0);
     }, search ? 350 : 0);
     return () => window.clearTimeout(timer);
-  }, [activeTab, search, statusFilter, cellsView, refreshKey]);
+  }, [activeTab, search, statusFilter, refreshKey]);
 
   const loadInventory = async (page = 0) => {
     const append = page > 0;
@@ -112,6 +108,12 @@ export const InventoryView: React.FC = () => {
     let moreAvailable = false;
     setLoading(true);
     try {
+      if (!dashboardStats) {
+        api.getDashboardStats().then(stats => {
+          setDashboardStats(stats);
+        }).catch(err => console.error('Failed to load dashboard stats', err));
+      }
+
       if (activeTab === 'CELLS') {
         const serverLifecycleStatus = !['KARACHI_WAREHOUSE', 'LAHORE_WAREHOUSE'].includes(statusFilter) && cellStatuses.includes(statusFilter as typeof cellStatuses[number])
           ? statusFilter
@@ -120,7 +122,6 @@ export const InventoryView: React.FC = () => {
         const cellsPromise = api.getCells({
           search: search || undefined,
           lifecycleStatus: serverLifecycleStatus,
-          usedOnly: cellsView === 'USED' ? true : undefined,
           includeBatterySerial: true,
           limit: pageSize,
           offset: page * pageSize,
@@ -128,37 +129,17 @@ export const InventoryView: React.FC = () => {
         });
         const countsPromise = !search && !statusFilter
           ? api.getCellCounts()
-          : Promise.resolve({ total: allCellsCount, used: usedCellsCount, available: 0, quarantined: 0 });
+          : Promise.resolve({ total: allCellsCount, used: 0, available: 0, quarantined: 0 });
         const warehouseStatusesPromise = warehouseFilterSelected ? api.getWarehouseCellStatuses() : Promise.resolve({});
         const res = await cellsPromise;
         setCells(previous => append ? [...previous, ...res] : res);
         moreAvailable = res.length === pageSize;
         setHasMoreInventory(moreAvailable);
         setInventoryPage(page);
-        if (!search && !statusFilter) {
-          setAllCells(cellsView === 'USED' ? res : []);
-        }
         void countsPromise.then(counts => {
           setAllCellsCount(counts.total);
-          setUsedCellsCount(counts.used);
         }).catch(error => console.error('Failed to load cell counts', error));
         void warehouseStatusesPromise.then(setWarehouseCellStatuses).catch(error => console.error('Failed to load warehouse cell statuses', error));
-
-        if (cellsView === 'USED') {
-          try {
-            const [loadedModules, loadedBatteries, buckets] = await Promise.all([
-              api.getModules(),
-              api.getBatterySummaries(),
-              api.getCellInventoryBuckets(),
-            ]);
-            setModules(loadedModules);
-            setBatteries(loadedBatteries as BatteryUnit[]);
-            setCellBuckets(buckets);
-          } catch (error) {
-            console.error('Failed to load used-cell relationships', error);
-            setCellBuckets([]);
-          }
-        }
       } else if (activeTab === 'BMS') {
         const res = await api.getBmsUnits({ limit: pageSize, offset: page * pageSize, search, status: statusFilter });
         setBmsUnits(previous => append ? [...previous, ...res] : res);
@@ -694,31 +675,119 @@ export const InventoryView: React.FC = () => {
         </div>
       </div>
 
+      {/* Dynamic Status Chips for non-CELL tabs */}
+      {dashboardStats && activeTab !== 'CELLS' && (() => {
+        let buckets: Array<{label: string; value: number}> = [];
+        let filterMap: Record<string, string> = {};
+        
+        if (activeTab === 'MODULES') {
+          buckets = dashboardStats.moduleStatusBuckets || [];
+          filterMap = {
+            'In Stock': 'IN_STOCK',
+            'Floor Stock': 'FLOOR_STOCK',
+            'In Pack': 'IN_PACK',
+            'In Rack': 'IN_RACK',
+            'In Process': 'IN_PROCESS',
+            'Scrap': 'SCRAP'
+          };
+        } else if (activeTab === 'BATTERIES') {
+          buckets = dashboardStats.batteryStatusBuckets || [];
+          filterMap = {
+            'In Stock': 'IN_STOCK',
+            'Floor Stock': 'FLOOR_STOCK',
+            'In Rack': 'IN_RACK',
+            'In Process': 'IN_PROCESS',
+            'Karachi Warehouse': 'KARACHI_WAREHOUSE',
+            'Lahore Warehouse': 'LAHORE_WAREHOUSE',
+            'Sold': 'SOLD',
+            'Scrap': 'SCRAP'
+          };
+        } else if (activeTab === 'RACKS') {
+          buckets = dashboardStats.rackStatusBuckets || [];
+          filterMap = {
+            'In Stock': 'IN_STOCK',
+            'Karachi Warehouse': 'KARACHI_WAREHOUSE',
+            'Lahore Warehouse': 'LAHORE_WAREHOUSE',
+            'Sold': 'SOLD',
+            'Scrap': 'SCRAP'
+          };
+        } else if (activeTab === 'BMS') {
+          buckets = [{ label: 'Available', value: dashboardStats.controllerInventory?.availableBms || 0 }];
+          filterMap = { 'Available': 'AVAILABLE' };
+        } else if (activeTab === 'BMU') {
+          buckets = [{ label: 'Available', value: dashboardStats.controllerInventory?.availableBmu || 0 }];
+          filterMap = { 'Available': 'AVAILABLE' };
+        }
+
+        const visibleBuckets = buckets.filter(b => b.value > 0 && filterMap[b.label] !== undefined);
+        if (visibleBuckets.length === 0) return null;
+
+        return (
+          <div className="flex flex-wrap items-center gap-3">
+            <div className="flex bg-slate-100 p-1 rounded-xl text-xs font-semibold border border-slate-200">
+              <button
+                onClick={() => setStatusFilter('')}
+                className={`px-4 py-1.5 rounded-lg transition-all ${!statusFilter ? 'bg-white text-slate-900 shadow-sm font-bold' : 'text-slate-500 hover:text-slate-800'}`}
+              >
+                All {activeTab.charAt(0) + activeTab.slice(1).toLowerCase()}
+              </button>
+              {visibleBuckets.map(bucket => {
+                const filterVal = filterMap[bucket.label];
+                return (
+                  <button
+                    key={bucket.label}
+                    onClick={() => setStatusFilter(filterVal)}
+                    className={`px-4 py-1.5 rounded-lg transition-all flex items-center gap-1.5 ${statusFilter === filterVal ? 'bg-emerald-100 text-emerald-800 shadow-sm font-bold' : 'text-slate-500 hover:text-slate-800'}`}
+                  >
+                    {bucket.label} ({bucket.value})
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        );
+      })()}
+
+
       {/* CELLS — Used / All toggle + summary tiles */}
       {activeTab === 'CELLS' && (
         <div className="space-y-4">
-          {/* Sub-tab toggle */}
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="flex bg-slate-100 p-1 rounded-xl text-xs font-semibold border border-slate-200">
               <button
-                onClick={() => { setCellsView('ALL'); setStatusFilter(''); }}
-                className={`px-4 py-1.5 rounded-lg transition-all ${cellsView === 'ALL' ? 'bg-white text-slate-900 shadow-sm font-bold' : 'text-slate-500 hover:text-slate-800'
+                onClick={() => setStatusFilter('')}
+                className={`px-4 py-1.5 rounded-lg transition-all ${!statusFilter ? 'bg-white text-slate-900 shadow-sm font-bold' : 'text-slate-500 hover:text-slate-800'
                   }`}
               >
                 All Cells ({allCellsCount})
               </button>
-              <button
-                onClick={() => { setCellsView('USED'); setStatusFilter(''); }}
-                className={`px-4 py-1.5 rounded-lg transition-all flex items-center gap-1.5 ${cellsView === 'USED' ? 'bg-black text-white shadow-sm font-bold' : 'text-slate-500 hover:text-slate-800'
-                  }`}
-              >
-                <span className="w-1.5 h-1.5 rounded-full bg-green-500 inline-block"></span>
-                Used Cells ({usedCellsCount})
-              </button>
+              {(dashboardStats?.cellBuckets || []).map((bucket: any) => {
+                // Try to map dashboard bucket labels to status filters
+                const bucketFilterValue = bucket.label === 'In Stock' ? 'IN_STOCK'
+                  : bucket.label === 'Floor Stock' ? 'FLOOR_STOCK'
+                  : bucket.label === 'In Module' ? 'IN_MODULE'
+                  : bucket.label === 'In Pack' ? 'IN_PACK'
+                  : bucket.label === 'In Rack' ? 'IN_RACK'
+                  : bucket.label === 'Karachi Warehouse' ? 'KARACHI_WAREHOUSE'
+                  : bucket.label === 'Lahore Warehouse' ? 'LAHORE_WAREHOUSE'
+                  : bucket.label === 'Sold' ? 'SOLD'
+                  : bucket.label === 'Scrap' ? 'SCRAP'
+                  : '';
+                
+                if (!bucketFilterValue || bucket.value === 0) return null;
+                
+                return (
+                  <button
+                    key={bucket.label}
+                    onClick={() => setStatusFilter(bucketFilterValue)}
+                    className={`px-4 py-1.5 rounded-lg transition-all flex items-center gap-1.5 ${statusFilter === bucketFilterValue ? 'bg-emerald-100 text-emerald-800 shadow-sm font-bold' : 'text-slate-500 hover:text-slate-800'
+                      }`}
+                  >
+                    {bucket.label} ({bucket.value})
+                  </button>
+                );
+              })}
             </div>
-            {cellsView === 'USED' && (
-              <span className="text-xs text-slate-400 font-medium">Showing cells reserved for an order or assigned to production.</span>
-            )}
             <button
               type="button"
               onClick={() => void exportCellReport()}
@@ -730,59 +799,6 @@ export const InventoryView: React.FC = () => {
               {exportingCells ? 'Exporting...' : 'Export Cell Report'}
             </button>
           </div>
-
-          {/* Used cells breakdown tiles */}
-          {cellsView === 'USED' && (() => {
-            const inventoryCells = allCells.length > 0 ? allCells : cells;
-            const bucketByCellId = new Map(cellBuckets.map(bucket => [bucket.cellId, bucket.bucket]));
-            const hasBucketProjection = bucketByCellId.size === inventoryCells.length && inventoryCells.length > 0;
-            const batteryById = new Map(batteries.map(battery => [battery.id, battery]));
-            const moduleById = new Map(modules.map(module => [module.id, module]));
-            const getBattery = (cell: CellItem) => {
-              const module = cell.assignedToModuleId ? moduleById.get(cell.assignedToModuleId) : undefined;
-              return batteryById.get(cell.reservedForBatteryId || module?.batteryId || '');
-            };
-            const isDamage = (cell: CellItem) => (hasBucketProjection && bucketByCellId.get(cell.id) === 'DAMAGE') ||
-              ['SCRAP', 'QUARANTINED', 'REJECTED', 'FAILED'].includes(String(cell.lifecycleStatus || '').toUpperCase()) ||
-              ['QUARANTINED', 'REJECTED', 'FAILED'].includes(String(cell.status || '').toUpperCase()) ||
-              ['DAMAGED', 'FAILED'].includes(cell.productionGrade || cell.supplierGrade || '') ||
-              Boolean(cell.quarantineReason);
-            const isReleased = (cell: CellItem) => {
-              const battery = getBattery(cell);
-              return (hasBucketProjection && bucketByCellId.get(cell.id) === 'RESERVED') || ['FINISHED', 'RELEASED', 'DISPATCHED'].includes(battery?.status || '');
-            };
-            const isInProcess = (cell: CellItem) => {
-              const battery = getBattery(cell);
-              const module = cell.assignedToModuleId ? moduleById.get(cell.assignedToModuleId) : undefined;
-              return (hasBucketProjection && bucketByCellId.get(cell.id) === 'IN_PROCESS') || ['PLANNED', 'IN_PROCESS', 'ASSEMBLED', 'TESTING', 'FINAL_QC'].includes(battery?.status || '') ||
-                ['IN_PROCESS', 'ASSEMBLED'].includes(module?.status || '') ||
-                ['IN_PROCESS', 'VALIDATING', 'TESTING', 'SCANNED', 'PASSED'].includes(cell.status);
-            };
-            // Reservation is ownership, while status changes during testing and assembly.
-            // Count each physical cell once so reserved and assigned are not double-counted.
-            const isReserved = (cell: CellItem) => Boolean(cell.reservedForOrderId || cell.reservedForBatteryId);
-            const damage = inventoryCells.filter(isDamage).length;
-            const reserved = inventoryCells.filter(cell => !isDamage(cell) && isReserved(cell)).length;
-            const inProcess = inventoryCells.filter(cell => !isDamage(cell) && isReserved(cell) && isInProcess(cell)).length;
-            const available = inventoryCells.filter(cell => !isDamage(cell) && !isReserved(cell)).length;
-            const other = Math.max(0, inventoryCells.length - damage - available - reserved);
-            return (
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                {[
-                  { label: 'Reserved / Assigned', value: reserved, color: 'border-l-4 border-l-slate-400' },
-                  { label: 'Used / In Process (Included)', value: inProcess, color: 'border-l-4 border-l-green-500' },
-                  { label: 'Damage', value: damage, color: 'border-l-4 border-l-red-500' },
-                  { label: 'Available', value: available, color: 'border-l-4 border-l-emerald-500' },
-                ].map(tile => (
-                  <div key={tile.label} className={`bg-white rounded-xl border border-slate-200 p-3 shadow-xs ${tile.color}`}>
-                    <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">{tile.label}</p>
-                    <p className="text-2xl font-black text-slate-900 mt-0.5">{tile.value}</p>
-                  </div>
-                ))}
-                {other > 0 && <div className="col-span-2 text-[11px] text-slate-400">{other} records need classification from their battery or module relationship.</div>}
-              </div>
-            );
-          })()}
 
           <div className="bg-white rounded-2xl shadow-xs border border-slate-200 overflow-hidden">
             <div className="overflow-x-auto">

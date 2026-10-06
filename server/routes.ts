@@ -526,7 +526,16 @@ apiRouter.get('/roles', requirePermission('security.roles'), requireAdministrato
 });
 
 apiRouter.post('/roles', requirePermission('security.roles'), requireAdministrator, (req, res) => {
-  res.status(400).json({ error: 'Only Administrator and Operator roles are supported.' });
+  const { name, description, permissions, status } = req.body;
+  const newRole = {
+    id: `role-${Date.now()}`,
+    name,
+    description: description || '',
+    status: status || 'ACTIVE',
+    permissions: permissions || [],
+  };
+  db.roles.push(newRole);
+  res.json(newRole);
 });
 
 apiRouter.put('/roles/:id', requirePermission('security.roles'), requireAdministrator, (req, res) => {
@@ -552,7 +561,14 @@ apiRouter.put('/roles/:id', requirePermission('security.roles'), requireAdminist
 });
 
 apiRouter.delete('/roles/:id', requirePermission('security.roles'), requireAdministrator, (req, res) => {
-  res.status(400).json({ error: 'Administrator and Operator roles cannot be deleted.' });
+  const { id } = req.params;
+  if (['role-admin', 'role-operator'].includes(id)) {
+    return res.status(400).json({ error: 'Cannot delete default roles' });
+  }
+  const index = db.roles.findIndex(r => r.id === id);
+  if (index === -1) return res.status(404).json({ error: 'Role not found' });
+  db.roles.splice(index, 1);
+  res.json({ success: true });
 });
 
 // 3. Dashboard Statistics
