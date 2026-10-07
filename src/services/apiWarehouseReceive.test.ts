@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { buildWarehouseLocationBuckets, buildWarehouseReceiveResult, preferredLifecycleStatus } from './api';
+import { buildWarehouseInventorySummary, buildWarehouseLocationBuckets, buildWarehouseReceiveResult, preferredLifecycleStatus } from './api';
 import { batterySerialCapacityToken, legacyBatterySerialLookup, normalizeBatteryName, normalizeBatterySerial } from '../lib/batteryNaming';
 import { legacyRackSerialLookup, normalizeRackCapacity, normalizeRackSerial, normalizeRackTemplateLabel } from '../lib/rackNaming';
 
@@ -101,4 +101,30 @@ test('warehouse cells move out of their exact lifecycle buckets', () => {
     'Lahore Warehouse': 832,
   });
   assert.equal(buckets.reduce((sum, row) => sum + row.value, 0), 10000);
+});
+
+test('warehouse rack graph counts reconcile with current rack serial details', () => {
+  const racks = [
+    ...Array.from({ length: 22 }, (_, index) => ({
+      id: `karachi-${index}`,
+      serial_number: `P2G-RACK-25KWH-${String(index + 1).padStart(4, '0')}`,
+      rack_template_code: 'RACK_25KWH',
+    })),
+    ...Array.from({ length: 15 }, (_, index) => ({
+      id: `lahore-${index}`,
+      serial_number: `P2G-RACK-45KWH-${String(index + 1).padStart(4, '0')}`,
+      rack_template_code: 'RACK_45KWH',
+    })),
+  ];
+  const locations = new Map<string, string>([
+    ...racks.map((rack, index) => [`RACK:${rack.id}`, index < 22 ? 'KARACHI' : 'LAHORE'] as [string, string]),
+    ['RACK:deleted-rack', 'KARACHI'],
+  ]);
+
+  const summary = buildWarehouseInventorySummary(racks, [], locations);
+
+  assert.deepEqual(summary.rackCounts, { KARACHI: 22, LAHORE: 15 });
+  assert.equal(summary.serialNumbers['Karachi Racks'].length, summary.rackCounts.KARACHI);
+  assert.equal(summary.serialNumbers['Lahore Racks'].length, summary.rackCounts.LAHORE);
+  assert.equal(summary.rackTypeCounts.reduce((total, row) => total + row.KARACHI + row.LAHORE, 0), 37);
 });

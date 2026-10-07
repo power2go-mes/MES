@@ -17,6 +17,9 @@ export default defineConfig(({mode}) => {
     resolve: {
       alias: {
         '@': path.resolve(__dirname, '.'),
+        stream: 'stream-browserify',
+        buffer: 'buffer',
+        events: 'events',
       },
     },
     server: {

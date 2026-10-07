@@ -3,8 +3,10 @@ import express from 'express';
 import path from 'path';
 import { createServer as createViteServer } from 'vite';
 import { createApiApp } from './server/app.ts';
+import { startAppDataCleanup } from './server/maintenance.ts';
 
 async function startServer() {
+  await startAppDataCleanup();
   const app = createApiApp();
   const PORT = Number(process.env.PORT || 3000);
 

@@ -1,7 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 
-const DEV_OTP_LOG = path.join(process.cwd(), 'memory', 'otp-dev.log');
+export const DEV_OTP_LOG_PATH = path.join(process.cwd(), 'memory', 'otp-dev.log');
 
 export interface SendOtpResult {
   delivered: boolean;
@@ -60,11 +60,10 @@ export async function sendOtpEmail(opts: { to: string; username: string; otp: st
 
   const line = `${new Date().toISOString()} OTP ${opts.otp} for ${opts.username} <${opts.to}>\n`;
   try {
-    fs.mkdirSync(path.dirname(DEV_OTP_LOG), { recursive: true });
-    fs.appendFileSync(DEV_OTP_LOG, line);
+    fs.mkdirSync(path.dirname(DEV_OTP_LOG_PATH), { recursive: true });
+    fs.appendFileSync(DEV_OTP_LOG_PATH, line);
   } catch {
     /* ignore */
   }
-  console.log(`[DEV OTP] ${opts.username} (${opts.to}) => ${opts.otp}`);
   return { delivered: true, channel: 'dev' };
 }

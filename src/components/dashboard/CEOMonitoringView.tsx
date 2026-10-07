@@ -207,12 +207,11 @@ const formatMwh = (capacityKwh: number) => {
 const formatCellTotalMwh = (capacityKwh: number) => `${roundMwh(capacityKwh).toFixed(2)} MWh`;
 const formatCellRowMwh = (capacityKwh: number) => `${roundMwh(capacityKwh).toFixed(2)} MWh`;
 const formatShare = (value: number, total: number) => `${((value / Math.max(1, total)) * 100).toFixed(2)}%`;
-let cachedCeoStats: any | null = null;
 
 export const CEOMonitoringView: React.FC = () => {
   const { refreshKey, addNotification } = useApp();
-  const [stats, setStats] = useState<any | null>(() => cachedCeoStats);
-  const [loading, setLoading] = useState(() => cachedCeoStats === null);
+  const [stats, setStats] = useState<any | null>(null);
+  const [loading, setLoading] = useState(true);
   const [exporting, setExporting] = useState(false);
   const [exportingCells, setExportingCells] = useState(false);
   const [exportingModules, setExportingModules] = useState(false);
@@ -316,7 +315,6 @@ export const CEOMonitoringView: React.FC = () => {
             setStats((current: any) => {
               const patchedSummary = patchStatsData(summary);
               const nextStats = current && Object.keys(current).length > 0 ? current : patchedSummary;
-              cachedCeoStats = nextStats;
               return nextStats;
             });
             setLoading(false);
@@ -325,7 +323,6 @@ export const CEOMonitoringView: React.FC = () => {
 
         if (!cancelled && requestId === refreshRequestId.current) {
           const nextStats = patchStatsData(res);
-          cachedCeoStats = nextStats;
           setStats(nextStats);
           setLoadError(null);
         }
@@ -340,7 +337,7 @@ export const CEOMonitoringView: React.FC = () => {
       }
     };
 
-    if (cachedCeoStats === null) setLoading(true);
+    if (!stats) setLoading(true);
     void refresh();
 
     const interval = window.setInterval(() => {
@@ -461,6 +458,11 @@ export const CEOMonitoringView: React.FC = () => {
     warehouseRows.map(row => ({ label: row.label, color: row.color })),
     warehouseRows.reduce((sum, row) => sum + row.value, 0),
   ), [warehouseRows]);
+  const warehouseDescription = selectedWarehouseInventoryType === 'Racks'
+    ? 'Racks by warehouse location'
+    : selectedWarehouseInventoryType === 'Battery Packs'
+      ? 'Battery packs by warehouse location'
+      : 'Racks and battery packs by location';
   const damageReusableRows = useMemo<ChartRow[]>(() => {
     let damageValue = 0;
     let reusableValue = 0;
@@ -556,10 +558,6 @@ export const CEOMonitoringView: React.FC = () => {
     };
   }, [source.bmsSerialNumbersByLabel, source.bmuSerialNumbersByLabel, selectedControllerFilter]);
 
-const warehouseCellTotal = cellBucketTotal('KARACHI WAREHOUSE', 'LAHORE WAREHOUSE');
-  const moduleCellTotal = cellBucketTotal('IN MODULE');
-  const batteryPackCellTotal = cellBucketTotal('IN PACK');
-  const rackCellTotal = numberOr(source.inventory?.rackCellCount, cellBucketTotal('IN RACK'));
   const moduleData = useMemo<ChartRow[]>(() => applyPalette((source.moduleTypeBuckets || source.moduleStatusBuckets || [])
     .map((row: any) => ({ label: String(row.label || ''), value: numberOr(row.value), color: reportColors.blue }))
     .sort((left, right) => Number(right.label.match(/\d+/)?.[0] || 0) - Number(left.label.match(/\d+/)?.[0] || 0))), [source.moduleTypeBuckets, source.moduleStatusBuckets]);
@@ -570,7 +568,9 @@ const warehouseCellTotal = cellBucketTotal('KARACHI WAREHOUSE', 'LAHORE WAREHOUS
     selectedModuleConfig === 'All' ? source.moduleTotal : undefined,
   ), [filteredModuleRows, selectedModuleConfig, source.moduleTotal]);
   const soldData = useMemo<ChartRow[]>(() => {
-    const soldBatteries = numberOr(source.batteryStatusBuckets?.find((row: any) => String(row.label || '').toUpperCase() === 'SOLD')?.value);
+    const soldBatteries = source.soldBatteryPackCount !== undefined
+      ? numberOr(source.soldBatteryPackCount)
+      : numberOr(source.batteryStatusBuckets?.find((row: any) => String(row.label || '').toUpperCase() === 'SOLD')?.value);
     const soldRacks = (source.rackStatusBuckets || [])
       .filter((row: any) => String(row.label || row.status || '').toUpperCase().replace(/_/g, ' ') === 'SOLD')
       .reduce((total: number, row: any) => total + numberOr(row.value), 0);
@@ -578,7 +578,7 @@ const warehouseCellTotal = cellBucketTotal('KARACHI WAREHOUSE', 'LAHORE WAREHOUS
       { label: 'Racks', value: soldRacks, color: ceoDonutPalette[0] },
       { label: 'Battery Packs', value: soldBatteries, color: ceoDonutPalette[1] },
     ]);
-  }, [source.batteryStatusBuckets, source.rackStatusBuckets]);
+  }, [source.batteryStatusBuckets, source.rackStatusBuckets, source.soldBatteryPackCount]);
   const soldRackSerialNumbers = useMemo(() => {
     const values = Array.isArray(source.soldRackSerialNumbers) ? source.soldRackSerialNumbers : [];
     return formatDashboardSerialList(values);
@@ -668,7 +668,6 @@ const warehouseCellTotal = cellBucketTotal('KARACHI WAREHOUSE', 'LAHORE WAREHOUS
       Recycle: reusableSerials,
     };
   }, [damageReusableRows, source.cellStatusSerialNumbersByLabel, source.bmsSerialNumbersByLabel, source.bmuSerialNumbersByLabel, damageFilter]);
-  const soldCellTotal = numberOr(inventory.soldCells ?? source.cellBuckets?.find((row: any) => row.label === 'Sold')?.value);
   const filteredSoldRows = selectedSoldEntity === 'All' ? soldData : soldData.filter(row => row.label === selectedSoldEntity);
   const soldDistribution = useMemo(() => buildDashboardDistribution(
     filteredSoldRows,
@@ -719,7 +718,6 @@ const warehouseCellTotal = cellBucketTotal('KARACHI WAREHOUSE', 'LAHORE WAREHOUS
     rackData.map(row => ({ label: row.label, color: row.color })),
     filteredRackRows.reduce((total, row) => total + row.value, 0),
   ), [filteredRackRows, rackData]);
-  const rackTotal = rackDistribution.total;
   const producedCategoryBuckets = Array.isArray(source.producedCategoryBuckets) ? source.producedCategoryBuckets : [];
   const cabinetProduced = numberOr(producedCategoryBuckets.find((row: any) => row.label === 'Cabinet')?.value);
   const rackProduced = numberOr(producedCategoryBuckets.find((row: any) => row.label === 'Rack')?.value);
@@ -1350,7 +1348,7 @@ const warehouseCellTotal = cellBucketTotal('KARACHI WAREHOUSE', 'LAHORE WAREHOUS
                 </div>
               </div>
               <div className="flex items-center gap-2">
-                <div className="text-[18px] font-extrabold text-slate-900">{formatNumber(soldCellTotal)}</div>
+                <div className="text-[18px] font-extrabold text-slate-900">{formatNumber(soldDistribution.total)}</div>
                 <button
                   type="button"
                   onClick={() => void exportSoldReport()}
@@ -1415,10 +1413,10 @@ const warehouseCellTotal = cellBucketTotal('KARACHI WAREHOUSE', 'LAHORE WAREHOUS
                 </div>
                 <div>
                   <div className="text-[15px] font-bold text-slate-900">Warehouse</div>
-                  <div className="text-[11px] text-slate-400">Karachi vs Lahore warehouse stock</div>
+                  <div className="text-[11px] text-slate-400">{warehouseDescription}</div>
                 </div>
               </div>
-              <div className="flex items-center gap-2"><div className="text-[18px] font-extrabold text-slate-900">{formatNumber(warehouseCellTotal)}</div><button type="button" onClick={() => void exportWarehouseReport()} disabled={exportingWarehouseReport} className="inline-flex items-center gap-1 rounded-md border border-emerald-200 bg-white px-2 py-1 text-[10px] font-bold text-emerald-700 hover:bg-emerald-50 disabled:cursor-wait disabled:opacity-60" title="Export warehouse report"><Download className="h-3 w-3" />{exportingWarehouseReport ? 'Exporting...' : 'Export Warehouse Report'}</button></div>
+              <div className="flex items-center gap-2"><div className="text-[18px] font-extrabold text-slate-900">{formatNumber(warehouseDistribution.total)}</div><button type="button" onClick={() => void exportWarehouseReport()} disabled={exportingWarehouseReport} className="inline-flex items-center gap-1 rounded-md border border-emerald-200 bg-white px-2 py-1 text-[10px] font-bold text-emerald-700 hover:bg-emerald-50 disabled:cursor-wait disabled:opacity-60" title="Export warehouse report"><Download className="h-3 w-3" />{exportingWarehouseReport ? 'Exporting...' : 'Export Warehouse Report'}</button></div>
             </div>
             <div className="mb-3 flex flex-wrap gap-2 text-[10px] font-medium text-slate-500">
               <button type="button" data-ceo-dropdown="true" onClick={() => { setSelectedWarehouseInventoryType('All'); closeAllDropdowns(); }} className={`rounded-md border px-2 py-1 ${selectedWarehouseInventoryType === 'All' ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-slate-200 bg-slate-50 text-slate-500'}`}>All</button>
@@ -1456,10 +1454,10 @@ const warehouseCellTotal = cellBucketTotal('KARACHI WAREHOUSE', 'LAHORE WAREHOUS
                 </div>
                 <div>
                   <div className="text-[15px] font-bold text-slate-900">Racks</div>
-                  <div className="text-[11px] text-slate-400">Deployment &amp; status overview</div>
+                  <div className="text-[11px] text-slate-400">Rack count by capacity</div>
                 </div>
               </div>
-              <div className="flex items-center gap-2"><div className="text-[18px] font-extrabold text-slate-900">{formatNumber(rackCellTotal || rackTotal)}</div><button type="button" onClick={() => void exportRackReport()} disabled={exportingRackReport} className="inline-flex items-center gap-1 rounded-md border border-emerald-200 bg-white px-2 py-1 text-[10px] font-bold text-emerald-700 hover:bg-emerald-50 disabled:cursor-wait disabled:opacity-60" title="Export rack report"><Download className="h-3 w-3" />{exportingRackReport ? 'Exporting...' : 'Export Rack Report'}</button></div>
+              <div className="flex items-center gap-2"><div className="text-[18px] font-extrabold text-slate-900">{formatNumber(rackDistribution.total)}</div><button type="button" onClick={() => void exportRackReport()} disabled={exportingRackReport} className="inline-flex items-center gap-1 rounded-md border border-emerald-200 bg-white px-2 py-1 text-[10px] font-bold text-emerald-700 hover:bg-emerald-50 disabled:cursor-wait disabled:opacity-60" title="Export rack report"><Download className="h-3 w-3" />{exportingRackReport ? 'Exporting...' : 'Export Rack Report'}</button></div>
             </div>
 
             <div className="mb-3 flex flex-wrap gap-2 text-[10px]">
@@ -1500,10 +1498,10 @@ const warehouseCellTotal = cellBucketTotal('KARACHI WAREHOUSE', 'LAHORE WAREHOUS
                 </div>
                 <div>
                   <div className="text-[15px] font-bold text-slate-900">Battery Packs</div>
-                  <div className="text-[11px] text-slate-400">Status by model</div>
+                  <div className="text-[11px] text-slate-400">Pack count by model</div>
                 </div>
               </div>
-              <div className="flex items-center gap-2"><div className="text-[18px] font-extrabold text-slate-900">{formatNumber(batteryPackCellTotal)}</div><button type="button" onClick={() => void exportBatteryReport()} disabled={exportingBatteryReport} className="inline-flex items-center gap-1 rounded-md border border-emerald-200 bg-white px-2 py-1 text-[10px] font-bold text-emerald-700 hover:bg-emerald-50 disabled:cursor-wait disabled:opacity-60" title="Export battery report"><Download className="h-3 w-3" />{exportingBatteryReport ? 'Exporting...' : 'Export Battery Report'}</button></div>
+              <div className="flex items-center gap-2"><div className="text-[18px] font-extrabold text-slate-900">{formatNumber(batteryPackDistribution.total)}</div><button type="button" onClick={() => void exportBatteryReport()} disabled={exportingBatteryReport} className="inline-flex items-center gap-1 rounded-md border border-emerald-200 bg-white px-2 py-1 text-[10px] font-bold text-emerald-700 hover:bg-emerald-50 disabled:cursor-wait disabled:opacity-60" title="Export battery report"><Download className="h-3 w-3" />{exportingBatteryReport ? 'Exporting...' : 'Export Battery Report'}</button></div>
             </div>
 
             <div className="mb-3 flex flex-wrap gap-2 text-[10px]">
@@ -1544,10 +1542,10 @@ const warehouseCellTotal = cellBucketTotal('KARACHI WAREHOUSE', 'LAHORE WAREHOUS
                 </div>
                 <div>
                   <div className="text-[15px] font-bold text-slate-900">Modules</div>
-                  <div className="text-[11px] text-slate-400">Production &amp; status breakdown</div>
+                  <div className="text-[11px] text-slate-400">Module count by configuration</div>
                 </div>
               </div>
-              <div className="flex items-center gap-2"><div className="text-[18px] font-extrabold text-slate-900">{formatNumber(moduleCellTotal)}</div><button type="button" onClick={() => void exportModuleReport()} disabled={exportingModules} className="inline-flex items-center gap-1 rounded-md border border-emerald-200 bg-white px-2 py-1 text-[10px] font-bold text-emerald-700 hover:bg-emerald-50 disabled:cursor-wait disabled:opacity-60" title="Export module report"><Download className="h-3 w-3" />{exportingModules ? 'Exporting...' : 'Export Module Report'}</button></div>
+              <div className="flex items-center gap-2"><div className="text-[18px] font-extrabold text-slate-900">{formatNumber(moduleDistribution.total)}</div><button type="button" onClick={() => void exportModuleReport()} disabled={exportingModules} className="inline-flex items-center gap-1 rounded-md border border-emerald-200 bg-white px-2 py-1 text-[10px] font-bold text-emerald-700 hover:bg-emerald-50 disabled:cursor-wait disabled:opacity-60" title="Export module report"><Download className="h-3 w-3" />{exportingModules ? 'Exporting...' : 'Export Module Report'}</button></div>
             </div>
 
             <div className="mb-3 flex flex-wrap gap-2 text-[10px]">

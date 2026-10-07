@@ -46,8 +46,14 @@ export const ScannerModal: React.FC<ScannerModalProps> = ({
   const controlsRef = useRef<{ stop: () => void } | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const scanLockRef = useRef(false);
+  const submissionLockRef = useRef(false);
+  const isOpenRef = useRef(isOpen);
+  const scanSessionRef = useRef(0);
+  const cameraStartIdRef = useRef(0);
   const nativeScanTimerRef = useRef<number | null>(null);
   const nativeScanInFlightRef = useRef(false);
+
+  isOpenRef.current = isOpen;
 
   const cleanupCamera = async () => {
     scanLockRef.current = false;
@@ -92,17 +98,16 @@ export const ScannerModal: React.FC<ScannerModalProps> = ({
       const devices = await navigator.mediaDevices.enumerateDevices();
       const videoDevices = devices.filter(device => device.kind === 'videoinput');
       setCameraOptions(videoDevices);
-
-      if (videoDevices.length > 0 && !selectedCameraId) {
-        const preferred = videoDevices.find(device => /rear|back|environment|external/i.test(device.label)) ?? videoDevices[0];
-        setSelectedCameraId(preferred.deviceId);
-      }
+      const activeDeviceId = streamRef.current?.getVideoTracks()[0]?.getSettings().deviceId;
+      if (activeDeviceId) setSelectedCameraId(activeDeviceId);
     } catch (err) {
       console.warn('Unable to enumerate cameras', err);
     }
   };
 
   const startCamera = async (deviceId?: string) => {
+    const cameraStartId = ++cameraStartIdRef.current;
+    const scanSession = scanSessionRef.current;
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
       setCameraError('Unsupported browser. Use Manual Entry instead.');
       setStatus('Camera unavailable — use Manual Entry');
@@ -115,16 +120,23 @@ export const ScannerModal: React.FC<ScannerModalProps> = ({
 
     try {
       await cleanupCamera();
+      if (cameraStartId !== cameraStartIdRef.current || !isOpenRef.current || scanSession !== scanSessionRef.current) return;
 
       const constraints: MediaStreamConstraints = {
         video: deviceId
-          ? { deviceId: { exact: deviceId }, width: { ideal: 1920 }, height: { ideal: 1080 }, aspectRatio: { ideal: 16 / 9 } }
-          : { facingMode: { ideal: 'environment' }, width: { ideal: 1920 }, height: { ideal: 1080 }, aspectRatio: { ideal: 16 / 9 } },
+          ? { deviceId: { exact: deviceId }, width: { ideal: 1280 }, height: { ideal: 720 }, aspectRatio: { ideal: 16 / 9 } }
+          : { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 }, aspectRatio: { ideal: 16 / 9 } },
         audio: false,
       };
 
       const stream = await navigator.mediaDevices.getUserMedia(constraints);
+      if (cameraStartId !== cameraStartIdRef.current || !isOpenRef.current || scanSession !== scanSessionRef.current) {
+        stream.getTracks().forEach(track => track.stop());
+        return;
+      }
       streamRef.current = stream;
+      const activeDeviceId = stream.getVideoTracks()[0]?.getSettings().deviceId;
+      if (activeDeviceId) setSelectedCameraId(activeDeviceId);
       const videoTrack = stream.getVideoTracks()[0];
       const capabilities = videoTrack?.getCapabilities?.() as (MediaTrackCapabilities & {
         focusMode?: string[];
@@ -137,10 +149,6 @@ export const ScannerModal: React.FC<ScannerModalProps> = ({
         const advanced: Array<MediaTrackConstraintSet & Record<string, unknown>> = [];
         if ('focusMode' in capabilities && capabilities.focusMode?.includes('continuous')) {
           advanced.push({ focusMode: 'continuous' });
-        }
-        if ('zoom' in capabilities && capabilities.zoom) {
-          const zoom = capabilities.zoom;
-          advanced.push({ zoom: Math.min(zoom.max, Math.max(zoom.min, 2)) });
         }
         if (advanced.length > 0) await videoTrack.applyConstraints({ advanced: advanced as MediaTrackConstraintSet[] });
       }
@@ -166,12 +174,14 @@ export const ScannerModal: React.FC<ScannerModalProps> = ({
           const detector = new BarcodeDetector({ formats: ['qr_code'] });
           nativeScanTimerRef.current = window.setInterval(() => {
             const video = videoRef.current;
-            if (nativeScanInFlightRef.current || scanLockRef.current || !video || video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) return;
+            if (cameraStartId !== cameraStartIdRef.current || scanSession !== scanSessionRef.current || !isOpenRef.current
+              || nativeScanInFlightRef.current || scanLockRef.current || !video || video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) return;
             nativeScanInFlightRef.current = true;
             void detector.detect(video)
               .then((codes: Array<{ rawValue?: string }>) => {
                 const value = codes[0]?.rawValue;
-                if (value && !scanLockRef.current) {
+                if (value && cameraStartId === cameraStartIdRef.current && scanSession === scanSessionRef.current
+                  && isOpenRef.current && !scanLockRef.current) {
                   scanLockRef.current = true;
                   setBarcode(value);
                   setStatus('QR code detected — identifying component');
@@ -188,39 +198,46 @@ export const ScannerModal: React.FC<ScannerModalProps> = ({
         }
       }
 
-      const hints = new Map<DecodeHintType, any>([
-        [DecodeHintType.POSSIBLE_FORMATS, [BarcodeFormat.QR_CODE, BarcodeFormat.CODE_128, BarcodeFormat.CODE_39, BarcodeFormat.EAN_13, BarcodeFormat.EAN_8]],
-        [DecodeHintType.TRY_HARDER, true],
-      ]);
-      const reader = new BrowserMultiFormatReader(hints, {
-        delayBetweenScanAttempts: 80,
-        delayBetweenScanSuccess: 500,
-      });
-      readerRef.current = reader;
+      if (!nativeScanTimerRef.current) {
+        const hints = new Map<DecodeHintType, any>([
+          [DecodeHintType.POSSIBLE_FORMATS, [BarcodeFormat.QR_CODE, BarcodeFormat.CODE_128, BarcodeFormat.CODE_39, BarcodeFormat.EAN_13, BarcodeFormat.EAN_8]],
+          [DecodeHintType.TRY_HARDER, true],
+        ]);
+        const reader = new BrowserMultiFormatReader(hints, {
+          delayBetweenScanAttempts: 120,
+          delayBetweenScanSuccess: 500,
+        });
+        readerRef.current = reader;
 
-      const controls = await reader.decodeFromStream(
-        stream,
-        videoRef.current || undefined,
-        (result, error) => {
-          if (scanLockRef.current || !result) {
-            if (error && error.name !== 'NotFoundException') {
-              console.warn('Barcode decode warning', error);
+        const controls = await reader.decodeFromStream(
+          stream,
+          videoRef.current || undefined,
+          (result, error) => {
+            if (cameraStartId !== cameraStartIdRef.current || scanSession !== scanSessionRef.current || !isOpenRef.current) return;
+            if (scanLockRef.current || !result) {
+              if (error && error.name !== 'NotFoundException') {
+                console.warn('Barcode decode warning', error);
+              }
+              return;
             }
-            return;
-          }
 
-          const decoded = result.getText();
-          scanLockRef.current = true;
-          setBarcode(decoded);
-          setStatus('Barcode detected — identifying component');
-          void handleScanValue(decoded);
+            const decoded = result.getText();
+            scanLockRef.current = true;
+            setBarcode(decoded);
+            setStatus('Barcode detected — identifying component');
+            void handleScanValue(decoded);
+          }
+        );
+        if (cameraStartId !== cameraStartIdRef.current || scanSession !== scanSessionRef.current || !isOpenRef.current) {
+          controls.stop();
+          return;
         }
-      );
-      controlsRef.current = controls;
+        controlsRef.current = controls;
+      }
 
       setStatus('Camera scanner ready');
-      setIsCameraLoading(false);
     } catch (err: any) {
+      if (cameraStartId !== cameraStartIdRef.current || scanSession !== scanSessionRef.current || !isOpenRef.current) return;
       console.error('Camera initialization failed', err);
       const message = err?.name === 'NotAllowedError'
         ? 'Camera permission denied. Please allow access to continue.'
@@ -233,7 +250,7 @@ export const ScannerModal: React.FC<ScannerModalProps> = ({
       setCameraError(message);
       setStatus('Camera unavailable — use Manual Entry');
     } finally {
-      setIsCameraLoading(false);
+      if (cameraStartId === cameraStartIdRef.current) setIsCameraLoading(false);
     }
   };
 
@@ -252,6 +269,7 @@ export const ScannerModal: React.FC<ScannerModalProps> = ({
   };
 
   useEffect(() => {
+    scanSessionRef.current += 1;
     const isCompact = window.matchMedia('(max-width: 1024px)').matches;
     if (!isOpen) {
       void cleanupCamera();
@@ -263,6 +281,7 @@ export const ScannerModal: React.FC<ScannerModalProps> = ({
       return;
     }
 
+    scanLockRef.current = false;
     setError(null);
     setBarcode('');
     setMode(isCompact ? 'camera' : initialMode);
@@ -275,6 +294,7 @@ export const ScannerModal: React.FC<ScannerModalProps> = ({
 
   useEffect(() => {
     if (!isOpen || mode !== 'camera') {
+      cameraStartIdRef.current += 1;
       void cleanupCamera();
       return;
     }
@@ -282,11 +302,14 @@ export const ScannerModal: React.FC<ScannerModalProps> = ({
     void startCamera(selectedCameraId || undefined);
 
     return () => {
+      cameraStartIdRef.current += 1;
       void cleanupCamera();
     };
-  }, [isOpen, mode, selectedCameraId]);
+  }, [isOpen, mode]);
 
   const handleScanValue = async (value: string) => {
+    if (!isOpenRef.current || submissionLockRef.current) return;
+
     const normalized = normalizeScanValue(value);
     if (!normalized) {
       setError('Invalid barcode or serial number.');
@@ -294,6 +317,8 @@ export const ScannerModal: React.FC<ScannerModalProps> = ({
       return;
     }
 
+    submissionLockRef.current = true;
+    const scanSession = scanSessionRef.current;
     setError(null);
     setIsSubmitting(true);
 
@@ -301,12 +326,6 @@ export const ScannerModal: React.FC<ScannerModalProps> = ({
       await onScan(normalized);
       setBarcode('');
       setStatus('Scan complete');
-      scanLockRef.current = false;
-      if (mode === 'camera') {
-        setTimeout(() => {
-          if (isOpen) { void startCamera(selectedCameraId || undefined); }
-        }, 250);
-      }
     } catch (err: any) {
       const message = err?.message || 'Unable to identify component.';
       setError(message);
@@ -315,10 +334,13 @@ export const ScannerModal: React.FC<ScannerModalProps> = ({
       scanLockRef.current = false;
       if (mode === 'camera') {
         setTimeout(() => {
-          if (isOpen) { void startCamera(selectedCameraId || undefined); }
+          if (isOpenRef.current && scanSessionRef.current === scanSession) {
+            void startCamera(selectedCameraId || undefined);
+          }
         }, 350);
       }
     } finally {
+      submissionLockRef.current = false;
       setIsSubmitting(false);
     }
   };
@@ -392,7 +414,11 @@ export const ScannerModal: React.FC<ScannerModalProps> = ({
                   <label className="block text-[11px] font-bold uppercase tracking-wide text-slate-700">Camera</label>
                   <select
                     value={selectedCameraId}
-                    onChange={(event: React.ChangeEvent<HTMLSelectElement>) => setSelectedCameraId(event.target.value)}
+                    onChange={(event: React.ChangeEvent<HTMLSelectElement>) => {
+                      const deviceId = event.target.value;
+                      setSelectedCameraId(deviceId);
+                      void startCamera(deviceId);
+                    }}
                     className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-700 focus:border-emerald-400 focus:outline-none"
                   >
                     {cameraOptions.map((device: MediaDeviceInfo) => (

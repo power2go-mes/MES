@@ -11,6 +11,7 @@ import { Header } from './components/common/Header';
 import { Sidebar } from './components/common/Sidebar';
 import LoginPage from './components/auth/LoginPage';
 import { CheckCircle2, AlertTriangle, Info, X } from 'lucide-react';
+import { APP_CACHE_RETENTION_MS, cleanupDashboardStatsCache } from './lib/appCacheCleanup';
 
 const DashboardView = lazy(() => import('./components/dashboard/DashboardView').then(module => ({ default: module.DashboardView })));
 const CEOMonitoringView = lazy(() => import('./components/dashboard/CEOMonitoringView').then(module => ({ default: module.CEOMonitoringView })));
@@ -37,6 +38,20 @@ const AppContent: React.FC = () => {
   const { isAuthenticated, authLoading, currentUser, hasPermission } = useAuth();
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [visitedViews, setVisitedViews] = useState<NavView[]>(() => [activeView]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const cleanup = () => {
+      try {
+        cleanupDashboardStatsCache(window.localStorage);
+      } catch {
+        // Ignore unavailable browser storage.
+      }
+    };
+    cleanup();
+    const timer = window.setInterval(cleanup, APP_CACHE_RETENTION_MS);
+    return () => window.clearInterval(timer);
+  }, []);
   const openSidebar = () => {
     setSidebarOpen(true);
     setMobileNavOpen(true);

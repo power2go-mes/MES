@@ -21,6 +21,9 @@ import { buildCompletedBatteryReleasePlan, createBulkBatteryInitialization, dedu
 import { supabase as rawSupabase } from '../lib/supabaseBrowser';
 import { legacyBatterySerialLookup, normalizeBatteryName, normalizeBatterySerial } from '../lib/batteryNaming';
 import { legacyRackSerialLookup, normalizeRackSerial } from '../lib/rackNaming';
+import { buildCellInventoryBuckets, cellInventoryStatuses, cellInventoryStatusLabel, getCellInventoryStatus } from '../lib/cellInventoryStatus';
+import { getControllerInventoryBucket } from '../lib/inventoryStatus';
+import { readDashboardStatsCache, writeDashboardStatsCache } from '../lib/appCacheCleanup';
 
 const columnAliases: Record<string, string> = {
   bmsConfig: 'bms_config_json',
@@ -189,7 +192,71 @@ export function warehouseLocationStatus(location: string | undefined): string | 
 export function preferredLifecycleStatus(status: unknown, warehouseStatus?: string): string {
   const lifecycleStatus = String(status || '').toUpperCase();
   if (['SOLD', 'SCRAP', 'QUARANTINED', 'REJECTED'].includes(lifecycleStatus)) return lifecycleStatus;
-  return warehouseStatus || lifecycleStatus || 'UNKNOWN';
+  if (warehouseStatus) {
+    const ws = String(warehouseStatus).toUpperCase();
+    return ws.endsWith('_WAREHOUSE') ? ws : ws + '_WAREHOUSE';
+  }
+  return lifecycleStatus || 'UNKNOWN';
+}
+
+export function buildWarehouseInventorySummary(
+  racks: any[] = [],
+  batteries: any[] = [],
+  latestByEntity: Map<string, string> = new Map(),
+) {
+  const rackCounts = { KARACHI: 0, LAHORE: 0 };
+  const rackTypeCounts = new Map<string, { KARACHI: number; LAHORE: number }>();
+  const batteryCounts = { KARACHI: 0, LAHORE: 0 };
+  const batteryTypeCounts = new Map<string, { KARACHI: number; LAHORE: number }>();
+  const serialNumbers = {
+    'Karachi Racks': [] as string[],
+    'Lahore Racks': [] as string[],
+    'Karachi Battery Packs': [] as string[],
+    'Lahore Battery Packs': [] as string[],
+  };
+  const warehouseLocation = (entityType: string, entityId: string, fallback: unknown) => {
+    const value = String(latestByEntity.get(`${entityType}:${entityId}`) || fallback || '').toUpperCase().replace(/[_-]+/g, ' ');
+    if (value === 'KARACHI' || value === 'KARACHI WAREHOUSE') return 'KARACHI';
+    if (value === 'LAHORE' || value === 'LAHORE WAREHOUSE') return 'LAHORE';
+    return '';
+  };
+
+  for (const rack of racks) {
+    const id = String(rack?.id || '');
+    if (!id || String(rack?.status || '').toUpperCase() === 'SOLD') continue;
+    const location = warehouseLocation('RACK', id, rack?.location);
+    if (!location) continue;
+    rackCounts[location] += 1;
+    const type = String(rack?.rack_template_code || rack?.rackTemplateCode || 'UNKNOWN_RACK').toUpperCase();
+    const typeCounts = rackTypeCounts.get(type) || { KARACHI: 0, LAHORE: 0 };
+    typeCounts[location] += 1;
+    rackTypeCounts.set(type, typeCounts);
+    const serial = normalizeRackSerial(rack?.serial_number || rack?.serialNumber || id);
+    serialNumbers[location === 'KARACHI' ? 'Karachi Racks' : 'Lahore Racks'].push(serial);
+  }
+
+  for (const battery of batteries) {
+    const id = String(battery?.id || '');
+    if (!id) continue;
+    const location = warehouseLocation('BATTERY', id, battery?.location);
+    if (!location) continue;
+    batteryCounts[location] += 1;
+    const product = Array.isArray(battery?.product_templates) ? battery.product_templates[0] : battery?.product_templates;
+    const type = String(product?.name || (Number(product?.capacity_kwh) >= 7 ? '7.5 kWh Battery Pack' : '5 kWh Battery Pack')).trim();
+    const typeCounts = batteryTypeCounts.get(type) || { KARACHI: 0, LAHORE: 0 };
+    typeCounts[location] += 1;
+    batteryTypeCounts.set(type, typeCounts);
+    const serial = normalizeBatterySerial(battery?.serial_number || battery?.serialNumber || id);
+    serialNumbers[location === 'KARACHI' ? 'Karachi Battery Packs' : 'Lahore Battery Packs'].push(serial);
+  }
+
+  return {
+    rackCounts,
+    rackTypeCounts: Array.from(rackTypeCounts.entries()).map(([type, counts]) => ({ type, ...counts })),
+    batteryCounts,
+    batteryTypeCounts: Array.from(batteryTypeCounts.entries()).map(([type, counts]) => ({ type, ...counts })),
+    serialNumbers,
+  };
 }
 
 export function normalizeBatteryRecord(battery: any): any {
@@ -242,55 +309,6 @@ export async function getNextGlobalSequence(table: string, prefixStart: string, 
     if (data.length < 1000) break;
   }
   return maxSeq + 1;
-}
-
-function reconcileDashboardCellBuckets(buckets: any[], totalCells: any): any[] {
-  if (!Array.isArray(buckets)) return [];
-
-  const normalizeBucketLabel = (label: string) => {
-    const trimmed = String(label || '').trim();
-    if (!trimmed) return '';
-    const normalized = trimmed.replace(/_/g, ' ').toLowerCase();
-    if (['scrap', 'damage'].includes(normalized)) return 'Damage';
-    if (['recycle', 'reusable'].includes(normalized)) return 'Reusable';
-    return trimmed;
-  };
-
-  const merged = new Map<string, number>();
-  for (const row of buckets) {
-    const label = normalizeBucketLabel(String(row?.label || ''));
-    if (!label) continue;
-    merged.set(label, (merged.get(label) || 0) + Math.max(0, Number(row?.value) || 0));
-  }
-
-  const rows = Array.from(merged.entries()).map(([label, value]) => ({ label, value }));
-  const total = Math.max(0, Number(totalCells) || rows.reduce((sum, row) => sum + row.value, 0));
-  const currentTotal = rows.reduce((sum, row) => sum + row.value, 0);
-
-  if (total <= 0) return rows;
-
-  if (currentTotal > total) {
-    let remaining = currentTotal - total;
-    const sorted = [...rows].sort((left, right) => right.value - left.value);
-    for (const row of sorted) {
-      if (remaining <= 0) break;
-      const reduction = Math.min(row.value, remaining);
-      row.value -= reduction;
-      remaining -= reduction;
-    }
-    return rows.filter(row => row.value > 0);
-  }
-
-  if (currentTotal < total) {
-    const stockRow = rows.find(row => row.label === 'In Stock');
-    if (stockRow) {
-      stockRow.value += total - currentTotal;
-    } else {
-      rows.push({ label: 'In Stock', value: total - currentTotal });
-    }
-  }
-
-  return rows;
 }
 
 function mergeReservedBatteryCells(modules: any[], reservedCells: any[], batteryId: string): any[] {
@@ -348,7 +366,7 @@ async function loadModuleCellAssignments(moduleIds: string[]): Promise<any[]> {
 }
 
 async function loadWarehouseLocationSnapshot() {
-  if (!rawSupabase) return { locationByCell: new Map<string, string>(), latestByEntity: new Map<string, string>(), warehouseRackCounts: { KARACHI: 0, LAHORE: 0 }, warehouseRackTypeCounts: [], warehouseBatteryCounts: { KARACHI: 0, LAHORE: 0 }, warehouseBatteryTypeCounts: [], rackCellCount: 0 };
+  if (!rawSupabase) return { locationByCell: new Map<string, string>(), latestByEntity: new Map<string, string>(), warehouseRackCounts: { KARACHI: 0, LAHORE: 0 }, warehouseRackTypeCounts: [], warehouseBatteryCounts: { KARACHI: 0, LAHORE: 0 }, warehouseBatteryTypeCounts: [], warehouseStatusSerialNumbers: { 'Karachi Racks': [], 'Lahore Racks': [], 'Karachi Battery Packs': [], 'Lahore Battery Packs': [] }, rackCellCount: 0 };
   const warehouseSupabase = rawSupabase;
 
   const normalizeWarehouseLocation = (value: unknown): 'KARACHI' | 'LAHORE' | '' => {
@@ -385,7 +403,7 @@ async function loadWarehouseLocationSnapshot() {
     rawSupabase.from('batteries').select('id, serial_number, product_templates(name, capacity_kwh)'),
     rawSupabase.from('rack_packs').select('battery_id, rack_id'),
     rawSupabase.from('racks').select('id, serial_number, qr_code, rack_template_code, location, status'),
-    fetchAllRows('cells', 'id, lifecycle_status, status, internal_serial, supplier_barcode, grade, created_at'),
+    fetchAllRows('cells', 'id, lifecycle_status, status, reserved_for_battery_id, internal_serial, supplier_barcode, grade, created_at'),
   ]);
   const warehouseMoves = warehouseResult.data || [];
   const modules = modulesResult.data || [];
@@ -535,43 +553,16 @@ async function loadWarehouseLocationSnapshot() {
     applyEntityToCellSet('RACK', key.slice('RACK:'.length), location);
   });
 
-  const warehouseRackCounts = { KARACHI: 0, LAHORE: 0 };
-  const warehouseRackTypeCounts = new Map<string, { KARACHI: number; LAHORE: number }>();
-  const warehouseBatteryCounts = { KARACHI: 0, LAHORE: 0 };
-  const warehouseBatteryTypeCounts = new Map<string, { KARACHI: number; LAHORE: number }>();
-  latestByEntity.forEach((location, key) => {
-    if (key.startsWith('BATTERY:')) {
-      if (location === 'KARACHI') warehouseBatteryCounts.KARACHI += 1;
-      if (location === 'LAHORE') warehouseBatteryCounts.LAHORE += 1;
-      const batteryId = key.slice('BATTERY:'.length);
-      const battery = batteries.find((item: any) => String(item?.id || '') === batteryId);
-      const product = Array.isArray(battery?.product_templates) ? battery.product_templates[0] : battery?.product_templates;
-      const productName = String(product?.name || (Number(product?.capacity_kwh) >= 7 ? '7.5 kWh Battery Pack' : '5 kWh Battery Pack')).trim();
-      const counts = warehouseBatteryTypeCounts.get(productName) || { KARACHI: 0, LAHORE: 0 };
-      if (location === 'KARACHI') counts.KARACHI += 1;
-      if (location === 'LAHORE') counts.LAHORE += 1;
-      warehouseBatteryTypeCounts.set(productName, counts);
-      return;
-    }
-    if (!key.startsWith('RACK:')) return;
-    if (location === 'KARACHI') warehouseRackCounts.KARACHI += 1;
-    if (location === 'LAHORE') warehouseRackCounts.LAHORE += 1;
-    const rackId = key.slice('RACK:'.length);
-    const rack = racks.find((item: any) => String(item?.id || '') === rackId);
-    const type = String(rack?.rack_template_code || 'UNKNOWN_RACK').toUpperCase();
-    const counts = warehouseRackTypeCounts.get(type) || { KARACHI: 0, LAHORE: 0 };
-    if (location === 'KARACHI') counts.KARACHI += 1;
-    if (location === 'LAHORE') counts.LAHORE += 1;
-    warehouseRackTypeCounts.set(type, counts);
-  });
+  const warehouseInventory = buildWarehouseInventorySummary(racks || [], batteries || [], latestByEntity);
 
   return {
     locationByCell,
     latestByEntity,
-    warehouseRackCounts,
-    warehouseRackTypeCounts: Array.from(warehouseRackTypeCounts.entries()).map(([type, counts]) => ({ type, ...counts })),
-    warehouseBatteryCounts,
-    warehouseBatteryTypeCounts: Array.from(warehouseBatteryTypeCounts.entries()).map(([type, counts]) => ({ type, ...counts })),
+    warehouseRackCounts: warehouseInventory.rackCounts,
+    warehouseRackTypeCounts: warehouseInventory.rackTypeCounts,
+    warehouseBatteryCounts: warehouseInventory.batteryCounts,
+    warehouseBatteryTypeCounts: warehouseInventory.batteryTypeCounts,
+    warehouseStatusSerialNumbers: warehouseInventory.serialNumbers,
     rackCellCount: rackCellIds.size,
     lifecycleByCellId,
     cells: cellsResult || [],
@@ -832,38 +823,41 @@ export const api = {
   },
 
   // Dashboard stats
-  async getDashboardStats(startDate?: string, endDate?: string, onSummary?: (stats: any) => void): Promise<any> {
+  async getDashboardStats(startDate?: string, endDate?: string, onSummary?: (stats: any) => void, forceRefresh = false): Promise<any> {
     const cacheKey = `${startDate || ''}:${endDate || ''}`;
     const now = Date.now();
-    if (dashboardStatsCache?.key === cacheKey && dashboardStatsCache.expiresAt > now) {
+    if (!forceRefresh && dashboardStatsCache?.key === cacheKey && dashboardStatsCache.expiresAt > now) {
       onSummary?.(dashboardStatsCache.value);
       return dashboardStatsCache.value;
     }
-    if (!startDate && !endDate && typeof window !== 'undefined') {
+    if (!forceRefresh && !startDate && !endDate && typeof window !== 'undefined') {
       try {
-        const persisted = window.localStorage.getItem('p2g_dashboard_stats_cache');
-        if (persisted) onSummary?.(JSON.parse(persisted));
+        const persisted = readDashboardStatsCache(window.localStorage);
+        if (persisted) onSummary?.(persisted);
       } catch {
         // Ignore unavailable or invalid browser storage.
       }
     }
-    if (dashboardStatsRequest?.key === cacheKey) return dashboardStatsRequest.promise;
+    if (!forceRefresh && dashboardStatsRequest?.key === cacheKey) return dashboardStatsRequest.promise;
 
     const promise = api.loadDashboardStats(startDate, endDate, onSummary);
-    dashboardStatsRequest = { key: cacheKey, promise };
+    const request = { key: cacheKey, promise };
+    dashboardStatsRequest = request;
     try {
       const value = await promise;
-      dashboardStatsCache = { key: cacheKey, value, expiresAt: Date.now() + 30000 };
-      if (!startDate && !endDate && typeof window !== 'undefined') {
+      if (dashboardStatsRequest === request) {
+        dashboardStatsCache = { key: cacheKey, value, expiresAt: Date.now() + 30000 };
+      }
+      if (dashboardStatsRequest === request && !startDate && !endDate && typeof window !== 'undefined') {
         try {
-          window.localStorage.setItem('p2g_dashboard_stats_cache', JSON.stringify(value));
+          writeDashboardStatsCache(window.localStorage, value);
         } catch {
           // Ignore storage quota and privacy-mode failures.
         }
       }
       return value;
     } finally {
-      if (dashboardStatsRequest?.key === cacheKey) dashboardStatsRequest = null;
+      if (dashboardStatsRequest === request) dashboardStatsRequest = null;
     }
   },
 
@@ -884,7 +878,7 @@ export const api = {
         p_end_date: endDate || null,
       });
       const detailDataPromise = Promise.all([
-        applyDateRange(rawSupabase.from('modules').select('id,module_type,status,created_at,serial_number,battery:batteries(product_templates(capacity_kwh,num_modules))')),
+        applyDateRange(rawSupabase.from('modules').select('id,battery_id,lifecycle_status,module_type,status,created_at,serial_number,battery:batteries(product_templates(capacity_kwh,num_modules))')),
         applyDateRange(rawSupabase.from('batteries').select('id,bms_id,bmu_id,progress_percent,status,lifecycle_status,created_at,product_id,serial_number,product_templates(name,capacity_kwh)')),
         applyDateRange(rawSupabase.from('racks').select('id,status,rack_template_code,required_pack_count,required_pack_template_code,created_at,serial_number')),
         rawSupabase.from('rack_packs').select('rack_id,battery:batteries(product_templates(capacity_kwh))'),
@@ -894,8 +888,8 @@ export const api = {
         rawSupabase.from('module_cells').select('cell_id,module:modules(battery_id)'),
         rawSupabase.from('rack_packs').select('battery_id,rack:racks(status)'),
         rawSupabase.from('quarantine_records').select('entity_id,entity_type,status,disposed_of_as'),
-        rawSupabase.from('bms_units').select('id,status,serial_number'),
-        rawSupabase.from('bmu_units').select('id,status,serial_number'),
+        rawSupabase.from('bms_units').select('id,status,serial_number,reserved_for_battery_id'),
+        rawSupabase.from('bmu_units').select('id,status,serial_number,reserved_for_battery_id'),
       ]);
       const { data, error } = await dashboardSummaryPromise;
 
@@ -926,13 +920,27 @@ export const api = {
 
       const detailData = await detailDataPromise;
       const warehouseLocations = await warehouseLocationPromise;
-      const { latestByEntity } = warehouseLocations;
+      const { latestByEntity, warehouseStatusSerialNumbers } = warehouseLocations;
       const liveCells = warehouseLocations.cells || [];
       const [{ data: liveModules }, { data: liveBatteries }, { data: liveRacks }, { data: liveRackPacks }, { data: soldBatteries }, { data: soldRacks }, { data: soldCells }, { data: soldModuleCells }, { data: soldRackPacks }, { data: reusableRecords }, { data: liveBms }, { data: liveBmus }] = detailData;
       const reusableCellIds = new Set((reusableRecords || [])
-        .filter((record: any) => ['RELEASE_APPROVED', 'REWORK', 'REUSABLE', 'RECYCLE'].includes(String(record.disposed_of_as || '').toUpperCase()))
+        .filter((record: any) => String(record.entity_type || '').toUpperCase() === 'CELL'
+          && ['RELEASE_APPROVED', 'REWORK', 'REUSABLE', 'RECYCLE'].includes(String(record.disposed_of_as || '').toUpperCase()))
         .map((record: any) => String(record.entity_id || ''))
         .filter(Boolean));
+      const dashboardCells = (liveCells || []).filter((cell: any) => {
+        const createdDate = String(cell.created_at || '').slice(0, 10);
+        return (!startDate || createdDate >= startDate) && (!endDate || createdDate <= endDate);
+      });
+      const inventoryIdsByStatus: Record<string, Record<string, string[]>> = {
+        CELLS: Object.fromEntries(cellInventoryStatuses.map(status => [status, []])),
+      };
+      const addInventoryIdByStatus = (tab: string, status: string, id: unknown) => {
+        if (!id) return;
+        const statusKey = String(status || 'UNKNOWN').trim().toUpperCase().replace(/[\s-]+/g, '_');
+        const tabStatuses = inventoryIdsByStatus[tab] || (inventoryIdsByStatus[tab] = {});
+        (tabStatuses[statusKey] || (tabStatuses[statusKey] = [])).push(String(id));
+      };
       const extractSerial = (...values: any[]) => {
         for (const value of values) {
           const candidate = String(value ?? '').trim();
@@ -956,19 +964,29 @@ export const api = {
         if (label === 'Reusable') cellStatusSerialNumbersByLabel.Recycle = [...(cellStatusSerialNumbersByLabel.Recycle || []), serial];
         if (label === 'Recycle') cellStatusSerialNumbersByLabel.Reusable = [...(cellStatusSerialNumbersByLabel.Reusable || []), serial];
       };
-      (liveCells || []).forEach((cell: any) => {
-        const lifecycleStatus = String(cell.lifecycle_status || cell.status || '').toUpperCase();
-        const productionGrade = String(cell.grade || '').toUpperCase();
-        const warehouseLocation = String(latestByEntity.get(`CELL:${cell.id}`) || '').toUpperCase();
-        let label = 'In Stock';
-        if (['SOLD', 'DISPATCHED'].includes(lifecycleStatus)) label = 'Sold';
-        else if (['DAMAGE', 'DAMAGED', 'SCRAP', 'QUARANTINED'].includes(lifecycleStatus) || ['DAMAGE', 'DAMAGED', 'SCRAP', 'QUARANTINED'].includes(productionGrade)) label = 'Damage';
-        else if (lifecycleStatus === 'IN_RACK') label = 'In Rack';
-        else if (lifecycleStatus === 'IN_PACK') label = 'In Pack';
-        else if (lifecycleStatus === 'IN_MODULE') label = 'In Module';
-        else if (warehouseLocation === 'KARACHI') label = 'Karachi Warehouse';
-        else if (warehouseLocation === 'LAHORE') label = 'Lahore Warehouse';
-        pushCellSerial(label, cell);
+      const moduleAssignmentByCell = new Map((soldModuleCells || []).map((assignment: any) => [
+        String(assignment.cell_id),
+        String(assignment.module?.battery_id || ''),
+      ]));
+      const rackBatteryIds = new Set((soldRackPacks || []).map((row: any) => String(row.battery_id || '')));
+      const batteryStatusById = new Map<string, string>((liveBatteries || []).map((battery: any): [string, string] => [String(battery.id), String(battery.status || '')]));
+      const getCellStatusContext = (cell: any) => {
+        const id = String(cell.id || '');
+        const moduleBatteryId = moduleAssignmentByCell.get(id) || '';
+        return {
+          warehouseLocation: warehouseLocations.locationByCell.get(id) || latestByEntity.get(`CELL:${id}`),
+          isReusable: reusableCellIds.has(id),
+          hasModuleAssignment: moduleAssignmentByCell.has(id),
+          moduleBatteryId,
+          batteryStatus: moduleBatteryId ? String(batteryStatusById.get(moduleBatteryId) || '') : undefined,
+          isInRack: Boolean(moduleBatteryId && rackBatteryIds.has(moduleBatteryId)),
+        };
+      };
+      const cellBuckets = buildCellInventoryBuckets(dashboardCells, getCellStatusContext);
+      dashboardCells.forEach((cell: any) => {
+        const status = getCellInventoryStatus(cell, getCellStatusContext(cell));
+        addInventoryIdByStatus('CELLS', status, cell.id);
+        pushCellSerial(cellInventoryStatusLabel(status), cell);
       });
       const damageReusableSerialNumbers: Record<string, string[]> = {};
       (liveCells || []).forEach((cell: any) => {
@@ -1003,24 +1021,33 @@ export const api = {
       const bmuBuckets = new Map<string, number>();
       const bmsSerialDetailMap: Record<string, string[]> = {};
       const bmuSerialDetailMap: Record<string, string[]> = {};
+      const linkedBmsIds = new Set<string>((liveBatteries || []).map((battery: any) => String(battery.bms_id || battery.bmsId || '')).filter(Boolean));
+      const linkedBmuIds = new Set<string>((liveBatteries || []).map((battery: any) => String(battery.bmu_id || battery.bmuId || '')).filter(Boolean));
+      const isAssignedController = (controller: any, linkedIds: Set<string>, id: string) => (
+        String(controller.status || '').toUpperCase() === 'ASSIGNED'
+        || Boolean(controller.reserved_for_battery_id)
+        || linkedIds.has(id)
+      );
 
       const mapControllerStatus = (status: string) => {
-        const s = String(status || '').toUpperCase();
-        if (['AVAILABLE', 'IN_STOCK', 'FLOOR_STOCK'].includes(s)) return 'Available';
-        if (['ASSIGNED', 'IN_PROCESS', 'IN_MODULE', 'IN_PACK', 'IN_RACK'].includes(s)) return 'Used';
-        if (['FAILED', 'DAMAGED', 'SCRAP', 'REJECTED'].includes(s)) return 'Damage';
-        if (['PASSED', 'REUSABLE', 'RELEASE_APPROVED'].includes(s)) return 'Reusable';
-        return s;
+        const bucket = getControllerInventoryBucket(status);
+        return bucket === 'AVAILABLE' ? 'Available'
+          : bucket === 'USED' ? 'Used'
+            : bucket === 'DAMAGE' ? 'Damage'
+              : bucket === 'REUSABLE' ? 'Reusable'
+                : bucket;
       };
 
       (liveBms || []).forEach((controller: any) => {
-         const bucket = mapControllerStatus(controller.status);
+        const bucket = mapControllerStatus(isAssignedController(controller, linkedBmsIds, String(controller.id)) ? 'ASSIGNED' : controller.status);
+        addInventoryIdByStatus('BMS', bucket, controller.id);
          bmsBuckets.set(bucket, (bmsBuckets.get(bucket) || 0) + 1);
          const serial = extractSerial(controller.serial_number, controller.serialNumber);
          if (serial) bmsSerialDetailMap[bucket] = [...(bmsSerialDetailMap[bucket] || []), serial];
       });
       (liveBmus || []).forEach((controller: any) => {
-         const bucket = mapControllerStatus(controller.status);
+        const bucket = mapControllerStatus(isAssignedController(controller, linkedBmuIds, String(controller.id)) ? 'ASSIGNED' : controller.status);
+        addInventoryIdByStatus('BMU', bucket, controller.id);
          bmuBuckets.set(bucket, (bmuBuckets.get(bucket) || 0) + 1);
          const serial = extractSerial(controller.serial_number, controller.serialNumber);
          if (serial) bmuSerialDetailMap[bucket] = [...(bmuSerialDetailMap[bucket] || []), serial];
@@ -1040,10 +1067,42 @@ export const api = {
       const liveModuleTypeBuckets = ['8S', '12S'].map(label => ({ label, value: moduleTypeCounts.get(label) || 0, capacityKwh: moduleTypeCapacity.get(label) || 0 }));
       const moduleStatusCounts = new Map<string, number>();
       (liveModules || []).forEach((module: any) => {
-        const status = String(module.status || 'UNKNOWN').replace(/_/g, ' ');
+        const lifecycleStatus = String(module.lifecycleStatus || module.lifecycle_status || '').toUpperCase();
+        let status = 'IN_MODULE';
+        if (['IN_RACK', 'IN_PACK', 'SOLD', 'SCRAP'].includes(lifecycleStatus)) {
+          status = lifecycleStatus;
+        } else if (module.batteryId || module.battery_id) {
+          status = 'IN_PACK';
+        } else if (String(module.status || '').toUpperCase() === 'PASSED') {
+          status = 'IN_STOCK';
+        } else if (lifecycleStatus) {
+          status = lifecycleStatus;
+        }
+        addInventoryIdByStatus('MODULES', status, module.id);
+        status = status.replace(/_/g, ' ');
         moduleStatusCounts.set(status, (moduleStatusCounts.get(status) || 0) + 1);
       });
       const moduleProgressBuckets = Array.from(moduleStatusCounts.entries()).map(([label, value]) => ({ label, value }));
+
+      const batteryStatusCounts = new Map<string, number>();
+      (liveBatteries || []).forEach((battery: any) => {
+        const warehouseStatus = (battery.id && warehouseLocations.latestByEntity) ? warehouseLocations.latestByEntity.get(`BATTERY:${battery.id}`) : undefined;
+        const normalizedWarehouseStatus = warehouseStatus ? (String(warehouseStatus).toUpperCase().endsWith('_WAREHOUSE') ? String(warehouseStatus).toUpperCase() : String(warehouseStatus).toUpperCase() + '_WAREHOUSE') : '';
+        const lifecycleStatus = String(battery.lifecycleStatus || battery.status || '').toUpperCase();
+        let status = String(battery.status || 'UNKNOWN').toUpperCase();
+        if (normalizedWarehouseStatus) {
+          status = normalizedWarehouseStatus;
+        } else if (['RELEASED', 'DISPATCHED', 'FINISHED'].includes(lifecycleStatus)) {
+          status = 'IN_STOCK';
+        } else if (['IN_STOCK', 'FLOOR_STOCK', 'IN_MODULE', 'IN_PACK', 'IN_RACK', 'SOLD', 'SCRAP', 'KARACHI_WAREHOUSE', 'LAHORE_WAREHOUSE'].includes(lifecycleStatus)) {
+          status = lifecycleStatus;
+        }
+        addInventoryIdByStatus('BATTERIES', status, battery.id);
+        status = status.replace(/_/g, ' ');
+        batteryStatusCounts.set(status, (batteryStatusCounts.get(status) || 0) + 1);
+      });
+      const batteryProgressBuckets = Array.from(batteryStatusCounts.entries()).map(([label, value]) => ({ label, value }));
+
       const livePackCounts = new Map<string, number>();
       (liveBatteries || []).forEach((battery: any) => {
         const name = normalizeBatteryName(battery.product_templates?.name || 'Unnamed Pack');
@@ -1147,17 +1206,10 @@ export const api = {
         label,
         series: Array.from(livePackCounts.keys()).map(name => ({ name, value: batteryTrendCounts.get(label)?.get(name) || 0 })),
       }));
-      const linkedBmsIds = new Set<string>((liveBatteries || []).map((battery: any) => String(battery.bms_id || battery.bmsId || '')).filter(Boolean));
-      const linkedBmuIds = new Set<string>((liveBatteries || []).map((battery: any) => String(battery.bmu_id || battery.bmuId || '')).filter(Boolean));
       const isAvailableController = (controller: any, linkedIds: Set<string>, id: string) => (
         String(controller.status || '').toUpperCase() === 'AVAILABLE'
         && !controller.reserved_for_battery_id
         && !linkedIds.has(id)
-      );
-      const isAssignedController = (controller: any, linkedIds: Set<string>, id: string) => (
-        String(controller.status || '').toUpperCase() === 'ASSIGNED'
-        || Boolean(controller.reserved_for_battery_id)
-        || linkedIds.has(id)
       );
       const controllerInventory = {
         availableBms: (liveBms || []).filter((controller: any) => isAvailableController(controller, linkedBmsIds, controller.id)).length,
@@ -1167,17 +1219,9 @@ export const api = {
         assignedBms: (liveBms || []).filter((controller: any) => isAssignedController(controller, linkedBmsIds, controller.id)).length,
         assignedBmu: (liveBmus || []).filter((controller: any) => isAssignedController(controller, linkedBmuIds, controller.id)).length,
       };
-      const { locationByCell: warehouseCellLocations, lifecycleByCellId, warehouseRackCounts, warehouseRackTypeCounts, warehouseBatteryCounts, warehouseBatteryTypeCounts, rackCellCount } = warehouseLocations;
-      const normalizedCellBuckets = reconcileDashboardCellBuckets(data?.cellBuckets, data?.inventory?.totalCells);
-      const warehouseAwareCellBuckets = buildWarehouseLocationBuckets(normalizedCellBuckets, warehouseCellLocations, lifecycleByCellId);
+      const { locationByCell: warehouseCellLocations, warehouseRackCounts, warehouseRackTypeCounts, warehouseBatteryCounts, warehouseBatteryTypeCounts, rackCellCount } = warehouseLocations;
       const karachiWarehouseCells = Array.from(warehouseCellLocations.values()).filter(location => location === 'KARACHI').length;
       const lahoreWarehouseCells = Array.from(warehouseCellLocations.values()).filter(location => location === 'LAHORE').length;
-      const warehouseStatusSerialNumbers = {
-        'Karachi Racks': (liveRacks || []).filter((rack: any) => String(latestByEntity.get(`RACK:${rack.id}`) || '').toUpperCase() === 'KARACHI').map((rack: any) => normalizeRackSerial(rack.serial_number || rack.serialNumber)).filter(Boolean),
-        'Lahore Racks': (liveRacks || []).filter((rack: any) => String(latestByEntity.get(`RACK:${rack.id}`) || '').toUpperCase() === 'LAHORE').map((rack: any) => normalizeRackSerial(rack.serial_number || rack.serialNumber)).filter(Boolean),
-        'Karachi Battery Packs': (liveBatteries || []).filter((battery: any) => String(latestByEntity.get(`BATTERY:${battery.id}`) || '').toUpperCase() === 'KARACHI').map((battery: any) => normalizeBatterySerial(battery.serial_number || battery.serialNumber)).filter(Boolean),
-        'Lahore Battery Packs': (liveBatteries || []).filter((battery: any) => String(latestByEntity.get(`BATTERY:${battery.id}`) || '').toUpperCase() === 'LAHORE').map((battery: any) => normalizeBatterySerial(battery.serial_number || battery.serialNumber)).filter(Boolean),
-      };
       const rackTypeSerialNumbers = new Map<string, string[]>();
       (liveRacks || []).forEach((rack: any) => {
         const rackType = String(rack.rack_template_code || 'UNKNOWN_RACK');
@@ -1199,7 +1243,10 @@ export const api = {
         batteryPackSerialNumbersByLabel[labelKey] = [...(batteryPackSerialNumbersByLabel[labelKey] || []), serial];
       });
       const rackStatusMap = (liveRacks || []).reduce((counts: Map<string, { value: number; capacityKwh: number; rackTypes: Map<string, { value: number; capacityKwh: number }> }>, rack: any) => {
-        const status = String(rack.status || 'UNKNOWN').replace(/_/g, ' ');
+        const warehouseStatus = (rack.id && warehouseLocations.latestByEntity) ? warehouseLocations.latestByEntity.get(`RACK:${rack.id}`) : undefined;
+        const statusCode = String(preferredLifecycleStatus(rack.status, warehouseStatus) || 'UNKNOWN');
+        addInventoryIdByStatus('RACKS', statusCode, rack.id);
+        const status = statusCode.replace(/_/g, ' ');
         const rackType = String(rack.rack_template_code || 'UNKNOWN_RACK');
         const capacityKwh = Number(String(rack.rack_template_code || '').match(/RACK_(\d+(?:\.\d+)?)KWH/i)?.[1] || 0);
         const current = counts.get(status) || { value: 0, capacityKwh: 0, rackTypes: new Map<string, { value: number; capacityKwh: number }>() };
@@ -1262,15 +1309,13 @@ export const api = {
           totalBms: Number(data?.inventory?.totalBms || 0),
           totalBmu: Number(data?.inventory?.totalBmu || 0),
         },
-        // Lifecycle buckets are authoritative. Warehouse location is reported separately
-        // and must not reclassify or duplicate cells in the inventory distribution.
-        cellBuckets: warehouseAwareCellBuckets,
-        cellTotal: Number(data?.inventory?.totalCells || warehouseAwareCellBuckets.reduce((sum: number, bucket: any) => sum + (Number(bucket.value) || 0), 0)),
+        cellBuckets,
+        cellTotal: dashboardCells.length,
         moduleTotal: liveModules?.length || 0,
-        moduleStatusBuckets: liveModuleTypeBuckets,
+        moduleStatusBuckets: moduleProgressBuckets,
         moduleProgressBuckets,
         moduleTypeBuckets: liveModuleTypeBuckets,
-        batteryStatusBuckets: Array.isArray(data?.batteryStatusBuckets) ? data.batteryStatusBuckets : [],
+        batteryStatusBuckets: batteryProgressBuckets,
         batteryPackTotal: liveBatteries?.length || 0,
         soldBatteryCapacityKwh,
         soldRackCapacityKwh,
@@ -1287,7 +1332,9 @@ export const api = {
           : (Array.isArray(data?.batteryPackTrend) ? data.batteryPackTrend : []),
         moduleTypeTrend,
         soldRackSerialNumbers: (soldRacks || []).map((rack: any) => normalizeRackSerial(rack.serial_number || rack.serialNumber)).filter(Boolean),
-        soldBatterySerialNumbers: (soldBatteries || []).map((battery: any) => normalizeBatterySerial(battery.serial_number || battery.serialNumber)).filter(Boolean),
+        soldBatterySerialNumbers: (soldBatteries || [])
+          .filter((battery: any) => !soldRackBatteryIds.has(String(battery.id || '')))
+          .map((battery: any) => normalizeBatterySerial(battery.serial_number || battery.serialNumber)).filter(Boolean),
         warehouseStatusSerialNumbers,
         rackStatusSerialNumbersByType: Object.fromEntries(rackTypeSerialNumbers.entries()),
         batteryPackSerialNumbersByLabel,
@@ -1299,6 +1346,7 @@ export const api = {
         bmsSerialNumbersByLabel: bmsSerialDetailMap,
         bmuSerialNumbersByLabel: bmuSerialDetailMap,
         reusableCellCount: reusableCellIds.size,
+        reusableCellIds: Array.from(reusableCellIds),
         controllerSerialNumbersByLabel,
         rackTotal: liveRacks?.length || 0,
         rackStatusBuckets: rackStatusEntries.map(([label, values]) => ({
@@ -1307,6 +1355,7 @@ export const api = {
           capacityKwh: values.capacityKwh,
           rackTypes: (Array.from(values.rackTypes.entries()) as Array<[string, { value: number; capacityKwh: number }]>).map(([rackType, totals]) => ({ rackType, ...totals })),
         })),
+        inventoryIdsByStatus,
         quarantineOpenCount: data?.inventory?.quarantinedCells || 0,
       };
     } catch (error) {
@@ -2172,12 +2221,12 @@ export const api = {
     }
   },
 
-  async getCellCounts(): Promise<{ total: number; used: number; available: number; quarantined: number }> {
+  async getCellCounts(forceRefresh = false): Promise<{ total: number; used: number; available: number; quarantined: number }> {
     const now = Date.now();
-    if (cellCountsCache && cellCountsCache.expiresAt > now) return cellCountsCache.value;
-    if (cellCountsRequest) return cellCountsRequest;
+    if (!forceRefresh && cellCountsCache && cellCountsCache.expiresAt > now) return cellCountsCache.value;
+    if (!forceRefresh && cellCountsRequest) return cellCountsRequest;
 
-    cellCountsRequest = (async () => {
+    const request = (async () => {
       const [totalResult, usedResult, availableResult, quarantinedResult] = await Promise.all([
         supabase.from('cells').select('id', { count: 'exact', head: true }),
         supabase.from('cells').select('id', { count: 'exact', head: true }).or('reserved_for_battery_id.not.is.null,reserved_for_order_id.not.is.null'),
@@ -2193,22 +2242,24 @@ export const api = {
         quarantined: quarantinedResult.count || 0,
       };
     })();
+    cellCountsRequest = request;
     try {
-      const value = await cellCountsRequest;
-      cellCountsCache = { value, expiresAt: Date.now() + 60000 };
+      const value = await request;
+      if (cellCountsRequest === request) cellCountsCache = { value, expiresAt: Date.now() + 60000 };
       return value;
     } finally {
-      cellCountsRequest = null;
+      if (cellCountsRequest === request) cellCountsRequest = null;
     }
   },
 
-  async getCells(params?: { status?: string; lifecycleStatus?: string; search?: string; limit?: number; offset?: number; usedOnly?: boolean; includeBatterySerial?: boolean; fields?: string }): Promise<CellItem[]> {
+  async getCells(params?: { ids?: string[]; status?: string; lifecycleStatus?: string; search?: string; limit?: number; offset?: number; usedOnly?: boolean; includeBatterySerial?: boolean; fields?: string }): Promise<CellItem[]> {
     const pageSize = 1000;
     const requestedLimit = params?.limit && params.limit > 0 ? params.limit : undefined;
     const requestedOffset = params?.offset && params.offset > 0 ? params.offset : 0;
     const cells: CellItem[] = [];
     const seen = new Set<string>();
     let standaloneModuleCellIds: string[] | null = null;
+    if (params?.ids && params.ids.length === 0) return [];
 
     if (params?.lifecycleStatus === 'IN_MODULE' && rawSupabase) {
       const { data: assignments, error: assignmentsError } = await rawSupabase
@@ -2226,6 +2277,7 @@ export const api = {
         ? supabase.from('cells').select(params.fields)
         : supabase.from('cells').select('*, supplier:suppliers(name)');
 
+      if (params?.ids) query = query.in('id', params.ids);
       if (params?.status) {
         if (params.status === 'AVAILABLE') {
           query = query.in('status', ['AVAILABLE', 'IMPORTED', 'ACKNOWLEDGED', 'OCV_TESTED', 'GRADED']);
@@ -2280,10 +2332,16 @@ export const api = {
     const resultCells = requestedLimit === undefined ? cells : cells.slice(0, requestedLimit);
     if ((params?.usedOnly === true || params?.includeBatterySerial === true) && resultCells.length > 0 && rawSupabase) {
       const cellIds = resultCells.map(cell => cell.id).filter(Boolean);
-      const { data: assignments } = await rawSupabase
-        .from('module_cells')
-        .select('cell_id,module_id,module:modules(battery_id)')
-        .in('cell_id', cellIds);
+      const assignments: any[] = [];
+      const assignmentBatchSize = 500;
+      for (let offset = 0; offset < cellIds.length; offset += assignmentBatchSize) {
+        const { data, error } = await rawSupabase
+          .from('module_cells')
+          .select('cell_id,module_id,module:modules(battery_id)')
+          .in('cell_id', cellIds.slice(offset, offset + assignmentBatchSize));
+        if (error) throw error;
+        assignments.push(...(data || []));
+      }
       const batteryIds = Array.from(new Set([
         ...resultCells.map(cell => cell.reservedForBatteryId).filter(Boolean),
         ...(assignments || []).map((assignment: any) => assignment.module?.battery_id).filter(Boolean),
@@ -2293,6 +2351,15 @@ export const api = {
         : { data: [] as any[] };
       const batteryStatusById = new Map((linkedBatteries || []).map((battery: any) => [battery.id, battery.status]));
       const batterySerialById = new Map((linkedBatteries || []).map((battery: any) => [battery.id, normalizeBatterySerial(battery.serial_number || battery.id)]));
+      const rackBatteryIds = new Set<string>();
+      for (let offset = 0; offset < batteryIds.length; offset += 500) {
+        const { data: rackPacks, error: rackPacksError } = await rawSupabase
+          .from('rack_packs')
+          .select('battery_id')
+          .in('battery_id', batteryIds.slice(offset, offset + 500));
+        if (rackPacksError) throw rackPacksError;
+        (rackPacks || []).forEach((rackPack: any) => rackBatteryIds.add(String(rackPack.battery_id)));
+      }
       const locationByCellId = new Map((assignments || []).map((assignment: any) => {
         const batteryId = assignment.module?.battery_id || null;
         return [assignment.cell_id, {
@@ -2310,7 +2377,7 @@ export const api = {
           batterySerial: batterySerialById.get(cell.reservedForBatteryId),
         } : undefined);
         return location
-          ? { ...cell, assignedToModuleId: location.moduleId, reservedForBatteryId: cell.reservedForBatteryId || location.batteryId, assignedBatteryStatus: location.batteryStatus, assignedBatterySerial: location.batterySerial }
+          ? { ...cell, assignedToModuleId: location.moduleId, reservedForBatteryId: cell.reservedForBatteryId || location.batteryId, assignedBatteryStatus: location.batteryStatus, assignedBatterySerial: location.batterySerial, isInRack: rackBatteryIds.has(String(location.batteryId || '')) }
           : cell;
       });
     }
@@ -2388,8 +2455,9 @@ export const api = {
     });
   },
 
-  async getBmsUnits(params?: { limit?: number; offset?: number; search?: string; status?: string }): Promise<BMSItem[]> {
+  async getBmsUnits(params?: { ids?: string[]; limit?: number; offset?: number; search?: string; status?: string }): Promise<BMSItem[]> {
     let query = supabase.from('bms_units').select('*').order('created_at', { ascending: false });
+    if (params?.ids) query = query.in('id', params.ids);
     if (params?.search) {
       const value = params.search.trim().replace(/[%(),]/g, ' ');
       query = query.or(`serial_number.ilike.%${value}%,model.ilike.%${value}%`);
@@ -2401,8 +2469,22 @@ export const api = {
     }
     const { data, error } = await query;
     if (error) throw error;
-    const { data: batteries, error: batteriesError } = await supabase.from('batteries').select('id, serial_number, bms_id');
-    if (batteriesError) throw batteriesError;
+    const controllerIds = Array.from(new Set((data || []).flatMap((controller: any) => [controller.id, controller.bms_id, controller.bmsId]).filter(Boolean)));
+    const reservedBatteryIds = Array.from(new Set((data || []).map((controller: any) => controller.reserved_for_battery_id || controller.reservedForBatteryId).filter(Boolean)));
+    const [linkedBatteriesResult, reservedBatteriesResult] = await Promise.all([
+      controllerIds.length
+        ? supabase.from('batteries').select('id,serial_number,bms_id').in('bms_id', controllerIds)
+        : Promise.resolve({ data: [], error: null }),
+      reservedBatteryIds.length
+        ? supabase.from('batteries').select('id,serial_number,bms_id').in('id', reservedBatteryIds)
+        : Promise.resolve({ data: [], error: null }),
+    ]);
+    if (linkedBatteriesResult.error) throw linkedBatteriesResult.error;
+    if (reservedBatteriesResult.error) throw reservedBatteriesResult.error;
+    const batteries = Array.from(new Map(
+      [...(linkedBatteriesResult.data || []), ...(reservedBatteriesResult.data || [])]
+        .map((battery: any) => [String(battery.id), battery]),
+    ).values());
     const assignedBatteryByController = new Map<string, string>(
       (batteries || [])
         .filter((battery: any) => battery.bmsId || battery.bms_id)
@@ -2462,8 +2544,9 @@ export const api = {
     return { count: effectiveCount, items: created };
   },
 
-  async getBmuUnits(params?: { limit?: number; offset?: number; search?: string; status?: string }): Promise<BMUItem[]> {
+  async getBmuUnits(params?: { ids?: string[]; limit?: number; offset?: number; search?: string; status?: string }): Promise<BMUItem[]> {
     let query = supabase.from('bmu_units').select('*').order('created_at', { ascending: false });
+    if (params?.ids) query = query.in('id', params.ids);
     if (params?.search) {
       const value = params.search.trim().replace(/[%(),]/g, ' ');
       query = query.or(`serial_number.ilike.%${value}%,model.ilike.%${value}%`);
@@ -2475,8 +2558,22 @@ export const api = {
     }
     const { data, error } = await query;
     if (error) throw error;
-    const { data: batteries, error: batteriesError } = await supabase.from('batteries').select('id, serial_number, bmu_id');
-    if (batteriesError) throw batteriesError;
+    const controllerIds = Array.from(new Set((data || []).flatMap((controller: any) => [controller.id, controller.bmu_id, controller.bmuId]).filter(Boolean)));
+    const reservedBatteryIds = Array.from(new Set((data || []).map((controller: any) => controller.reserved_for_battery_id || controller.reservedForBatteryId).filter(Boolean)));
+    const [linkedBatteriesResult, reservedBatteriesResult] = await Promise.all([
+      controllerIds.length
+        ? supabase.from('batteries').select('id,serial_number,bmu_id').in('bmu_id', controllerIds)
+        : Promise.resolve({ data: [], error: null }),
+      reservedBatteryIds.length
+        ? supabase.from('batteries').select('id,serial_number,bmu_id').in('id', reservedBatteryIds)
+        : Promise.resolve({ data: [], error: null }),
+    ]);
+    if (linkedBatteriesResult.error) throw linkedBatteriesResult.error;
+    if (reservedBatteriesResult.error) throw reservedBatteriesResult.error;
+    const batteries = Array.from(new Map(
+      [...(linkedBatteriesResult.data || []), ...(reservedBatteriesResult.data || [])]
+        .map((battery: any) => [String(battery.id), battery]),
+    ).values());
     const assignedBatteryByController = new Map<string, string>(
       (batteries || [])
         .filter((battery: any) => battery.bmuId || battery.bmu_id)
@@ -2559,8 +2656,9 @@ export const api = {
     if (error) throw error;
   },
 
-  async getModules(params?: { limit?: number; offset?: number; includeCells?: boolean; search?: string; status?: string }): Promise<ModuleItem[]> {
+  async getModules(params?: { ids?: string[]; limit?: number; offset?: number; includeCells?: boolean; search?: string; status?: string }): Promise<ModuleItem[]> {
     let query = supabase.from('modules').select(params?.includeCells === false ? 'id,serial_number,battery_id,module_type,lifecycle_status,status' : '*').order('created_at', { ascending: false });
+    if (params?.ids) query = query.in('id', params.ids);
     if (params?.search) {
       const value = params.search.trim().replace(/[%(),]/g, ' ');
       query = query.ilike('serial_number', `%${value}%`);
@@ -2664,7 +2762,7 @@ export const api = {
     return toAppValue(data);
   },
 
-  async getBatteries(params?: { limit?: number; offset?: number; search?: string; status?: string }): Promise<BatteryUnit[]> {
+  async getBatteries(params?: { ids?: string[]; limit?: number; offset?: number; search?: string; status?: string }): Promise<BatteryUnit[]> {
     const batteries: any[] = [];
     const pageSize = 1000;
     const requestedLimit = params?.limit && params.limit > 0 ? params.limit : undefined;
@@ -2674,6 +2772,7 @@ export const api = {
         .from('batteries')
         .select('*')
         .order('created_at', { ascending: false });
+      if (params?.ids) query = query.in('id', params.ids);
       if (params?.search) {
         const value = params.search.trim().replace(/[%(),]/g, ' ');
         query = query.ilike('serial_number', `%${value}%`);
@@ -5302,7 +5401,7 @@ export const api = {
     return toAppValue(data);
   },
 
-  async getRacks(params?: { limit?: number; offset?: number; summaryOnly?: boolean; search?: string; status?: string }): Promise<RackUnit[]> {
+  async getRacks(params?: { ids?: string[]; limit?: number; offset?: number; summaryOnly?: boolean; search?: string; status?: string }): Promise<RackUnit[]> {
     const rows: any[] = [];
     const pageSize = 1000;
     const requestedLimit = params?.limit && params.limit > 0 ? params.limit : undefined;
@@ -5312,6 +5411,7 @@ export const api = {
         .from('racks')
         .select(`${params?.summaryOnly ? 'id,serial_number,qr_code,rack_template_code,location,status,created_at' : '*'}, rack_packs(battery_id, pack_slot_index)`)
         .order('created_at', { ascending: false });
+      if (params?.ids) query = query.in('id', params.ids);
       if (params?.search) {
         const value = params.search.trim().replace(/[%(),]/g, ' ');
         query = query.or(`serial_number.ilike.%${value}%,rack_template_code.ilike.%${value}%,location.ilike.%${value}%`);

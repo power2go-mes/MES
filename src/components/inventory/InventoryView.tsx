@@ -1,9 +1,11 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useApp } from '../../context/AppContext';
 import { useAuth } from '../../context/AuthContext';
 import { api, preferredLifecycleStatus } from '../../services/api';
 import { batterySerialCapacityToken, normalizeBatterySerial } from '../../lib/batteryNaming';
 import { normalizeRackSerial } from '../../lib/rackNaming';
+import { getCellInventoryStatus } from '../../lib/cellInventoryStatus';
+import { getControllerInventoryBucket, getInventoryStatusPageIds } from '../../lib/inventoryStatus';
 import { CellItem, BMSItem, BMUItem, ModuleItem, BatteryUnit } from '../../types';
 import { downloadBatteryReport, downloadCellReport, downloadRackReport } from '../../lib/cellReportExport';
 import { QRCodeModal } from '../common/QRCodeModal';
@@ -29,14 +31,30 @@ import {
 } from 'lucide-react';
 
 type Tab = 'CELLS' | 'BMS' | 'BMU' | 'MODULES' | 'BATTERIES' | 'RACKS';
+type CellStatusRowsCache = {
+  pages: Map<number, CellItem[]>;
+  allRows?: CellItem[];
+  warehouseStatuses?: Record<string, string>;
+};
+const INVENTORY_PAGE_SIZE = 25;
 
 const cellStatuses = [
-  'IN_STOCK', 'FLOOR_STOCK', 'IN_MODULE', 'IN_PACK', 'IN_RACK', 'KARACHI_WAREHOUSE', 'LAHORE_WAREHOUSE', 'SOLD', 'SCRAP',
+  'IN_STOCK', 'FLOOR_STOCK', 'IN_MODULE', 'IN_PACK', 'IN_RACK', 'KARACHI_WAREHOUSE', 'LAHORE_WAREHOUSE', 'SOLD', 'DAMAGE', 'REUSABLE',
 ] as const;
 
 const displayRackSerial = normalizeRackSerial;
 const displayBatterySerial = normalizeBatterySerial;
 const displayRackTemplate = (value: unknown) => String(value || '').toUpperCase() === 'RACK_70KWH' ? '67.5 kWh' : String(value || '-');
+
+async function fetchAllInventoryPages<T>(fetchPage: (limit: number, offset: number) => Promise<T[]>): Promise<T[]> {
+  const pageSize = 250;
+  const rows: T[] = [];
+  for (let offset = 0; ; offset += pageSize) {
+    const page = await fetchPage(pageSize, offset);
+    rows.push(...page);
+    if (page.length < pageSize) return rows;
+  }
+}
 
 export const InventoryView: React.FC = () => {
   const { setActiveView, setActiveModuleId, setActiveBatteryId, setBatteryBuilderEditRequested, setQuickSearchQuery, refreshKey, addNotification, triggerRefresh, inventoryTab, setInventoryTab } = useApp();
@@ -92,6 +110,13 @@ export const InventoryView: React.FC = () => {
   const [qrModalOpen, setQrModalOpen] = useState(false);
   const [qrData, setQrData] = useState<any | null>(null);
   const [reportBattery, setReportBattery] = useState<BatteryUnit | null>(null);
+  const cellStatusRowsCacheRef = useRef(new Map<string, CellStatusRowsCache>());
+  const statusIdIndexForCurrentFilter = statusFilter && !search ? dashboardStats?.inventoryIdsByStatus : undefined;
+
+  const getCachedStatusIds = (tab: Tab, status: string) => {
+    const ids = dashboardStats?.inventoryIdsByStatus?.[tab]?.[status];
+    return Array.isArray(ids) ? ids as string[] : undefined;
+  };
 
   useEffect(() => {
     setInventoryPage(0);
@@ -100,80 +125,142 @@ export const InventoryView: React.FC = () => {
       void loadInventory(0);
     }, search ? 350 : 0);
     return () => window.clearTimeout(timer);
-  }, [activeTab, search, statusFilter, refreshKey]);
+  }, [activeTab, search, statusFilter, refreshKey, statusIdIndexForCurrentFilter]);
+
+  useEffect(() => {
+    let isCurrent = true;
+    void api.getDashboardStats(undefined, undefined, undefined, true)
+      .then(stats => { if (isCurrent) setDashboardStats(stats); })
+      .catch(err => console.error('Failed to load dashboard stats', err));
+    return () => { isCurrent = false; };
+  }, [refreshKey]);
+
+  useEffect(() => {
+    cellStatusRowsCacheRef.current.clear();
+  }, [refreshKey]);
 
   const loadInventory = async (page = 0) => {
     const append = page > 0;
-    const pageSize = 25;
+    const pageSize = INVENTORY_PAGE_SIZE;
+    const cachedStatusIds = statusFilter && !search ? getCachedStatusIds(activeTab, statusFilter) : undefined;
+    const hasCachedStatusIds = cachedStatusIds !== undefined;
+    const statusPageIds = hasCachedStatusIds
+      ? getInventoryStatusPageIds(cachedStatusIds, page, pageSize)
+      : undefined;
+    const cellStatusCacheKey = statusFilter
+      ? JSON.stringify([statusFilter, search.trim().toLowerCase(), refreshKey])
+      : '';
     let moreAvailable = false;
     setLoading(true);
     try {
-      if (!dashboardStats) {
-        api.getDashboardStats().then(stats => {
-          setDashboardStats(stats);
-        }).catch(err => console.error('Failed to load dashboard stats', err));
-      }
-
       if (activeTab === 'CELLS') {
-        const serverLifecycleStatus = !['KARACHI_WAREHOUSE', 'LAHORE_WAREHOUSE'].includes(statusFilter) && cellStatuses.includes(statusFilter as typeof cellStatuses[number])
-          ? statusFilter
-          : undefined;
-        const warehouseFilterSelected = statusFilter === 'KARACHI_WAREHOUSE' || statusFilter === 'LAHORE_WAREHOUSE';
+        const cachedStatusRows = statusFilter && !search ? cellStatusRowsCacheRef.current.get(cellStatusCacheKey) : undefined;
+        if (cachedStatusRows?.allRows || cachedStatusRows?.pages.has(page)) {
+          const cachedRows = cachedStatusRows.allRows || Array.from(cachedStatusRows.pages.entries())
+            .sort(([left], [right]) => left - right)
+            .flatMap(([, rows]) => rows);
+          if (cachedStatusRows.warehouseStatuses) setWarehouseCellStatuses(cachedStatusRows.warehouseStatuses);
+          setCells(cachedRows);
+          setInventoryPage(page);
+          moreAvailable = hasCachedStatusIds
+            ? (page + 1) * pageSize < cachedStatusIds.length
+            : cachedRows.length > (page + 1) * pageSize;
+          setHasMoreInventory(moreAvailable);
+          return moreAvailable;
+        }
         const cellsPromise = api.getCells({
+          ids: hasCachedStatusIds ? statusPageIds : undefined,
           search: search || undefined,
-          lifecycleStatus: serverLifecycleStatus,
           includeBatterySerial: true,
-          limit: pageSize,
-          offset: page * pageSize,
+          limit: statusFilter && !hasCachedStatusIds ? undefined : pageSize,
+          offset: statusFilter && !hasCachedStatusIds ? undefined : hasCachedStatusIds ? 0 : page * pageSize,
           fields: 'id,internal_serial,supplier_barcode,qr_code,supplier_id,batch_number,pallet_number,box_number,supplier_ocv_v,supplier_ir_mohm,production_ocv_v,production_ir_mohm,grade,status,lifecycle_status,reserved_for_order_id,reserved_for_battery_id,tested_at,created_at,updated_at,supplier:suppliers(name)',
         });
         const countsPromise = !search && !statusFilter
-          ? api.getCellCounts()
+          ? api.getCellCounts(true)
           : Promise.resolve({ total: allCellsCount, used: 0, available: 0, quarantined: 0 });
-        const warehouseStatusesPromise = warehouseFilterSelected ? api.getWarehouseCellStatuses() : Promise.resolve({});
-        const res = await cellsPromise;
-        setCells(previous => append ? [...previous, ...res] : res);
-        moreAvailable = res.length === pageSize;
+        const warehouseStatusesPromise = statusFilter && page === 0 ? api.getWarehouseCellStatuses() : Promise.resolve(warehouseCellStatuses);
+        const [res, warehouseStatuses] = await Promise.all([cellsPromise, warehouseStatusesPromise]);
+        if (statusFilter && !search) {
+          const cache = cachedStatusRows || { pages: new Map<number, CellItem[]>() };
+          if (hasCachedStatusIds) cache.pages.set(page, res);
+          else cache.allRows = res;
+          if (page === 0) cache.warehouseStatuses = warehouseStatuses;
+          cellStatusRowsCacheRef.current.set(cellStatusCacheKey, cache);
+          const cachedRows = cache.allRows || Array.from(cache.pages.entries())
+            .sort(([left], [right]) => left - right)
+            .flatMap(([, rows]) => rows);
+          setCells(cachedRows);
+        } else {
+          setCells(previous => append ? [...previous, ...res] : res);
+        }
+        moreAvailable = hasCachedStatusIds
+          ? (page + 1) * pageSize < cachedStatusIds.length
+          : !statusFilter && res.length === pageSize;
         setHasMoreInventory(moreAvailable);
         setInventoryPage(page);
         void countsPromise.then(counts => {
           setAllCellsCount(counts.total);
         }).catch(error => console.error('Failed to load cell counts', error));
-        void warehouseStatusesPromise.then(setWarehouseCellStatuses).catch(error => console.error('Failed to load warehouse cell statuses', error));
+        if (statusFilter) setWarehouseCellStatuses(warehouseStatuses);
       } else if (activeTab === 'BMS') {
-        const res = await api.getBmsUnits({ limit: pageSize, offset: page * pageSize, search, status: statusFilter });
+        const res = hasCachedStatusIds
+          ? statusPageIds.length > 0 ? await api.getBmsUnits({ ids: statusPageIds }) : []
+          : statusFilter
+            ? await fetchAllInventoryPages((limit, offset) => api.getBmsUnits({ limit, offset, search }))
+          : await api.getBmsUnits({ limit: pageSize, offset: page * pageSize, search });
         setBmsUnits(previous => append ? [...previous, ...res] : res);
-        moreAvailable = res.length === pageSize;
+        moreAvailable = hasCachedStatusIds ? (page + 1) * pageSize < cachedStatusIds.length : !statusFilter && res.length === pageSize;
         setHasMoreInventory(moreAvailable);
         setInventoryPage(page);
       } else if (activeTab === 'BMU') {
-        const res = await api.getBmuUnits({ limit: pageSize, offset: page * pageSize, search, status: statusFilter });
+        const res = hasCachedStatusIds
+          ? statusPageIds.length > 0 ? await api.getBmuUnits({ ids: statusPageIds }) : []
+          : statusFilter
+            ? await fetchAllInventoryPages((limit, offset) => api.getBmuUnits({ limit, offset, search }))
+          : await api.getBmuUnits({ limit: pageSize, offset: page * pageSize, search });
         setBmuUnits(previous => append ? [...previous, ...res] : res);
-        moreAvailable = res.length === pageSize;
+        moreAvailable = hasCachedStatusIds ? (page + 1) * pageSize < cachedStatusIds.length : !statusFilter && res.length === pageSize;
         setHasMoreInventory(moreAvailable);
         setInventoryPage(page);
       } else if (activeTab === 'MODULES') {
-        const res = await api.getModules({ limit: pageSize, offset: page * pageSize, search, status: statusFilter });
+        const res = hasCachedStatusIds
+          ? statusPageIds.length > 0 ? await api.getModules({ ids: statusPageIds }) : []
+          : statusFilter
+            ? await fetchAllInventoryPages((limit, offset) => api.getModules({ limit, offset, search }))
+          : await api.getModules({ limit: pageSize, offset: page * pageSize, search });
         setModules(previous => append ? [...previous, ...res] : res);
-        moreAvailable = res.length === pageSize;
+        moreAvailable = hasCachedStatusIds ? (page + 1) * pageSize < cachedStatusIds.length : !statusFilter && res.length === pageSize;
         setHasMoreInventory(moreAvailable);
         setInventoryPage(page);
       } else if (activeTab === 'BATTERIES') {
-        const [res, rackRows] = await Promise.all([
-          api.getBatteries({ limit: pageSize, offset: page * pageSize, search, status: statusFilter }),
+        const [res, rackRows, warehouseStatuses] = await Promise.all([
+          statusFilter
+            ? hasCachedStatusIds
+              ? statusPageIds.length > 0 ? api.getBatteries({ ids: statusPageIds, limit: pageSize }) : Promise.resolve([])
+              : fetchAllInventoryPages((limit, offset) => api.getBatteries({ limit, offset, search }))
+            : api.getBatteries({ limit: pageSize, offset: page * pageSize, search }),
           api.getRacks({ summaryOnly: true }),
+          page === 0 ? api.getWarehouseEntityStatuses() : Promise.resolve(warehouseEntityStatuses),
         ]);
         setBatteries(previous => append ? [...previous, ...res] : res);
         setRacks(rackRows);
-        moreAvailable = res.length === pageSize;
+        setWarehouseEntityStatuses(warehouseStatuses);
+        moreAvailable = hasCachedStatusIds ? (page + 1) * pageSize < cachedStatusIds.length : !statusFilter && res.length === pageSize;
         setHasMoreInventory(moreAvailable);
         setInventoryPage(page);
-        void api.getWarehouseEntityStatuses().then(setWarehouseEntityStatuses).catch(error => console.error('Failed to load battery warehouse statuses', error));
       } else if (activeTab === 'RACKS') {
-        const [res, warehouseStatuses] = await Promise.all([api.getRacks({ limit: pageSize, offset: page * pageSize, search, status: statusFilter }), api.getWarehouseEntityStatuses()]);
+        const [res, warehouseStatuses] = await Promise.all([
+          statusFilter
+            ? hasCachedStatusIds
+              ? statusPageIds.length > 0 ? api.getRacks({ ids: statusPageIds, limit: pageSize }) : Promise.resolve([])
+              : fetchAllInventoryPages((limit, offset) => api.getRacks({ limit, offset, search }))
+            : api.getRacks({ limit: pageSize, offset: page * pageSize, search }),
+          page === 0 ? api.getWarehouseEntityStatuses() : Promise.resolve(warehouseEntityStatuses),
+        ]);
         setRacks(previous => append ? [...previous, ...res] : res);
         setWarehouseEntityStatuses(warehouseStatuses);
-        moreAvailable = res.length === pageSize;
+        moreAvailable = hasCachedStatusIds ? (page + 1) * pageSize < cachedStatusIds.length : !statusFilter && res.length === pageSize;
         setHasMoreInventory(moreAvailable);
         setInventoryPage(page);
       }
@@ -187,11 +274,38 @@ export const InventoryView: React.FC = () => {
   };
 
   const loadMoreInventory = () => {
+    if (statusFilter) {
+      const cachedStatusIds = !search ? getCachedStatusIds(activeTab, statusFilter) : undefined;
+      if (cachedStatusIds !== undefined) {
+        if (!loading && (inventoryPage + 1) * INVENTORY_PAGE_SIZE < cachedStatusIds.length) {
+          void loadInventory(inventoryPage + 1);
+        }
+        return;
+      }
+      const total = getTabItems(activeTab).length;
+      if (!loading && (inventoryPage + 1) * INVENTORY_PAGE_SIZE < total) {
+        setInventoryPage(current => current + 1);
+      }
+      return;
+    }
     if (loading || !hasMoreInventory) return;
     void loadInventory(inventoryPage + 1);
   };
 
   const loadAllInventory = async () => {
+    if (statusFilter) {
+      const cachedStatusIds = !search ? getCachedStatusIds(activeTab, statusFilter) : undefined;
+      if (cachedStatusIds !== undefined) {
+        if (loading) return;
+        const pageCount = Math.ceil(cachedStatusIds.length / INVENTORY_PAGE_SIZE);
+        for (let page = inventoryPage + 1; page < pageCount; page += 1) {
+          await loadInventory(page);
+        }
+        return;
+      }
+      setInventoryPage(Math.max(0, Math.ceil(getTabItems(activeTab).length / INVENTORY_PAGE_SIZE) - 1));
+      return;
+    }
     if (loading || !hasMoreInventory) return;
     let nextPage = inventoryPage + 1;
     let moreAvailable = true;
@@ -376,20 +490,14 @@ export const InventoryView: React.FC = () => {
   const batteryById = new Map(batteries.map(battery => [battery.id, battery]));
   const moduleById = new Map(modules.map(module => [module.id, module]));
   const getCellDisplayStatus = (cell: CellItem) => {
-    const warehouseStatus = warehouseCellStatuses[cell.id];
-    if (warehouseStatus) return warehouseStatus;
-    const lifecycleStatus = String(cell.lifecycleStatus || '').toUpperCase();
-    if (lifecycleStatus === 'SCRAP' || ['QUARANTINED', 'REJECTED'].includes(String(cell.status).toUpperCase())) return 'SCRAP';
-    if (lifecycleStatus === 'SOLD') return 'SOLD';
-    if (lifecycleStatus === 'IN_RACK') return 'IN_RACK';
-
-    const module = cell.assignedToModuleId ? moduleById.get(cell.assignedToModuleId) : undefined;
-    const battery = batteryById.get(cell.reservedForBatteryId || module?.batteryId || '');
-    const batteryStatus = String((cell as any).assignedBatteryStatus || battery?.status || '').toUpperCase();
-    if (lifecycleStatus === 'IN_PACK' || ['RELEASED', 'WAREHOUSE', 'DISPATCHED', 'FINISHED'].includes(batteryStatus)) return 'IN_PACK';
-    if (lifecycleStatus === 'IN_MODULE' || module || cell.reservedForBatteryId) return 'IN_MODULE';
-    if (lifecycleStatus) return lifecycleStatus;
-    return String(cell.status || 'UNKNOWN').toUpperCase();
+    return getCellInventoryStatus(cell, {
+      warehouseLocation: warehouseCellStatuses[cell.id],
+      isReusable: dashboardStats?.reusableCellIds?.includes(cell.id),
+      hasModuleAssignment: Boolean(cell.assignedToModuleId),
+      moduleBatteryId: cell.reservedForBatteryId,
+      batteryStatus: (cell as any).assignedBatteryStatus,
+      isInRack: Boolean((cell as any).isInRack) || String(cell.lifecycleStatus || '').toUpperCase() === 'IN_RACK',
+    });
   };
 
   const getModuleDisplayStatus = (module: ModuleItem) => {
@@ -436,22 +544,22 @@ export const InventoryView: React.FC = () => {
   });
 
   const filteredBms = bmsUnits.filter(b => {
-    const matchesSearch = !search || b.serialNumber.toLowerCase().includes(search.toLowerCase()) || b.model.toLowerCase().includes(search.toLowerCase());
-    const displayStatus = warehouseEntityStatuses[`BMS:${b.id}`] || b.status;
+    const matchesSearch = !search || String(b.serialNumber || '').toLowerCase().includes(search.toLowerCase()) || String(b.model || '').toLowerCase().includes(search.toLowerCase());
+    const displayStatus = getControllerInventoryBucket(b.status);
     const matchesStatus = !statusFilter || displayStatus === statusFilter;
     return matchesSearch && matchesStatus;
   });
 
   const filteredBmus = bmuUnits.filter(b => {
-    const matchesSearch = !search || b.serialNumber.toLowerCase().includes(search.toLowerCase()) || b.model.toLowerCase().includes(search.toLowerCase());
-    const matchesStatus = !statusFilter || b.status === statusFilter;
+    const matchesSearch = !search || String(b.serialNumber || '').toLowerCase().includes(search.toLowerCase()) || String(b.model || '').toLowerCase().includes(search.toLowerCase());
+    const matchesStatus = !statusFilter || getControllerInventoryBucket(b.status) === statusFilter;
     return matchesSearch && matchesStatus;
   });
 
   const filteredModules = modules.filter(m => {
     const matchesSearch = !search || m.serialNumber.toLowerCase().includes(search.toLowerCase());
-    const displayStatus = warehouseEntityStatuses[`MODULE:${m.id}`] || getModuleDisplayStatus(m);
-    const matchesStatus = !statusFilter || displayStatus === statusFilter || m.status === statusFilter;
+    const displayStatus = getModuleDisplayStatus(m);
+    const matchesStatus = !statusFilter || displayStatus === statusFilter;
     return matchesSearch && matchesStatus;
   });
 
@@ -461,8 +569,8 @@ export const InventoryView: React.FC = () => {
     const productName = String(rawBattery.productName ?? rawBattery.product_name ?? '').toLowerCase();
     const query = String(search ?? '').toLowerCase();
     const matchesSearch = !query || serialNumber.includes(query) || productName.includes(query);
-    const displayStatus = warehouseEntityStatuses[`BATTERY:${b.id}`] || b.lifecycleStatus || b.status;
-    const matchesStatus = !statusFilter || displayStatus === statusFilter || b.status === statusFilter;
+    const displayStatus = getBatteryDisplayStatus(b);
+    const matchesStatus = !statusFilter || displayStatus === statusFilter;
     return matchesSearch && matchesStatus;
   });
   const filteredRacks = racks.filter(rack => {
@@ -471,8 +579,17 @@ export const InventoryView: React.FC = () => {
     return (!search || haystack.includes(search.toLowerCase())) && (!statusFilter || displayStatus === statusFilter);
   });
 
-  const displayedCells = filteredCells;
-  const cellTotalLabel = !search && !statusFilter
+  const displayedCells = statusFilter
+    ? filteredCells.slice(0, (inventoryPage + 1) * INVENTORY_PAGE_SIZE)
+    : filteredCells;
+  const cachedStatusIds = statusFilter && !search ? getCachedStatusIds(activeTab, statusFilter) : undefined;
+  const statusFilterTotal = cachedStatusIds?.length;
+  const hasMoreDisplayedCells = statusFilter
+    ? statusFilterTotal !== undefined ? displayedCells.length < statusFilterTotal : displayedCells.length < filteredCells.length
+    : hasMoreInventory;
+  const cellTotalLabel = statusFilter
+    ? statusFilterTotal ?? filteredCells.length
+    : !search
     ? allCellsCount
     : hasMoreInventory ? `${displayedCells.length}+` : displayedCells.length;
 
@@ -484,6 +601,19 @@ export const InventoryView: React.FC = () => {
     if (tab === 'BATTERIES') return filteredBatteries;
     return filteredRacks;
   };
+
+  const filteredInventoryItems = getTabItems(activeTab);
+  const visibleItemLimit = (inventoryPage + 1) * INVENTORY_PAGE_SIZE;
+  const displayedBms = statusFilter ? filteredBms.slice(0, visibleItemLimit) : filteredBms;
+  const displayedBmus = statusFilter ? filteredBmus.slice(0, visibleItemLimit) : filteredBmus;
+  const displayedModules = statusFilter ? filteredModules.slice(0, visibleItemLimit) : filteredModules;
+  const displayedBatteries = statusFilter ? filteredBatteries.slice(0, visibleItemLimit) : filteredBatteries;
+  const displayedRacks = statusFilter ? filteredRacks.slice(0, visibleItemLimit) : filteredRacks;
+  const hasMoreDisplayedInventory = statusFilter
+    ? activeTab === 'CELLS'
+      ? statusFilterTotal !== undefined ? displayedCells.length < statusFilterTotal : displayedCells.length < filteredCells.length
+      : statusFilterTotal !== undefined ? visibleItemLimit < statusFilterTotal : visibleItemLimit < filteredInventoryItems.length
+    : hasMoreInventory;
 
   const toggleSelectItem = (tab: Tab, id: string) => {
     setSelectedIds(prev => {
@@ -588,32 +718,15 @@ export const InventoryView: React.FC = () => {
           >
             <option value="">All Statuses</option>
 
-            {activeTab === 'BATTERIES' && (
-              <button
-                type="button"
-                onClick={() => void exportBatteryReport()}
-                disabled={exportingBatteryReport}
-                className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-xs font-bold text-slate-700 shadow-sm transition-colors hover:border-emerald-200 hover:bg-emerald-50 hover:text-emerald-700 disabled:cursor-wait disabled:opacity-60"
-                title="Export battery inventory to Excel"
-              >
-                <Download className="h-3.5 w-3.5" />
-                {exportingBatteryReport ? 'Exporting...' : 'Export Battery Report'}
-              </button>
-            )}
-            {activeTab === 'RACKS' && (
-              <button
-                type="button"
-                onClick={() => void exportRackReport()}
-                disabled={exportingRackReport}
-                className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-xs font-bold text-slate-700 shadow-sm transition-colors hover:border-emerald-200 hover:bg-emerald-50 hover:text-emerald-700 disabled:cursor-wait disabled:opacity-60"
-                title="Export rack inventory to Excel"
-              >
-                <Download className="h-3.5 w-3.5" />
-                {exportingRackReport ? 'Exporting...' : 'Export Rack Report'}
-              </button>
-            )}
             {activeTab === 'CELLS' ? (
               cellStatuses.map(status => <option key={status} value={status}>{formatCellStatus(status)}</option>)
+            ) : activeTab === 'BMS' || activeTab === 'BMU' ? (
+              <>
+                <option value="AVAILABLE">AVAILABLE</option>
+                <option value="USED">USED</option>
+                <option value="DAMAGE">DAMAGE</option>
+                <option value="REUSABLE">REUSABLE</option>
+              </>
             ) : (
               <>
                 <option value="IN_STOCK">IN STOCK</option>
@@ -640,6 +753,30 @@ export const InventoryView: React.FC = () => {
             )}
           </select>
 
+          {activeTab === 'BATTERIES' && (
+            <button
+              type="button"
+              onClick={() => void exportBatteryReport()}
+              disabled={exportingBatteryReport}
+              className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-xs font-bold text-slate-700 shadow-sm transition-colors hover:border-emerald-200 hover:bg-emerald-50 hover:text-emerald-700 disabled:cursor-wait disabled:opacity-60"
+              title="Export battery inventory to Excel"
+            >
+              <Download className="h-3.5 w-3.5" />
+              {exportingBatteryReport ? 'Exporting...' : 'Export Battery Report'}
+            </button>
+          )}
+          {activeTab === 'RACKS' && (
+            <button
+              type="button"
+              onClick={() => void exportRackReport()}
+              disabled={exportingRackReport}
+              className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-xs font-bold text-slate-700 shadow-sm transition-colors hover:border-emerald-200 hover:bg-emerald-50 hover:text-emerald-700 disabled:cursor-wait disabled:opacity-60"
+              title="Export rack inventory to Excel"
+            >
+              <Download className="h-3.5 w-3.5" />
+              {exportingRackReport ? 'Exporting...' : 'Export Rack Report'}
+            </button>
+          )}
           <button
             type="button"
             onClick={() => toggleSelectAll(activeTab, getTabItems(activeTab))}
@@ -682,50 +819,23 @@ export const InventoryView: React.FC = () => {
 
       {/* Dynamic Status Chips for non-CELL tabs */}
       {dashboardStats && activeTab !== 'CELLS' && (() => {
-        let buckets: Array<{label: string; value: number}> = [];
-        let filterMap: Record<string, string> = {};
-        
-        if (activeTab === 'MODULES') {
-          buckets = dashboardStats.moduleStatusBuckets || [];
-          filterMap = {
-            'In Stock': 'IN_STOCK',
-            'Floor Stock': 'FLOOR_STOCK',
-            'In Pack': 'IN_PACK',
-            'In Rack': 'IN_RACK',
-            'In Process': 'IN_PROCESS',
-            'Scrap': 'SCRAP'
+        const buckets: Array<{label: string; value: number}> = activeTab === 'MODULES'
+          ? dashboardStats.moduleProgressBuckets || []
+          : activeTab === 'BATTERIES'
+            ? dashboardStats.batteryStatusBuckets || []
+            : activeTab === 'RACKS'
+              ? dashboardStats.rackStatusBuckets || []
+              : activeTab === 'BMS'
+                ? dashboardStats.bmsBuckets || []
+                : dashboardStats.bmuBuckets || [];
+        const visibleBuckets = buckets.map(bucket => {
+          const label = String(bucket.label || '').trim();
+          return {
+            label,
+            filterVal: label.toUpperCase().replace(/[\s-]+/g, '_'),
+            value: Number(bucket.value) || 0,
           };
-        } else if (activeTab === 'BATTERIES') {
-          buckets = dashboardStats.batteryStatusBuckets || [];
-          filterMap = {
-            'In Stock': 'IN_STOCK',
-            'Floor Stock': 'FLOOR_STOCK',
-            'In Rack': 'IN_RACK',
-            'In Process': 'IN_PROCESS',
-            'Karachi Warehouse': 'KARACHI_WAREHOUSE',
-            'Lahore Warehouse': 'LAHORE_WAREHOUSE',
-            'Sold': 'SOLD',
-            'Scrap': 'SCRAP'
-          };
-        } else if (activeTab === 'RACKS') {
-          buckets = dashboardStats.rackStatusBuckets || [];
-          filterMap = {
-            'In Stock': 'IN_STOCK',
-            'Karachi Warehouse': 'KARACHI_WAREHOUSE',
-            'Lahore Warehouse': 'LAHORE_WAREHOUSE',
-            'Sold': 'SOLD',
-            'Scrap': 'SCRAP'
-          };
-        } else if (activeTab === 'BMS') {
-          buckets = [{ label: 'Available', value: dashboardStats.controllerInventory?.availableBms || 0 }];
-          filterMap = { 'Available': 'AVAILABLE' };
-        } else if (activeTab === 'BMU') {
-          buckets = [{ label: 'Available', value: dashboardStats.controllerInventory?.availableBmu || 0 }];
-          filterMap = { 'Available': 'AVAILABLE' };
-        }
-
-        const visibleBuckets = buckets.filter(b => b.value > 0 && filterMap[b.label] !== undefined);
-        if (visibleBuckets.length === 0) return null;
+        }).filter(bucket => bucket.label);
 
         return (
           <div className="flex flex-wrap items-center gap-3">
@@ -736,18 +846,15 @@ export const InventoryView: React.FC = () => {
               >
                 All {activeTab.charAt(0) + activeTab.slice(1).toLowerCase()}
               </button>
-              {visibleBuckets.map(bucket => {
-                const filterVal = filterMap[bucket.label];
-                return (
-                  <button
-                    key={bucket.label}
-                    onClick={() => setStatusFilter(filterVal)}
-                    className={`px-4 py-1.5 rounded-lg transition-all flex items-center gap-1.5 ${statusFilter === filterVal ? 'bg-emerald-100 text-emerald-800 shadow-sm font-bold' : 'text-slate-500 hover:text-slate-800'}`}
-                  >
-                    {bucket.label} ({bucket.value})
-                  </button>
-                );
-              })}
+              {visibleBuckets.map(bucket => (
+                <button
+                  key={bucket.label}
+                  onClick={() => setStatusFilter(bucket.filterVal)}
+                  className={`px-4 py-1.5 rounded-lg transition-all flex items-center gap-1.5 ${statusFilter === bucket.filterVal ? 'bg-emerald-100 text-emerald-800 shadow-sm font-bold' : 'text-slate-500 hover:text-slate-800'}`}
+                >
+                  {bucket.label} ({bucket.value})
+                </button>
+              ))}
             </div>
           </div>
         );
@@ -766,29 +873,30 @@ export const InventoryView: React.FC = () => {
               >
                 All Cells ({allCellsCount})
               </button>
-              {(dashboardStats?.cellBuckets || []).map((bucket: any) => {
-                // Try to map dashboard bucket labels to status filters
-                const bucketFilterValue = bucket.label === 'In Stock' ? 'IN_STOCK'
-                  : bucket.label === 'Floor Stock' ? 'FLOOR_STOCK'
-                  : bucket.label === 'In Module' ? 'IN_MODULE'
-                  : bucket.label === 'In Pack' ? 'IN_PACK'
-                  : bucket.label === 'In Rack' ? 'IN_RACK'
-                  : bucket.label === 'Karachi Warehouse' ? 'KARACHI_WAREHOUSE'
-                  : bucket.label === 'Lahore Warehouse' ? 'LAHORE_WAREHOUSE'
-                  : bucket.label === 'Sold' ? 'SOLD'
-                  : bucket.label === 'Scrap' ? 'SCRAP'
-                  : '';
-                
-                if (!bucketFilterValue || bucket.value === 0) return null;
-                
+              {cellStatuses.map((status) => {
+                const labelMapping: Record<string, string> = {
+                  'IN_STOCK': 'In Stock',
+                  'FLOOR_STOCK': 'Floor Stock',
+                  'IN_MODULE': 'In Module',
+                  'IN_PACK': 'In Pack',
+                  'IN_RACK': 'In Rack',
+                  'KARACHI_WAREHOUSE': 'Karachi Warehouse',
+                  'LAHORE_WAREHOUSE': 'Lahore Warehouse',
+                  'SOLD': 'Sold',
+                  'SCRAP': 'Scrap',
+                  'DAMAGE': 'Damage',
+                  'REUSABLE': 'Reusable',
+                };
+                const expectedLabel = labelMapping[status];
+                if (!expectedLabel) return null;
+                const bucket = (dashboardStats?.cellBuckets || []).find((b: any) => b.label === expectedLabel);
                 return (
                   <button
-                    key={bucket.label}
-                    onClick={() => setStatusFilter(bucketFilterValue)}
-                    className={`px-4 py-1.5 rounded-lg transition-all flex items-center gap-1.5 ${statusFilter === bucketFilterValue ? 'bg-emerald-100 text-emerald-800 shadow-sm font-bold' : 'text-slate-500 hover:text-slate-800'
-                      }`}
+                    key={status}
+                    onClick={() => setStatusFilter(status)}
+                    className={`px-4 py-1.5 rounded-lg transition-all flex items-center gap-1.5 ${statusFilter === status ? 'bg-emerald-100 text-emerald-800 shadow-sm font-bold' : 'text-slate-500 hover:text-slate-800'}`}
                   >
-                    {bucket.label} ({bucket.value})
+                    {expectedLabel} ({bucket ? bucket.value : 0})
                   </button>
                 );
               })}
@@ -911,7 +1019,7 @@ export const InventoryView: React.FC = () => {
               <span className="text-[11px] font-medium text-slate-400">
                 Showing {displayedCells.length} of {cellTotalLabel} cells
               </span>
-              {hasMoreInventory && (
+              {hasMoreDisplayedCells && (
                 <>
                   <button
                     type="button"
@@ -952,7 +1060,7 @@ export const InventoryView: React.FC = () => {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {filteredBms.map(b => {
+                {displayedBms.map(b => {
                   const assignedBatteryMatch = batteries.find(item =>
                     item.id === (b as any).assignedToBatteryId
                     || item.id === (b as any).reservedForBatteryId
@@ -1050,7 +1158,7 @@ export const InventoryView: React.FC = () => {
               </tbody>
             </table>
           </div>
-          {hasMoreInventory && activeTab === 'BMS' && (
+          {hasMoreDisplayedInventory && activeTab === 'BMS' && (
             <div className="flex justify-center border-t border-slate-100 px-5 py-3">
               <button type="button" onClick={loadMoreInventory} disabled={loading} className="px-4 py-2 text-xs font-bold text-emerald-700 border border-emerald-200 rounded-lg hover:bg-emerald-50 disabled:cursor-wait disabled:opacity-60">
                 {loading ? 'Loading...' : 'Load more 25'}
@@ -1084,7 +1192,7 @@ export const InventoryView: React.FC = () => {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {filteredBmus.map(b => {
+                {displayedBmus.map(b => {
                   const assignedBatteryMatch = batteries.find(item =>
                     item.id === (b as any).assignedToBatteryId
                     || item.id === (b as any).reservedForBatteryId
@@ -1134,7 +1242,7 @@ export const InventoryView: React.FC = () => {
               </tbody>
             </table>
           </div>
-          {hasMoreInventory && activeTab === 'BMU' && (
+          {hasMoreDisplayedInventory && activeTab === 'BMU' && (
             <div className="flex justify-center border-t border-slate-100 px-5 py-3">
               <button type="button" onClick={loadMoreInventory} disabled={loading} className="px-4 py-2 text-xs font-bold text-emerald-700 border border-emerald-200 rounded-lg hover:bg-emerald-50 disabled:cursor-wait disabled:opacity-60">
                 {loading ? 'Loading...' : 'Load more 25'}
@@ -1168,7 +1276,7 @@ export const InventoryView: React.FC = () => {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {filteredModules.map(m => {
+                {displayedModules.map(m => {
                   const editModuleSerial = async () => {
                     const currentSuffix = String(m.serialNumber).match(/-(\d{5})$/)?.[1] || '';
                     const nextSuffix = window.prompt(`Enter the last 5 digits for ${m.serialNumber}:`, currentSuffix)?.trim() || '';
@@ -1277,7 +1385,7 @@ export const InventoryView: React.FC = () => {
               </tbody>
             </table>
           </div>
-          {hasMoreInventory && (
+          {hasMoreDisplayedInventory && (
             <div className="flex justify-center border-t border-slate-100 px-5 py-3">
               <button type="button" onClick={loadMoreInventory} disabled={loading} className="px-4 py-2 text-xs font-bold text-emerald-700 border border-emerald-200 rounded-lg hover:bg-emerald-50 disabled:cursor-wait disabled:opacity-60">
                 {loading ? 'Loading...' : 'Load more 25'}
@@ -1313,7 +1421,7 @@ export const InventoryView: React.FC = () => {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {filteredBatteries.map(b => {
+                {displayedBatteries.map(b => {
                   const assignedRack = racks.find(rack => (rack.batteryIds || []).includes(b.id));
                   const rackSerial = assignedRack?.serialNumber || assignedRack?.serial_number;
                   const editBatterySerial = async () => {
@@ -1448,7 +1556,7 @@ export const InventoryView: React.FC = () => {
               </tbody>
             </table>
           </div>
-          {hasMoreInventory && (
+          {hasMoreDisplayedInventory && (
             <div className="flex justify-center border-t border-slate-100 px-5 py-3">
               <button type="button" onClick={loadMoreInventory} disabled={loading} className="px-4 py-2 text-xs font-bold text-emerald-700 border border-emerald-200 rounded-lg hover:bg-emerald-50 disabled:cursor-wait disabled:opacity-60">
                 {loading ? 'Loading...' : 'Load more 25'}
@@ -1467,7 +1575,7 @@ export const InventoryView: React.FC = () => {
                 <tr><th className="px-3 py-3 w-10"><input type="checkbox" checked={filteredRacks.length > 0 && filteredRacks.every(item => selectedIds.RACKS.includes(item.id))} onChange={() => toggleSelectAll('RACKS', filteredRacks)} className="h-4 w-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500" /></th><th className="px-5 py-3">Rack Serial</th><th className="px-5 py-3">Template</th><th className="px-5 py-3">Location</th><th className="px-5 py-3">Status</th><th className="px-5 py-3">QR / Actions</th></tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {filteredRacks.map(rack => {
+                {displayedRacks.map(rack => {
                   const serial = rack.serialNumber || rack.serial_number || rack.id;
                   const template = rack.rackTemplateCode || rack.rack_template_code || '-';
                   const displaySerial = displayRackSerial(serial);
@@ -1513,7 +1621,7 @@ export const InventoryView: React.FC = () => {
               </tbody>
             </table>
           </div>
-          {hasMoreInventory && (
+          {hasMoreDisplayedInventory && (
             <div className="flex justify-center border-t border-slate-100 px-5 py-3">
               <button type="button" onClick={loadMoreInventory} disabled={loading} className="px-4 py-2 text-xs font-bold text-emerald-700 border border-emerald-200 rounded-lg hover:bg-emerald-50 disabled:cursor-wait disabled:opacity-60">
                 {loading ? 'Loading...' : 'Load more 25'}
