@@ -265,6 +265,10 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
           )}
         </div>
       </div>
+      <div className="flex shrink-0 items-center justify-between border-t border-slate-100 px-4 py-2 text-[10px] text-slate-400">
+        <span>Power2Go MES</span>
+        <span className="font-mono">v{import.meta.env.VITE_APP_VERSION}</span>
+      </div>
     </aside>
   );
 };
