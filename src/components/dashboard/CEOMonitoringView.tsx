@@ -223,6 +223,8 @@ export const CEOMonitoringView: React.FC = () => {
   const [loadError, setLoadError] = useState<string | null>(null);
   const refreshRequestId = useRef(0);
   const [selectedCellStatus, setSelectedCellStatus] = useState<'All' | string>('All');
+  const [damageFilter, setDamageFilter] = useState<'All' | 'Cells' | 'BMS' | 'BMU'>('All');
+  const [selectedControllerFilter, setSelectedControllerFilter] = useState<'All' | 'BMS' | 'BMU'>('All');
   const [selectedPackType, setSelectedPackType] = useState('All');
   const [selectedRackType, setSelectedRackType] = useState('All');
   const [selectedWarehouseRackType, setSelectedWarehouseRackType] = useState('All');
@@ -264,15 +266,15 @@ export const CEOMonitoringView: React.FC = () => {
     }
     return [];
   };
-  const makeDonutDropdowns = (rows: Array<{ label: string; value: number; color: string }>, serialMap: Record<string, string[]> = {}) => rows.map((row) => ({
+  const makeDonutDropdowns = (namespace: string, rows: Array<{ label: string; value: number; color: string }>, serialMap: Record<string, string[]> = {}) => (rows || []).map((row) => ({
     label: row.label,
-    open: !!openDonutDetail[row.label],
+    open: !!openDonutDetail[`${namespace}_${row.label}`],
     onToggle: () => {
-      const willOpen = !openDonutDetail[row.label];
+      const willOpen = !openDonutDetail[`${namespace}_${row.label}`];
       setOpenWarehouseFilter(null);
       setOpenCellFilter(false);
       setOpenSoldDetail(null);
-      setOpenDonutDetail(willOpen ? { [row.label]: true } : {});
+      setOpenDonutDetail(willOpen ? { [`${namespace}_${row.label}`]: true } : {});
     },
     serials: resolveDonutSerials(row.label, serialMap).slice(0, Math.max(0, row.value)),
   }));
@@ -460,34 +462,101 @@ export const CEOMonitoringView: React.FC = () => {
     warehouseRows.reduce((sum, row) => sum + row.value, 0),
   ), [warehouseRows]);
   const damageReusableRows = useMemo<ChartRow[]>(() => {
-    const damageValue = numberOr(source.cellBuckets?.find((row: any) => ['DAMAGE', 'SCRAP'].includes(String(row.label || '').toUpperCase()))?.value);
-    const reusableValue = numberOr(source.cellBuckets?.find((row: any) => ['RECYCLE', 'REUSABLE'].includes(String(row.label || '').toUpperCase()))?.value);
+    let damageValue = 0;
+    let reusableValue = 0;
+    
+    if (damageFilter === 'All' || damageFilter === 'Cells') {
+      damageValue += numberOr(source.cellBuckets?.find((row: any) => ['DAMAGE', 'SCRAP'].includes(String(row.label || '').toUpperCase()))?.value);
+      reusableValue += numberOr(source.cellBuckets?.find((row: any) => ['RECYCLE', 'REUSABLE'].includes(String(row.label || '').toUpperCase()))?.value);
+    }
+    if (damageFilter === 'All' || damageFilter === 'BMS') {
+      damageValue += numberOr(source.bmsBuckets?.find((row: any) => row.label === 'Damage')?.value);
+      reusableValue += numberOr(source.bmsBuckets?.find((row: any) => row.label === 'Reusable')?.value);
+    }
+    if (damageFilter === 'All' || damageFilter === 'BMU') {
+      damageValue += numberOr(source.bmuBuckets?.find((row: any) => row.label === 'Damage')?.value);
+      reusableValue += numberOr(source.bmuBuckets?.find((row: any) => row.label === 'Reusable')?.value);
+    }
     const rows: ChartRow[] = [
       { label: 'Damage', value: damageValue, color: ceoDonutPalette[0] },
       { label: 'Reusable', value: reusableValue, color: ceoDonutPalette[5] },
     ];
     return rows.filter(row => row.value > 0 || damageValue > 0 || reusableValue > 0);
-  }, [source.cellBuckets]);
+  }, [source.cellBuckets, source.bmsBuckets, source.bmuBuckets, damageFilter]);
   const damageReusableDistribution = useMemo(() => buildDashboardDistribution(
     damageReusableRows,
     damageReusableRows.map(row => ({ label: row.label, color: row.color })),
     damageReusableRows.reduce((sum, row) => sum + row.value, 0),
   ), [damageReusableRows]);
-  const controllerRows = useMemo<ChartRow[]>(() => {
-    const bmsTotal = numberOr(controllerInventory.totalBms ?? source.totalBms ?? 0);
-    const bmuTotal = numberOr(controllerInventory.totalBmu ?? source.totalBmu ?? 0);
+  
+  
+  const controllerInventoryRows = useMemo<ChartRow[]>(() => {
+    let available = 0;
+    let used = 0;
+    let damage = 0;
+    let reusable = 0;
+    
+    if (selectedControllerFilter === 'All' || selectedControllerFilter === 'BMS') {
+      const buckets = source.bmsBuckets || [];
+      available += numberOr(buckets.find((r: any) => r.label === 'Available')?.value);
+      used += numberOr(buckets.find((r: any) => r.label === 'Used')?.value);
+      damage += numberOr(buckets.find((r: any) => r.label === 'Damage')?.value);
+      reusable += numberOr(buckets.find((r: any) => r.label === 'Reusable')?.value);
+    }
+    if (selectedControllerFilter === 'All' || selectedControllerFilter === 'BMU') {
+      const buckets = source.bmuBuckets || [];
+      available += numberOr(buckets.find((r: any) => r.label === 'Available')?.value);
+      used += numberOr(buckets.find((r: any) => r.label === 'Used')?.value);
+      damage += numberOr(buckets.find((r: any) => r.label === 'Damage')?.value);
+      reusable += numberOr(buckets.find((r: any) => r.label === 'Reusable')?.value);
+    }
+
     const rows: ChartRow[] = [
-      { label: 'BMS', value: bmsTotal, color: ceoDonutPalette[0] },
-      { label: 'BMU', value: bmuTotal, color: ceoDonutPalette[1] },
+      { label: 'Available', value: available, color: ceoDonutPalette[0] },
+      { label: 'Used', value: used, color: ceoDonutPalette[1] },
+      { label: 'Damage', value: damage, color: ceoDonutPalette[2] },
+      { label: 'Reusable', value: reusable, color: ceoDonutPalette[5] },
     ];
-    return rows.filter((row) => row.value > 0 || bmsTotal > 0 || bmuTotal > 0);
-  }, [controllerInventory, source.totalBms, source.totalBmu]);
-  const controllerDistribution = useMemo(() => buildDashboardDistribution(
-    controllerRows,
-    controllerRows.map(row => ({ label: row.label, color: row.color })),
-    controllerRows.reduce((sum, row) => sum + row.value, 0),
-  ), [controllerRows]);
-  const warehouseCellTotal = cellBucketTotal('KARACHI WAREHOUSE', 'LAHORE WAREHOUSE');
+    return rows.filter(row => row.value > 0 || available > 0 || used > 0 || damage > 0 || reusable > 0);
+  }, [source.bmsBuckets, source.bmuBuckets, selectedControllerFilter]);
+  
+  const controllerInventoryDistribution = useMemo(() => buildDashboardDistribution(
+    controllerInventoryRows,
+    controllerInventoryRows.map(row => ({ label: row.label, color: row.color })),
+    controllerInventoryRows.reduce((sum, row) => sum + row.value, 0),
+  ), [controllerInventoryRows]);
+
+  const controllerSerialDetailMap = useMemo(() => {
+    const bmsEntries = source.bmsSerialNumbersByLabel || {};
+    const bmuEntries = source.bmuSerialNumbersByLabel || {};
+    
+    let availableSerials: string[] = [];
+    let usedSerials: string[] = [];
+    let damageSerials: string[] = [];
+    let reusableSerials: string[] = [];
+
+    if (selectedControllerFilter === 'All' || selectedControllerFilter === 'BMS') {
+      availableSerials = [...availableSerials, ...(bmsEntries.Available || [])];
+      usedSerials = [...usedSerials, ...(bmsEntries.Used || [])];
+      damageSerials = [...damageSerials, ...(bmsEntries.Damage || [])];
+      reusableSerials = [...reusableSerials, ...(bmsEntries.Reusable || [])];
+    }
+    if (selectedControllerFilter === 'All' || selectedControllerFilter === 'BMU') {
+      availableSerials = [...availableSerials, ...(bmuEntries.Available || [])];
+      usedSerials = [...usedSerials, ...(bmuEntries.Used || [])];
+      damageSerials = [...damageSerials, ...(bmuEntries.Damage || [])];
+      reusableSerials = [...reusableSerials, ...(bmuEntries.Reusable || [])];
+    }
+
+    return {
+      Available: availableSerials,
+      Used: usedSerials,
+      Damage: damageSerials,
+      Reusable: reusableSerials,
+    };
+  }, [source.bmsSerialNumbersByLabel, source.bmuSerialNumbersByLabel, selectedControllerFilter]);
+
+const warehouseCellTotal = cellBucketTotal('KARACHI WAREHOUSE', 'LAHORE WAREHOUSE');
   const moduleCellTotal = cellBucketTotal('IN MODULE');
   const batteryPackCellTotal = cellBucketTotal('IN PACK');
   const rackCellTotal = numberOr(source.inventory?.rackCellCount, cellBucketTotal('IN RACK'));
@@ -567,27 +636,38 @@ export const CEOMonitoringView: React.FC = () => {
     return result;
   }, [cellRows, source.cellStatusSerialNumbersByLabel]);
   const damageReusableSerialDetailMap = useMemo(() => {
-    const entries = source.damageReusableSerialNumbers || {};
+    const entries = source.cellStatusSerialNumbersByLabel || {};
+    const bmsEntries = source.bmsSerialNumbersByLabel || {};
+    const bmuEntries = source.bmuSerialNumbersByLabel || {};
+
+    let damageSerialsRaw: string[] = [];
+    let reusableSerialsRaw: string[] = [];
+
+    if (damageFilter === 'All' || damageFilter === 'Cells') {
+      damageSerialsRaw = [...damageSerialsRaw, ...(entries.Damage || []), ...(entries.Scrap || [])];
+      reusableSerialsRaw = [...reusableSerialsRaw, ...(entries.Reusable || []), ...(entries.Recycle || [])];
+    }
+    if (damageFilter === 'All' || damageFilter === 'BMS') {
+      damageSerialsRaw = [...damageSerialsRaw, ...(bmsEntries.Damage || [])];
+      reusableSerialsRaw = [...reusableSerialsRaw, ...(bmsEntries.Reusable || [])];
+    }
+    if (damageFilter === 'All' || damageFilter === 'BMU') {
+      damageSerialsRaw = [...damageSerialsRaw, ...(bmuEntries.Damage || [])];
+      reusableSerialsRaw = [...reusableSerialsRaw, ...(bmuEntries.Reusable || [])];
+    }
+
     const uniqueSerials = (values: unknown[], limit: number) => [...new Set(formatDashboardSerialList(values))].slice(0, Math.max(0, limit));
     const damageLimit = numberOr(damageReusableRows.find((row) => row.label === 'Damage')?.value);
     const reusableLimit = numberOr(damageReusableRows.find((row) => row.label === 'Reusable')?.value);
-    const damageSerials = uniqueSerials([...(entries.Damage || []), ...(entries.Scrap || [])], damageLimit);
-    const reusableSerials = uniqueSerials([...(entries.Reusable || []), ...(entries.Recycle || [])], reusableLimit);
+    const damageSerials = uniqueSerials(damageSerialsRaw, damageLimit);
+    const reusableSerials = uniqueSerials(reusableSerialsRaw, reusableLimit);
     return {
       Damage: damageSerials,
       Scrap: damageSerials,
       Reusable: reusableSerials,
       Recycle: reusableSerials,
     };
-  }, [damageReusableRows, source.damageReusableSerialNumbers]);
-  const controllerSerialDetailMap = useMemo(() => {
-    const entries = source.controllerSerialNumbersByLabel || {};
-    const aliasEntries: Record<string, string[]> = {
-      BMS: entries.BMS || [],
-      BMU: entries.BMU || [],
-    };
-    return aliasMap(entries, aliasEntries);
-  }, [source.controllerSerialNumbersByLabel]);
+  }, [damageReusableRows, source.cellStatusSerialNumbersByLabel, source.bmsSerialNumbersByLabel, source.bmuSerialNumbersByLabel, damageFilter]);
   const soldCellTotal = numberOr(inventory.soldCells ?? source.cellBuckets?.find((row: any) => row.label === 'Sold')?.value);
   const filteredSoldRows = selectedSoldEntity === 'All' ? soldData : soldData.filter(row => row.label === selectedSoldEntity);
   const soldDistribution = useMemo(() => buildDashboardDistribution(
@@ -911,20 +991,25 @@ export const CEOMonitoringView: React.FC = () => {
           capacityKwh: row.value * power
         };
       });
-      const controllerInventory = source.controllerInventory || {};
-      const bmsTotal = numberOr(controllerInventory.totalBms);
-      const bmuTotal = numberOr(controllerInventory.totalBmu);
-      const bmsAvailable = numberOr(controllerInventory.availableBms);
-      const bmuAvailable = numberOr(controllerInventory.availableBmu);
+      const bmsBuckets = source.bmsBuckets || [];
+      const bmuBuckets = source.bmuBuckets || [];
+      
+      const bmsTotal = bmsBuckets.reduce((sum: number, r: any) => sum + numberOr(r.value), 0);
       const bmsReportRows = [
         { label: 'Total', value: bmsTotal, capacityKwh: 0, color: ceoDonutPalette[0] },
-        { label: 'Available', value: bmsAvailable, capacityKwh: 0, color: ceoDonutPalette[1] },
-        { label: 'Used', value: Math.max(0, bmsTotal - bmsAvailable), capacityKwh: 0, color: ceoDonutPalette[2] },
+        { label: 'Available', value: numberOr(bmsBuckets.find((r: any) => r.label === 'Available')?.value), capacityKwh: 0, color: ceoDonutPalette[1] },
+        { label: 'Used', value: numberOr(bmsBuckets.find((r: any) => r.label === 'Used')?.value), capacityKwh: 0, color: ceoDonutPalette[2] },
+        { label: 'Damage', value: numberOr(bmsBuckets.find((r: any) => r.label === 'Damage')?.value), capacityKwh: 0, color: ceoDonutPalette[3] },
+        { label: 'Reusable', value: numberOr(bmsBuckets.find((r: any) => r.label === 'Reusable')?.value), capacityKwh: 0, color: ceoDonutPalette[5] },
       ];
+
+      const bmuTotal = bmuBuckets.reduce((sum: number, r: any) => sum + numberOr(r.value), 0);
       const bmuReportRows = [
         { label: 'Total', value: bmuTotal, capacityKwh: 0, color: ceoDonutPalette[0] },
-        { label: 'Available', value: bmuAvailable, capacityKwh: 0, color: ceoDonutPalette[1] },
-        { label: 'Used', value: Math.max(0, bmuTotal - bmuAvailable), capacityKwh: 0, color: ceoDonutPalette[2] },
+        { label: 'Available', value: numberOr(bmuBuckets.find((r: any) => r.label === 'Available')?.value), capacityKwh: 0, color: ceoDonutPalette[1] },
+        { label: 'Used', value: numberOr(bmuBuckets.find((r: any) => r.label === 'Used')?.value), capacityKwh: 0, color: ceoDonutPalette[2] },
+        { label: 'Damage', value: numberOr(bmuBuckets.find((r: any) => r.label === 'Damage')?.value), capacityKwh: 0, color: ceoDonutPalette[3] },
+        { label: 'Reusable', value: numberOr(bmuBuckets.find((r: any) => r.label === 'Reusable')?.value), capacityKwh: 0, color: ceoDonutPalette[5] },
       ];
       const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
       const pageWidth = doc.internal.pageSize.getWidth();
@@ -1181,8 +1266,8 @@ export const CEOMonitoringView: React.FC = () => {
       doc.addPage();
       drawTitle('POWER2GO MES | CEO PERFORMANCE REPORT', `Operational detail   |   ${rangeLabel}   |   ${reportDate}`);
       drawSingleKpi(leftChartX, 70, chartWidth, cabinetReportRows, 'CABINET STATUS');
-      drawBars(leftChartX, 171, chartWidth, 34, bmsReportRows, 'BMS INVENTORY - TOTAL / AVAILABLE / USED', false, false, true);
-      drawBars(rightChartX, 171, chartWidth, 34, bmuReportRows, 'BMU INVENTORY - TOTAL / AVAILABLE / USED', false, false, true);
+      drawBars(leftChartX, 171, chartWidth, 34, bmsReportRows, 'BMS INVENTORY - TOTAL / AVAIL / USED / DMG / REUSE', false, false, true);
+      drawBars(rightChartX, 171, chartWidth, 34, bmuReportRows, 'BMU INVENTORY - TOTAL / AVAIL / USED / DMG / REUSE', false, false, true);
       drawBars(leftChartX, 230, chartWidth, 32, scrapReportRows, 'DAMAGE STATUS');
       drawBars(rightChartX, 230, chartWidth, 32, soldReportRows, 'SOLD STATUS');
       const reportRows = (rows: { label: string; value: number; capacityKwh?: number }[]) => {
@@ -1359,7 +1444,7 @@ export const CEOMonitoringView: React.FC = () => {
               donutMarginLeft
               donutMarginTop
               balancedVerticalMargin
-              dropdowns={makeDonutDropdowns(warehouseDistribution.rows, warehouseSerialDetails)}
+              dropdowns={makeDonutDropdowns('warehouse', warehouseDistribution.rows, warehouseSerialDetails)}
             />
           </div>
 
@@ -1403,7 +1488,7 @@ export const CEOMonitoringView: React.FC = () => {
               donutMarginLeft
               donutMarginTop
               balancedVerticalMargin
-              dropdowns={makeDonutDropdowns(rackDistribution.rows, rackSerialDetailMap)}
+              dropdowns={makeDonutDropdowns('rack', rackDistribution.rows, rackSerialDetailMap)}
             />
           </div>
 
@@ -1447,7 +1532,7 @@ export const CEOMonitoringView: React.FC = () => {
               donutMarginLeft
               donutMarginTop
               balancedVerticalMargin
-              dropdowns={makeDonutDropdowns(batteryPackDistribution.rows, batterySerialDetailMap)}
+              dropdowns={makeDonutDropdowns('battery', batteryPackDistribution.rows, batterySerialDetailMap)}
             />
           </div>
 
@@ -1491,7 +1576,7 @@ export const CEOMonitoringView: React.FC = () => {
               donutMarginLeft
               donutMarginTop
               balancedVerticalMargin
-              dropdowns={makeDonutDropdowns(moduleDistribution.rows, moduleSerialDetailMap)}
+              dropdowns={makeDonutDropdowns('module', moduleDistribution.rows, moduleSerialDetailMap)}
             />
           </div>
 
@@ -1583,6 +1668,19 @@ export const CEOMonitoringView: React.FC = () => {
               <div className="text-[18px] font-extrabold text-slate-900">{formatNumber(damageReusableDistribution.total)}</div>
             </div>
 
+            <div className="mb-3 flex flex-wrap gap-2 text-[10px]">
+              {['All', 'Cells', 'BMS', 'BMU'].map((option) => (
+                <button
+                  key={option}
+                  type="button"
+                  onClick={() => setDamageFilter(option as any)}
+                  className={`rounded-md border px-2 py-1 ${damageFilter === option ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-slate-200 bg-slate-50 text-slate-500'}`}
+                >
+                  {option}
+                </button>
+              ))}
+            </div>
+
             <DistributionDonut
               distribution={damageReusableDistribution}
               ariaLabel="Damage versus reusable split"
@@ -1596,7 +1694,7 @@ export const CEOMonitoringView: React.FC = () => {
               donutMarginLeft
               donutMarginTop
               balancedVerticalMargin
-              dropdowns={makeDonutDropdowns(damageReusableDistribution.rows, damageReusableSerialDetailMap)}
+              dropdowns={makeDonutDropdowns('damage', damageReusableDistribution.rows, damageReusableSerialDetailMap)}
             />
           </div>
 
@@ -1607,16 +1705,29 @@ export const CEOMonitoringView: React.FC = () => {
                   <Cpu className="h-4 w-4 text-sky-600" />
                 </div>
                 <div>
-                  <div className="text-[15px] font-bold text-slate-900">BMS / BMU</div>
-                  <div className="text-[11px] text-slate-400">Controller inventory split</div>
+                  <div className="text-[15px] font-bold text-slate-900">Controller Inventory</div>
+                  <div className="text-[11px] text-slate-400">BMS / BMU status split</div>
                 </div>
               </div>
-              <div className="text-[18px] font-extrabold text-slate-900">{formatNumber(controllerDistribution.total)}</div>
+              <div className="text-[18px] font-extrabold text-slate-900">{formatNumber(controllerInventoryDistribution.total)}</div>
+            </div>
+
+            <div className="mb-3 flex flex-wrap gap-2 text-[10px]">
+              {['All', 'BMS', 'BMU'].map((option) => (
+                <button
+                  key={option}
+                  type="button"
+                  onClick={() => setSelectedControllerFilter(option as any)}
+                  className={`rounded-md border px-2 py-1 ${selectedControllerFilter === option ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-slate-200 bg-slate-50 text-slate-500'}`}
+                >
+                  {option}
+                </button>
+              ))}
             </div>
 
             <DistributionDonut
-              distribution={controllerDistribution}
-              ariaLabel="BMS and BMU count distribution"
+              distribution={controllerInventoryDistribution}
+              ariaLabel="Controller inventory distribution"
               showShare
               large
               compactLegend
@@ -1627,9 +1738,10 @@ export const CEOMonitoringView: React.FC = () => {
               donutMarginLeft
               donutMarginTop
               balancedVerticalMargin
-              dropdowns={makeDonutDropdowns(controllerDistribution.rows, controllerSerialDetailMap)}
+              dropdowns={makeDonutDropdowns('controller', controllerInventoryDistribution.rows, controllerSerialDetailMap)}
             />
           </div>
+
         </div>
 
       </div>

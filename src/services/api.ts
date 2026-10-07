@@ -893,7 +893,7 @@ export const api = {
         applyDateRange(rawSupabase.from('cells').select('id,reserved_for_battery_id').eq('lifecycle_status', 'SOLD')),
         rawSupabase.from('module_cells').select('cell_id,module:modules(battery_id)'),
         rawSupabase.from('rack_packs').select('battery_id,rack:racks(status)'),
-        rawSupabase.from('quarantine_records').select('entity_id,entity_type,status,disposed_of_as').eq('entity_type', 'CELL'),
+        rawSupabase.from('quarantine_records').select('entity_id,entity_type,status,disposed_of_as'),
         rawSupabase.from('bms_units').select('id,status,serial_number'),
         rawSupabase.from('bmu_units').select('id,status,serial_number'),
       ]);
@@ -998,6 +998,36 @@ export const api = {
         const serial = extractSerial(controller.serial_number, controller.serialNumber);
         if (serial) controllerSerialNumbersByLabel.BMU = [...controllerSerialNumbersByLabel.BMU, serial];
       });
+      
+      const bmsBuckets = new Map<string, number>();
+      const bmuBuckets = new Map<string, number>();
+      const bmsSerialDetailMap: Record<string, string[]> = {};
+      const bmuSerialDetailMap: Record<string, string[]> = {};
+
+      const mapControllerStatus = (status: string) => {
+        const s = String(status || '').toUpperCase();
+        if (['AVAILABLE', 'IN_STOCK', 'FLOOR_STOCK'].includes(s)) return 'Available';
+        if (['ASSIGNED', 'IN_PROCESS', 'IN_MODULE', 'IN_PACK', 'IN_RACK'].includes(s)) return 'Used';
+        if (['FAILED', 'DAMAGED', 'SCRAP', 'REJECTED'].includes(s)) return 'Damage';
+        if (['PASSED', 'REUSABLE', 'RELEASE_APPROVED'].includes(s)) return 'Reusable';
+        return s;
+      };
+
+      (liveBms || []).forEach((controller: any) => {
+         const bucket = mapControllerStatus(controller.status);
+         bmsBuckets.set(bucket, (bmsBuckets.get(bucket) || 0) + 1);
+         const serial = extractSerial(controller.serial_number, controller.serialNumber);
+         if (serial) bmsSerialDetailMap[bucket] = [...(bmsSerialDetailMap[bucket] || []), serial];
+      });
+      (liveBmus || []).forEach((controller: any) => {
+         const bucket = mapControllerStatus(controller.status);
+         bmuBuckets.set(bucket, (bmuBuckets.get(bucket) || 0) + 1);
+         const serial = extractSerial(controller.serial_number, controller.serialNumber);
+         if (serial) bmuSerialDetailMap[bucket] = [...(bmuSerialDetailMap[bucket] || []), serial];
+      });
+
+      
+
       const moduleTypeCounts = new Map<string, number>();
       const moduleTypeCapacity = new Map<string, number>();
       (liveModules || []).forEach((module: any) => {
@@ -1264,6 +1294,10 @@ export const api = {
         moduleSerialNumbersByLabel,
         cellStatusSerialNumbersByLabel,
         damageReusableSerialNumbers,
+        bmsBuckets: Array.from(bmsBuckets.entries()).map(([label, value]) => ({ label, value })),
+        bmuBuckets: Array.from(bmuBuckets.entries()).map(([label, value]) => ({ label, value })),
+        bmsSerialNumbersByLabel: bmsSerialDetailMap,
+        bmuSerialNumbersByLabel: bmuSerialDetailMap,
         reusableCellCount: reusableCellIds.size,
         controllerSerialNumbersByLabel,
         rackTotal: liveRacks?.length || 0,
@@ -4495,22 +4529,50 @@ export const api = {
     // Include rejected cells even when quarantine RLS/schema changes have not
     // reached the live API yet.
     if (rawSupabase) {
-      const quarantineCellIds = records
-        .filter(record => (record.entityType || record.entity_type) === 'CELL')
-        .map(record => record.entityId || record.entity_id)
-        .filter(Boolean);
-      if (quarantineCellIds.length > 0) {
-        const { data: quarantineCells } = await rawSupabase
-          .from('cells')
-          .select('id,internal_serial,supplier_barcode')
-          .in('id', quarantineCellIds);
-        const cellById = new Map((quarantineCells || []).map((cell: any) => [cell.id, cell]));
-        records.forEach(record => {
-          const entityId = record.entityId || record.entity_id;
-          const cell = cellById.get(entityId);
-          if (cell) record.entitySerial = cell.internal_serial || cell.supplier_barcode || entityId;
-        });
+      // 1. Collect IDs by type
+      const idsByType = new Map<string, string[]>();
+      records.forEach(record => {
+        const type = record.entityType || record.entity_type;
+        const id = record.entityId || record.entity_id;
+        if (type && id) {
+          const arr = idsByType.get(type) || [];
+          if (!arr.includes(id)) arr.push(id);
+          idsByType.set(type, arr);
+        }
+      });
+
+      const promises: Promise<void>[] = [];
+
+      // 2. Query each table
+      const typeToTable: Record<string, { table: string, select: string, mapField: (r: any) => string }> = {
+        'CELL': { table: 'cells', select: 'id,internal_serial,supplier_barcode', mapField: r => r.internal_serial || r.supplier_barcode || r.id },
+        'BMU': { table: 'bmu_units', select: 'id,serial_number', mapField: r => r.serial_number || r.id },
+        'BMS': { table: 'bms_units', select: 'id,serial_number', mapField: r => r.serial_number || r.id },
+        'MODULE': { table: 'modules', select: 'id,serial_number', mapField: r => r.serial_number || r.id },
+        'BATTERY': { table: 'batteries', select: 'id,serial_number', mapField: r => r.serial_number || r.id },
+      };
+
+      for (const [type, tableDef] of Object.entries(typeToTable)) {
+        const ids = idsByType.get(type);
+        if (ids && ids.length > 0) {
+          promises.push((async () => {
+            const { data } = await rawSupabase!.from(tableDef.table).select(tableDef.select).in('id', ids);
+            if (data) {
+              const entityById = new Map((data).map((e: any) => [e.id, e]));
+              records.forEach(record => {
+                const rType = record.entityType || record.entity_type;
+                const rId = record.entityId || record.entity_id;
+                if (rType === type) {
+                  const entity = entityById.get(rId);
+                  if (entity) record.entitySerial = tableDef.mapField(entity);
+                }
+              });
+            }
+          })());
+        }
       }
+
+      await Promise.all(promises);
       const { data: rejectedCells } = await rawSupabase
         .from('cells')
         .select('id,internal_serial,supplier_barcode,status,lifecycle_status,updated_at')
@@ -4584,9 +4646,33 @@ export const api = {
 
   async quarantineItem(payload: { itemType: string; itemId: string; reason: string; userId?: string }): Promise<any> {
     if (!rawSupabase) throw new Error('Supabase is not configured.');
+
+    let resolvedId = payload.itemId;
+    const isUuidPrefix = /^(cell|mod|bat|bms|bmu)-/i.test(payload.itemId);
+
+    if (!isUuidPrefix) {
+      const entityTable = payload.itemType === 'CELL' ? 'cells'
+        : payload.itemType === 'MODULE' ? 'modules'
+          : payload.itemType === 'BATTERY' ? 'batteries'
+            : payload.itemType === 'BMS' ? 'bms_units' : 'bmu_units';
+            
+      const queryCol = payload.itemType === 'CELL' ? 'internal_serial' : 'serial_number';
+      const fallbackCol = payload.itemType === 'CELL' ? 'supplier_barcode' : 'serial_number';
+
+      const { data, error } = await rawSupabase
+        .from(entityTable)
+        .select('id')
+        .or(`id.eq.${payload.itemId},${queryCol}.eq.${payload.itemId},${fallbackCol}.eq.${payload.itemId}`)
+        .maybeSingle();
+
+      if (error) throw error;
+      if (!data) throw new Error(`${payload.itemType} ${payload.itemId} not found`);
+      resolvedId = data.id;
+    }
+
     const { data, error } = await rawSupabase.rpc('quarantine_item_transaction', {
       p_entity_type: payload.itemType,
-      p_entity_id: payload.itemId,
+      p_entity_id: resolvedId,
       p_reason: payload.reason,
     });
     if (error) throw error;

@@ -362,8 +362,12 @@ export const InventoryView: React.FC = () => {
       case 'DISPATCHED':
         return 'bg-emerald-50 text-emerald-800 border-emerald-300 font-bold';
       case 'QUARANTINED':
+      
+      case 'REJECTED':
+      case 'SCRAP':
       case 'FAILED':
-        return 'bg-slate-100 text-black border-slate-300';
+      case 'DAMAGED':
+        return 'bg-red-50 text-red-700 border-red-200 font-bold';
       default:
         return 'bg-slate-100 text-slate-700 border-slate-200';
     }
@@ -411,11 +415,12 @@ export const InventoryView: React.FC = () => {
     : status === 'LAHORE_WAREHOUSE'
       ? 'Lahore Warehouse'
       : status;
-  const formatWarehouseStatus = (status: string) => status === 'KARACHI_WAREHOUSE'
-    ? 'Karachi Warehouse'
-    : status === 'LAHORE_WAREHOUSE'
-      ? 'Lahore Warehouse'
-      : status;
+  const formatEntityStatus = (status: string) => {
+    if (status === 'KARACHI_WAREHOUSE') return 'Karachi Warehouse';
+    if (status === 'LAHORE_WAREHOUSE') return 'Lahore Warehouse';
+    if (status === 'FAILED') return 'DAMAGED';
+    return status;
+  };
 
   const filteredCells = cells.filter(c => {
     const internalSerial = (c.internalSerial || '').toLowerCase();
@@ -972,7 +977,7 @@ export const InventoryView: React.FC = () => {
                       <td className="px-5 py-3.5 text-emerald-700 font-sans">{assignedBatterySerial}</td>
                       <td className="px-5 py-3.5 font-sans">
                         <span className={`px-2.5 py-0.5 rounded-md text-[10px] font-bold border uppercase tracking-wider ${getStatusBadge(warehouseEntityStatuses[`BATTERY:${b.id}`] || b.status)}`}>
-                          {formatWarehouseStatus(warehouseEntityStatuses[`BATTERY:${b.id}`] || b.status)}
+                          {formatEntityStatus(warehouseEntityStatuses[`BATTERY:${b.id}`] || b.status)}
                         </span>
                       </td>
                       <td className="px-5 py-3.5 text-right font-sans space-x-1">
@@ -986,7 +991,7 @@ export const InventoryView: React.FC = () => {
                               metadata: {
                                 MANUFACTURER: b.manufacturer || 'N/A',
                                 ASSIGNED_BATTERY: assignedBatterySerial,
-                                STATUS: formatWarehouseStatus(warehouseEntityStatuses[`BATTERY:${b.id}`] || b.status),
+                                STATUS: formatEntityStatus(warehouseEntityStatuses[`BATTERY:${b.id}`] || b.status),
                               },
                             });
                             setQrModalOpen(true);
@@ -1102,7 +1107,7 @@ export const InventoryView: React.FC = () => {
                       <td className="px-5 py-3.5"><span className="inline-flex items-center gap-1 font-bold text-slate-900">{b.serialNumber}<CopyToClipboardButton value={b.serialNumber} label="Copy BMU serial number" /></span></td>
                       <td className="px-5 py-3.5 text-slate-600 font-sans">{b.manufacturer || 'N/A'}</td>
                       <td className="px-5 py-3.5 text-emerald-700 font-sans">{assignedBatterySerial}</td>
-                      <td className="px-5 py-3.5 font-sans"><span className={`px-2.5 py-0.5 rounded-md text-[10px] font-bold border uppercase tracking-wider ${getStatusBadge(b.status)}`}>{b.status}</span></td>
+                      <td className="px-5 py-3.5 font-sans"><span className={`px-2.5 py-0.5 rounded-md text-[10px] font-bold border uppercase tracking-wider ${getStatusBadge(b.status)}`}>{formatEntityStatus(b.status)}</span></td>
                       <td className="px-5 py-3.5 text-right font-sans space-x-1">
                         <button onClick={() => { setQrData({ title: `BMU Controller QR: ${b.serialNumber}`, qrPayload: `${b.serialNumber}|${b.manufacturer || 'N/A'}`, serial: b.serialNumber, itemType: 'BMU', metadata: { MANUFACTURER: b.manufacturer || 'N/A', ASSIGNED_BATTERY: assignedBatterySerial, STATUS: b.status } }); setQrModalOpen(true); }} className="p-1.5 text-slate-500 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors" title="Print QR"><QrCode className="w-4 h-4" /></button>
                         <button onClick={() => { setQuickSearchQuery(b.serialNumber); setActiveView('traceability'); }} className="p-1.5 text-slate-500 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors" title="View Full Genealogy"><Eye className="w-4 h-4" /></button>
@@ -1362,7 +1367,7 @@ export const InventoryView: React.FC = () => {
                     <td className="px-5 py-3.5 font-bold text-emerald-600">{b.progressPercent}%</td>
                     <td className="px-5 py-3.5 font-sans">
                       <span className={`px-2.5 py-0.5 rounded-md text-[10px] font-bold border uppercase tracking-wider ${getStatusBadge(getBatteryDisplayStatus(b))}`}>
-                        {formatWarehouseStatus(getBatteryDisplayStatus(b))}
+                        {formatEntityStatus(getBatteryDisplayStatus(b))}
                       </span>
                     </td>
                     <td className="px-5 py-3.5 text-right space-x-1 font-sans">
