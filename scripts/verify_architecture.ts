@@ -15,8 +15,11 @@ const content = fs.readFileSync(schemaPath, 'utf8').toLowerCase();
 
 let errors = 0;
 
-function check(name: string, keyword: string, description: string) {
-  if (content.includes(keyword.toLowerCase())) {
+function check(name: string, keyword: string | RegExp, description: string) {
+  const matched = typeof keyword === 'string'
+    ? content.includes(keyword.toLowerCase())
+    : keyword.test(content);
+  if (matched) {
     console.log(`[PASS] ${name} (${description})`);
   } else {
     console.error(`[FAIL] ${name} missing! Expected: ${keyword}`);
@@ -45,7 +48,7 @@ check('module_cells unique slot', 'unique (module_id, cell_slot_index)', 'Ensure
 // 4. Controllers
 check('bms_units', 'create table if not exists public.bms_units', 'BMS Inventory');
 check('bmu_units', 'create table if not exists public.bmu_units', 'BMU Inventory');
-check('BMS 1:1 validation', 'unique index idx_bms_active_battery', 'BMS cannot be in multiple batteries');
+check('BMS 1:1 validation', /unique\s+index\s+(if\s+not\s+exists\s+)?idx_bms_active_battery/, 'BMS cannot be in multiple batteries');
 
 // 5. Audit & Genealogy
 check('audit_logs', 'create table if not exists public.audit_logs', 'Audit table');
@@ -77,8 +80,8 @@ check('receive_battery rpc', 'function public.receive_battery_transaction', 'Ato
 
 
 // 8. 100k+ Indexes
-check('index cells internal serial', 'index idx_cells_internal_serial', 'Quick serial lookup');
-check('index cells status', 'index idx_cells_status', 'Status filtering');
+check('index cells internal serial', /index\s+(if\s+not\s+exists\s+)?idx_cells_internal_serial/, 'Quick serial lookup');
+check('index cells status', /index\s+(if\s+not\s+exists\s+)?idx_cells_status/, 'Status filtering');
 
 console.log('-------------------------------');
 if (errors === 0) {

@@ -29,6 +29,7 @@ export const normalizeCellBucketLabels = (
       const normalized = rawLabel.replace(/_/g, ' ').toLowerCase();
       if (['scrap', 'damage'].includes(normalized)) return 'Damage';
       if (['recycle', 'reusable'].includes(normalized)) return 'Reusable';
+      if (['issued'].includes(normalized) || normalized.startsWith('issued')) return 'Issued';
       return rawLabel;
     })();
 

@@ -403,7 +403,7 @@ async function loadWarehouseLocationSnapshot() {
     rawSupabase.from('batteries').select('id, serial_number, product_templates(name, capacity_kwh)'),
     rawSupabase.from('rack_packs').select('battery_id, rack_id'),
     rawSupabase.from('racks').select('id, serial_number, qr_code, rack_template_code, location, status'),
-    fetchAllRows('cells', 'id, lifecycle_status, status, reserved_for_battery_id, internal_serial, supplier_barcode, grade, created_at'),
+    fetchAllRows('cells', 'id, lifecycle_status, status, reserved_for_battery_id, internal_serial, supplier_barcode, grade, created_at, issued_to_person, issued_to_department, issued_by, issued_at'),
   ]);
   const warehouseMoves = warehouseResult.data || [];
   const modules = modulesResult.data || [];
@@ -877,6 +877,10 @@ export const api = {
         p_start_date: startDate || null,
         p_end_date: endDate || null,
       });
+      const issuedCellsPromise = rawSupabase
+        .from('cells')
+        .select('id, internal_serial, supplier_barcode')
+        .not('issued_to_person', 'is', null);
       const detailDataPromise = Promise.all([
         applyDateRange(rawSupabase.from('modules').select('id,battery_id,lifecycle_status,module_type,status,created_at,serial_number,battery:batteries(product_templates(capacity_kwh,num_modules))')),
         applyDateRange(rawSupabase.from('batteries').select('id,bms_id,bmu_id,progress_percent,status,lifecycle_status,created_at,product_id,serial_number,product_templates(name,capacity_kwh)')),
@@ -891,7 +895,12 @@ export const api = {
         rawSupabase.from('bms_units').select('id,status,serial_number,reserved_for_battery_id'),
         rawSupabase.from('bmu_units').select('id,status,serial_number,reserved_for_battery_id'),
       ]);
-      const { data, error } = await dashboardSummaryPromise;
+      const [summaryResult, issuedCellsResult] = await Promise.all([
+        dashboardSummaryPromise,
+        issuedCellsPromise.then(res => res, () => ({ data: [] })),
+      ]);
+      const data = summaryResult.data;
+      const error = summaryResult.error;
 
       if (error) {
         console.warn('Dashboard RPC error:', error.message);
@@ -900,9 +909,29 @@ export const api = {
       if (!data) {
         throw new Error('Dashboard summary returned no data. Verify the signed-in user has an active MES read permission.');
       }
+      const fastIssuedSerials = ((issuedCellsResult?.data || []) as any[])
+        .map((c: any) => c.internal_serial || c.supplier_barcode || c.id)
+        .filter(Boolean);
+      const fastIssuedCount = fastIssuedSerials.length;
+      const initialCellBuckets = Array.isArray(data.cellBuckets) ? [...data.cellBuckets] : [];
+      if (fastIssuedCount > 0 && !initialCellBuckets.some((b: any) => String(b.label || '').toUpperCase() === 'ISSUED')) {
+        const floorStockIdx = initialCellBuckets.findIndex((b: any) => String(b.label || '').toUpperCase() === 'FLOOR STOCK');
+        if (floorStockIdx >= 0) {
+          initialCellBuckets[floorStockIdx] = {
+            ...initialCellBuckets[floorStockIdx],
+            value: Math.max(0, Number(initialCellBuckets[floorStockIdx].value || 0) - fastIssuedCount),
+          };
+        }
+        initialCellBuckets.push({ label: 'Issued', value: fastIssuedCount });
+      }
+
       onSummary?.({
         ...data,
-        cellBuckets: Array.isArray(data.cellBuckets) ? data.cellBuckets : [],
+        cellBuckets: initialCellBuckets,
+        issuedCellCount: fastIssuedCount,
+        cellStatusSerialNumbersByLabel: {
+          Issued: fastIssuedSerials,
+        },
         moduleStatusBuckets: Array.isArray(data.moduleStatusBuckets) ? data.moduleStatusBuckets : [],
         moduleTypeBuckets: Array.isArray(data.moduleStatusBuckets) ? data.moduleStatusBuckets : [],
         moduleTotal: Number(data.moduleStatusBuckets?.reduce((total: number, row: any) => total + Number(row?.value || 0), 0) || 0),
@@ -2657,7 +2686,7 @@ export const api = {
   },
 
   async getModules(params?: { ids?: string[]; limit?: number; offset?: number; includeCells?: boolean; search?: string; status?: string }): Promise<ModuleItem[]> {
-    let query = supabase.from('modules').select(params?.includeCells === false ? 'id,serial_number,battery_id,module_type,lifecycle_status,status' : '*').order('created_at', { ascending: false });
+    let query = supabase.from('modules').select(params?.includeCells === false ? 'id,serial_number,battery_id,module_type,lifecycle_status,status,issued_to_person,issued_to_department,issued_by,issued_at' : '*').order('created_at', { ascending: false });
     if (params?.ids) query = query.in('id', params.ids);
     if (params?.search) {
       const value = params.search.trim().replace(/[%(),]/g, ' ');
@@ -2782,7 +2811,7 @@ export const api = {
       const { data, error } = await query;
       if (error) throw error;
       batteries.push(...(data || []));
-      if (!data || data.length < pageSize || requestedLimit !== undefined || batteries.length >= requestedLimit) break;
+      if (!data || data.length < pageSize || (requestedLimit !== undefined && batteries.length >= requestedLimit)) break;
     }
     const batteryIds = batteries.map(battery => battery.id).filter(Boolean);
     if (batteryIds.length === 0) return [];
@@ -5409,7 +5438,7 @@ export const api = {
     for (let offset = requestedLimit === undefined ? 0 : requestedOffset; ; offset += pageSize) {
       let query = supabase
         .from('racks')
-        .select(`${params?.summaryOnly ? 'id,serial_number,qr_code,rack_template_code,location,status,created_at' : '*'}, rack_packs(battery_id, pack_slot_index)`)
+        .select(`${params?.summaryOnly ? 'id,serial_number,qr_code,rack_template_code,location,status,created_at,issued_to_person,issued_to_department,issued_by,issued_at' : '*'}, rack_packs(battery_id, pack_slot_index)`)
         .order('created_at', { ascending: false });
       if (params?.ids) query = query.in('id', params.ids);
       if (params?.search) {
@@ -5421,7 +5450,7 @@ export const api = {
       const { data, error } = await query;
       if (error) throw error;
       rows.push(...(data || []));
-      if (!data || data.length < pageSize || requestedLimit !== undefined || rows.length >= requestedLimit) break;
+      if (!data || data.length < pageSize || (requestedLimit !== undefined && rows.length >= requestedLimit)) break;
     }
     return rows.map((rack: any) => ({
       ...rack,
@@ -5492,6 +5521,418 @@ export const api = {
     });
     if (error) throw error;
     return toAppValue(data);
+  },
+
+  async issueEntity(params: {
+    entityType: 'CELL' | 'BMS' | 'BMU' | 'MODULE' | 'BATTERY' | 'RACK';
+    entityId: string;
+    serialNumber: string;
+    person: string;
+    department?: string;
+    issuedBy: string;
+    notes?: string;
+  }): Promise<void> {
+    const { data: sessionData } = (await rawSupabase?.auth.getSession().catch(() => ({ data: { session: null } }))) || { data: { session: null } };
+    try {
+      const response = await fetch('/api/inventory/issue', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(sessionData?.session?.access_token ? { Authorization: `Bearer ${sessionData.session.access_token}` } : {}),
+        },
+        body: JSON.stringify(params),
+      });
+      if (response.ok) {
+        warehouseLocationCache = null;
+        dashboardStatsCache = null;
+        if (typeof window !== 'undefined') {
+          try { window.localStorage.removeItem('p2g_dashboard_stats_cache'); } catch {}
+        }
+        return;
+      }
+    } catch {
+      // In standalone Node/test environment or if server fetch fails, fallback to direct client update
+    }
+
+    const tableMap: Record<string, string> = {
+      CELL: 'cells',
+      BMS: 'bms_units',
+      BMU: 'bmu_units',
+      MODULE: 'modules',
+      BATTERY: 'batteries',
+      RACK: 'racks',
+    };
+    const table = tableMap[params.entityType];
+    if (!table) throw new Error(`Unsupported entity type: ${params.entityType}`);
+    const now = new Date().toISOString();
+    const updatePayload = {
+      issued_to_person: params.person.trim(),
+      issued_to_department: params.department?.trim() || null,
+      issued_by: params.issuedBy.trim(),
+      issued_at: now,
+    };
+    const client = rawSupabase || supabase;
+    const { error } = await client.from(table).update(updatePayload).eq('id', params.entityId);
+    if (error) throw error;
+    warehouseLocationCache = null;
+    dashboardStatsCache = null;
+    if (typeof window !== 'undefined') {
+      try { window.localStorage.removeItem('p2g_dashboard_stats_cache'); } catch {}
+    }
+
+    const deptLabel = params.department?.trim() ? ` (${params.department.trim()})` : '';
+    try {
+      await client.from('audit_logs').insert({
+        id: `log-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
+        entity_type: params.entityType,
+        entity_id: params.entityId,
+        action: `ISSUED: ${params.entityType} ${params.serialNumber} to ${params.person.trim()}${deptLabel} by ${params.issuedBy}`,
+        actor: params.issuedBy,
+        result: 'SUCCESS',
+        after_state: updatePayload,
+        details: params.notes || null,
+      });
+    } catch (e) {
+      console.warn('Failed to record issue audit log', e);
+    }
+  },
+
+  async returnEntity(params: {
+    entityType: 'CELL' | 'BMS' | 'BMU' | 'MODULE' | 'BATTERY' | 'RACK';
+    entityId: string;
+    serialNumber: string;
+    returnedBy?: string;
+  }): Promise<void> {
+    const { data: sessionData } = (await rawSupabase?.auth.getSession().catch(() => ({ data: { session: null } }))) || { data: { session: null } };
+    try {
+      const response = await fetch('/api/inventory/return', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(sessionData?.session?.access_token ? { Authorization: `Bearer ${sessionData.session.access_token}` } : {}),
+        },
+        body: JSON.stringify(params),
+      });
+      if (response.ok) {
+        warehouseLocationCache = null;
+        dashboardStatsCache = null;
+        if (typeof window !== 'undefined') {
+          try { window.localStorage.removeItem('p2g_dashboard_stats_cache'); } catch {}
+        }
+        return;
+      }
+    } catch {
+      // In standalone Node/test environment or if server fetch fails, fallback to direct client update
+    }
+
+    const tableMap: Record<string, string> = {
+      CELL: 'cells',
+      BMS: 'bms_units',
+      BMU: 'bmu_units',
+      MODULE: 'modules',
+      BATTERY: 'batteries',
+      RACK: 'racks',
+    };
+    const table = tableMap[params.entityType];
+    if (!table) throw new Error(`Unsupported entity type: ${params.entityType}`);
+    const updatePayload = {
+      issued_to_person: null,
+      issued_to_department: null,
+      issued_by: null,
+      issued_at: null,
+    };
+    const client = rawSupabase || supabase;
+    const { error } = await client.from(table).update(updatePayload).eq('id', params.entityId);
+    if (error) throw error;
+    warehouseLocationCache = null;
+    dashboardStatsCache = null;
+    if (typeof window !== 'undefined') {
+      try { window.localStorage.removeItem('p2g_dashboard_stats_cache'); } catch {}
+    }
+
+    const actor = params.returnedBy || 'SYSTEM';
+    try {
+      await client.from('audit_logs').insert({
+        id: `log-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
+        entity_type: params.entityType,
+        entity_id: params.entityId,
+        action: `RETURNED: ${params.entityType} ${params.serialNumber} returned to stock by ${actor}`,
+        actor,
+        result: 'SUCCESS',
+        after_state: updatePayload,
+        details: `Returned at ${new Date().toISOString()}`,
+      });
+    } catch (e) {
+      console.warn('Failed to record return audit log', e);
+    }
+  },
+
+  async lookupHardware(code: string): Promise<{
+    found: boolean;
+    item?: {
+      entityType: 'CELL' | 'BMS' | 'BMU' | 'MODULE' | 'BATTERY' | 'RACK';
+      entityId: string;
+      serialNumber: string;
+      barcode?: string | null;
+      status: string;
+      currentIssuance?: {
+        issuedToPerson: string;
+        issuedToDepartment?: string;
+        issuedBy: string;
+        issuedAt: string;
+      };
+    };
+    message?: string;
+  }> {
+    const clean = code.trim();
+    if (!clean) return { found: false, message: 'Empty barcode or serial code' };
+
+    const { data: sessionData } = (await rawSupabase?.auth.getSession().catch(() => ({ data: { session: null } }))) || { data: { session: null } };
+    try {
+      const response = await fetch(`/api/inventory/lookup?q=${encodeURIComponent(clean)}`, {
+        headers: {
+          ...(sessionData?.session?.access_token ? { Authorization: `Bearer ${sessionData.session.access_token}` } : {}),
+        },
+      });
+      if (response.ok) {
+        return await response.json();
+      }
+    } catch {
+      // Fallback to direct client
+    }
+
+    const client = rawSupabase || supabase;
+    const [cells, bms, bmu, modules, batteries, racks] = await Promise.all([
+      client.from('cells').select('*').or(`internal_serial.ilike.${clean},supplier_barcode.ilike.${clean},id.ilike.${clean}`).limit(1),
+      client.from('bms_units').select('*').or(`serial_number.ilike.${clean},id.ilike.${clean}`).limit(1),
+      client.from('bmu_units').select('*').or(`serial_number.ilike.${clean},id.ilike.${clean}`).limit(1),
+      client.from('modules').select('*').or(`serial_number.ilike.${clean},qr_code.ilike.${clean},id.ilike.${clean}`).limit(1),
+      client.from('batteries').select('*').or(`serial_number.ilike.${clean},qr_code.ilike.${clean},id.ilike.${clean}`).limit(1),
+      client.from('racks').select('*').or(`serial_number.ilike.${clean},qr_code.ilike.${clean},id.ilike.${clean}`).limit(1),
+    ]);
+
+    if (cells.data?.[0]) {
+      const c = cells.data[0];
+      return {
+        found: true,
+        item: {
+          entityType: 'CELL',
+          entityId: c.id,
+          serialNumber: c.internal_serial || c.id,
+          barcode: c.supplier_barcode || c.qr_code || null,
+          status: c.status || c.lifecycle_status,
+          currentIssuance: c.issued_to_person ? {
+            issuedToPerson: c.issued_to_person,
+            issuedToDepartment: c.issued_to_department,
+            issuedBy: c.issued_by,
+            issuedAt: c.issued_at,
+          } : undefined,
+        },
+      };
+    }
+    if (bms.data?.[0]) {
+      const b = bms.data[0];
+      return {
+        found: true,
+        item: {
+          entityType: 'BMS',
+          entityId: b.id,
+          serialNumber: b.serial_number || b.id,
+          barcode: b.serial_number || null,
+          status: b.status,
+          currentIssuance: b.issued_to_person ? {
+            issuedToPerson: b.issued_to_person,
+            issuedToDepartment: b.issued_to_department,
+            issuedBy: b.issued_by,
+            issuedAt: b.issued_at,
+          } : undefined,
+        },
+      };
+    }
+    if (bmu.data?.[0]) {
+      const b = bmu.data[0];
+      return {
+        found: true,
+        item: {
+          entityType: 'BMU',
+          entityId: b.id,
+          serialNumber: b.serial_number || b.id,
+          barcode: b.serial_number || null,
+          status: b.status,
+          currentIssuance: b.issued_to_person ? {
+            issuedToPerson: b.issued_to_person,
+            issuedToDepartment: b.issued_to_department,
+            issuedBy: b.issued_by,
+            issuedAt: b.issued_at,
+          } : undefined,
+        },
+      };
+    }
+    if (modules.data?.[0]) {
+      const m = modules.data[0];
+      return {
+        found: true,
+        item: {
+          entityType: 'MODULE',
+          entityId: m.id,
+          serialNumber: m.serial_number || m.id,
+          barcode: m.qr_code || m.serial_number || null,
+          status: m.status || m.lifecycle_status,
+          currentIssuance: m.issued_to_person ? {
+            issuedToPerson: m.issued_to_person,
+            issuedToDepartment: m.issued_to_department,
+            issuedBy: m.issued_by,
+            issuedAt: m.issued_at,
+          } : undefined,
+        },
+      };
+    }
+    if (batteries.data?.[0]) {
+      const b = batteries.data[0];
+      return {
+        found: true,
+        item: {
+          entityType: 'BATTERY',
+          entityId: b.id,
+          serialNumber: b.serial_number || b.id,
+          barcode: b.qr_code || b.serial_number || null,
+          status: b.status || b.lifecycle_status,
+          currentIssuance: b.issued_to_person ? {
+            issuedToPerson: b.issued_to_person,
+            issuedToDepartment: b.issued_to_department,
+            issuedBy: b.issued_by,
+            issuedAt: b.issued_at,
+          } : undefined,
+        },
+      };
+    }
+    if (racks.data?.[0]) {
+      const r = racks.data[0];
+      return {
+        found: true,
+        item: {
+          entityType: 'RACK',
+          entityId: r.id,
+          serialNumber: r.serial_number || r.id,
+          barcode: r.qr_code || r.serial_number || null,
+          status: r.status,
+          currentIssuance: r.issued_to_person ? {
+            issuedToPerson: r.issued_to_person,
+            issuedToDepartment: r.issued_to_department,
+            issuedBy: r.issued_by,
+            issuedAt: r.issued_at,
+          } : undefined,
+        },
+      };
+    }
+    return { found: false, message: `No hardware matching '${clean}' found in database.` };
+  },
+
+  async getIssuedItems(): Promise<Array<{
+    id: string;
+    entityType: 'CELL' | 'BMS' | 'BMU' | 'MODULE' | 'BATTERY' | 'RACK';
+    serialNumber: string;
+    barcode?: string | null;
+    issuedToPerson: string;
+    issuedToDepartment: string | null;
+    issuedBy: string;
+    issuedAt: string;
+    status: string;
+  }>> {
+    const { data: sessionData } = (await rawSupabase?.auth.getSession().catch(() => ({ data: { session: null } }))) || { data: { session: null } };
+    try {
+      const response = await fetch('/api/inventory/issued', {
+        headers: {
+          ...(sessionData?.session?.access_token ? { Authorization: `Bearer ${sessionData.session.access_token}` } : {}),
+        },
+      });
+      if (response.ok) {
+        return await response.json();
+      }
+    } catch {
+      // Fallback to direct supabase client if server route is unreachable
+    }
+
+    const client = rawSupabase || supabase;
+    const [cells, bms, bmu, modules, batteries, racks] = await Promise.all([
+      client.from('cells').select('id, internal_serial, supplier_barcode, qr_code, status, lifecycle_status, issued_to_person, issued_to_department, issued_by, issued_at').not('issued_to_person', 'is', null),
+      client.from('bms_units').select('id, serial_number, model, status, issued_to_person, issued_to_department, issued_by, issued_at').not('issued_to_person', 'is', null),
+      client.from('bmu_units').select('id, serial_number, model, status, issued_to_person, issued_to_department, issued_by, issued_at').not('issued_to_person', 'is', null),
+      client.from('modules').select('id, serial_number, qr_code, module_type, status, lifecycle_status, issued_to_person, issued_to_department, issued_by, issued_at').not('issued_to_person', 'is', null),
+      client.from('batteries').select('id, serial_number, qr_code, status, lifecycle_status, issued_to_person, issued_to_department, issued_by, issued_at').not('issued_to_person', 'is', null),
+      client.from('racks').select('id, serial_number, qr_code, rack_template_code, location, status, issued_to_person, issued_to_department, issued_by, issued_at').not('issued_to_person', 'is', null),
+    ]);
+
+    const items = [
+      ...(cells.data || []).map((c: any) => ({
+        id: c.id,
+        entityType: 'CELL' as const,
+        serialNumber: c.internalSerial || c.internal_serial || c.id,
+        barcode: c.supplierBarcode || c.supplier_barcode || c.qr_code || null,
+        issuedToPerson: c.issuedToPerson || c.issued_to_person,
+        issuedToDepartment: c.issuedToDepartment || c.issued_to_department,
+        issuedBy: c.issuedBy || c.issued_by,
+        issuedAt: c.issuedAt || c.issued_at,
+        status: c.status || c.lifecycleStatus || c.lifecycle_status,
+      })),
+      ...(bms.data || []).map((b: any) => ({
+        id: b.id,
+        entityType: 'BMS' as const,
+        serialNumber: b.serialNumber || b.serial_number || b.id,
+        barcode: b.serialNumber || b.serial_number || null,
+        issuedToPerson: b.issuedToPerson || b.issued_to_person,
+        issuedToDepartment: b.issuedToDepartment || b.issued_to_department,
+        issuedBy: b.issuedBy || b.issued_by,
+        issuedAt: b.issuedAt || b.issued_at,
+        status: b.status,
+      })),
+      ...(bmu.data || []).map((b: any) => ({
+        id: b.id,
+        entityType: 'BMU' as const,
+        serialNumber: b.serialNumber || b.serial_number || b.id,
+        barcode: b.serialNumber || b.serial_number || null,
+        issuedToPerson: b.issuedToPerson || b.issued_to_person,
+        issuedToDepartment: b.issuedToDepartment || b.issued_to_department,
+        issuedBy: b.issuedBy || b.issued_by,
+        issuedAt: b.issuedAt || b.issued_at,
+        status: b.status,
+      })),
+      ...(modules.data || []).map((m: any) => ({
+        id: m.id,
+        entityType: 'MODULE' as const,
+        serialNumber: m.serialNumber || m.serial_number || m.id,
+        barcode: m.qrCode || m.qr_code || m.serialNumber || m.serial_number || null,
+        issuedToPerson: m.issuedToPerson || m.issued_to_person,
+        issuedToDepartment: m.issuedToDepartment || m.issued_to_department,
+        issuedBy: m.issuedBy || m.issued_by,
+        issuedAt: m.issuedAt || m.issued_at,
+        status: m.status || m.lifecycleStatus || m.lifecycle_status,
+      })),
+      ...(batteries.data || []).map((b: any) => ({
+        id: b.id,
+        entityType: 'BATTERY' as const,
+        serialNumber: b.serialNumber || b.serial_number || b.id,
+        barcode: b.qrCode || b.qr_code || b.serialNumber || b.serial_number || null,
+        issuedToPerson: b.issuedToPerson || b.issued_to_person,
+        issuedToDepartment: b.issuedToDepartment || b.issued_to_department,
+        issuedBy: b.issuedBy || b.issued_by,
+        issuedAt: b.issuedAt || b.issued_at,
+        status: b.status || b.lifecycleStatus || b.lifecycle_status,
+      })),
+      ...(racks.data || []).map((r: any) => ({
+        id: r.id,
+        entityType: 'RACK' as const,
+        serialNumber: r.serialNumber || r.serial_number || r.id,
+        barcode: r.qrCode || r.qr_code || r.serialNumber || r.serial_number || null,
+        issuedToPerson: r.issuedToPerson || r.issued_to_person,
+        issuedToDepartment: r.issuedToDepartment || r.issued_to_department,
+        issuedBy: r.issuedBy || r.issued_by,
+        issuedAt: r.issuedAt || r.issued_at,
+        status: r.status,
+      })),
+    ].sort((a, b) => new Date(b.issuedAt || 0).getTime() - new Date(a.issuedAt || 0).getTime());
+
+    return items;
   },
 
   // Machines

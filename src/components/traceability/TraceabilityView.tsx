@@ -27,6 +27,7 @@ import { CopyToClipboardButton } from '../common/CopyToClipboardButton';
 import { preferredLifecycleStatus } from '../../services/api';
 import { normalizeBatterySerial } from '../../lib/batteryNaming';
 import { normalizeRackSerial } from '../../lib/rackNaming';
+import { getIssuedDisplayStatus } from '../../lib/issuance';
 
 interface TraceNode {
   key: string;
@@ -56,16 +57,24 @@ const fmtDateShort = (v: any): string => {
   return date.match(/^(\d{2})-(\d{2})-(\d{4})$/) ? `${date.slice(0, 6)}${date.slice(-2)}` : date;
 };
 
-const formatTraceStatus = (status: any): string => String(status || '')
-  .replace(/^KARACHI_WAREHOUSE$/, 'Karachi Warehouse')
-  .replace(/^LAHORE_WAREHOUSE$/, 'Lahore Warehouse')
-  .replace(/_/g, ' ');
+const formatTraceStatus = (status: any): string => {
+  const str = String(status || '');
+  if (str.startsWith('ISSUED')) return str;
+  return str
+    .replace(/^KARACHI_WAREHOUSE$/, 'Karachi Warehouse')
+    .replace(/^LAHORE_WAREHOUSE$/, 'Lahore Warehouse')
+    .replace(/_/g, ' ');
+};
 
-const getBatteryTraceStatus = (battery: any): string => String(
-  battery?.status === 'KARACHI_WAREHOUSE' || battery?.status === 'LAHORE_WAREHOUSE'
-    ? battery.status
-    : battery?.lifecycleStatus || battery?.lifecycle_status || battery?.status || '',
-);
+const getBatteryTraceStatus = (battery: any): string => {
+  const issued = getIssuedDisplayStatus(battery);
+  if (issued) return issued;
+  return String(
+    battery?.status === 'KARACHI_WAREHOUSE' || battery?.status === 'LAHORE_WAREHOUSE'
+      ? battery.status
+      : battery?.lifecycleStatus || battery?.lifecycle_status || battery?.status || '',
+  );
+};
 
 const getRackTraceWarehouse = (rack: any): string | null => {
   const warehouse = String(rack?.status || rack?.location || '').toUpperCase();
@@ -298,81 +307,92 @@ const TYPE_LABEL: Record<string, string> = {
 
 function detailFields(node: TraceNode): { label: string; value: string }[] {
   const d = node.data || {};
-  switch (node.type) {
-    case 'CELL':
-      return [
-        { label: 'Internal Serial', value: fmt(d.internalSerial) },
-        { label: 'Supplier Barcode', value: fmt(d.supplierBarcode) },
-        { label: 'Pallet', value: fmt(d.palletNumber) },
-        { label: 'Status', value: fmt(d.lifecycleStatus || d.lifecycle_status || d.status) },
-      ];
-    case 'MODULE':
-      return [
-        { label: 'Module Serial', value: fmt(d.serialNumber) },
-        { label: 'Status', value: fmt(d.status || d.lifecycleStatus || d.lifecycle_status) },
-      ];
-    case 'BATTERY':
-      return [
+  const issuanceFields = (d.issuedToPerson || d.issued_to_person) ? [
+    { label: 'Issued To', value: String(d.issuedToPerson || d.issued_to_person) },
+    { label: 'Department', value: String(d.issuedToDepartment || d.issued_to_department || '—') },
+    { label: 'Issued By', value: String(d.issuedBy || d.issued_by || '—') },
+    { label: 'Issued At', value: fmtDateShort(d.issuedAt || d.issued_at) },
+  ] : [];
+
+  const getBaseFields = (): { label: string; value: string }[] => {
+    switch (node.type) {
+      case 'CELL':
+        return [
+          { label: 'Internal Serial', value: fmt(d.internalSerial) },
+          { label: 'Supplier Barcode', value: fmt(d.supplierBarcode) },
+          { label: 'Pallet', value: fmt(d.palletNumber) },
+          { label: 'Status', value: fmt(getIssuedDisplayStatus(d) || d.lifecycleStatus || d.lifecycle_status || d.status) },
+        ];
+      case 'MODULE':
+        return [
+          { label: 'Module Serial', value: fmt(d.serialNumber) },
+          { label: 'Status', value: fmt(getIssuedDisplayStatus(d) || d.status || d.lifecycleStatus || d.lifecycle_status) },
+        ];
+      case 'BATTERY':
+        return [
           { label: 'Battery Serial', value: displayBatterySerial(d.serialNumber) },
-        { label: 'Status', value: fmt(getBatteryTraceStatus(d)) },
-        { label: 'Modules', value: fmt(Array.isArray(d.modules) ? d.modules.length : 0) },
-        { label: 'Created', value: fmtDateShort(d.createdAt || d.created_at) },
-      ];
-    case 'RACK':
-      const rackWarehouse = getRackTraceWarehouse(d);
-      const rackStatus = preferredLifecycleStatus(d.status, rackWarehouse ? 'IN_STOCK' : undefined);
-      return [
-        { label: 'Rack Serial', value: displayRackSerial(d.serialNumber) },
-        { label: 'Rack QR Code', value: fmt(d.qrCode || d.qr_code) },
-        { label: 'Status', value: formatTraceStatus(rackStatus) },
-        { label: 'Location', value: rackWarehouse || fmt(d.location) },
-        { label: 'Batteries Connected', value: fmt(d.requiredPackCount ?? d.required_pack_count) },
-        { label: 'Date', value: fmtDateShort(d.createdAt || d.created_at) },
-      ];
-    case 'BMS':
-    case 'BMU':
-      return [
-        { label: 'Serial', value: fmt(d.serialNumber) },
-        { label: 'Type', value: node.type },
-        { label: 'Manufacturer', value: fmt(d.manufacturer || d.manufacturerName) },
-        { label: 'Status', value: fmt(d.status) },
-      ];
-    case 'SUPPLIER':
-      return [
-        { label: 'Name', value: fmt(d.name) },
-        { label: 'Date Added', value: fmtDateOnly(d.importedAt || d.imported_at || d.createdAt || d.created_at) },
-      ];
-    case 'FINAL_QC':
-      return [
-        { label: 'Status', value: fmt(d.status) },
-        { label: 'Pack Voltage (V)', value: fmt(d.packVoltageV) },
-        { label: 'Pack IR (mΩ)', value: fmt(d.internalResistanceMilliOhm) },
-        { label: 'Hi-Pot Insulation (MΩ)', value: fmt(d.hiPotInsulationMOhm) },
-        { label: 'BMS Telemetry OK', value: fmt(d.bmsTelemetryOk) },
-        { label: 'Tested By', value: fmt(d.testedBy) },
-        { label: 'Tested At', value: fmt(d.testedAt) },
-      ];
-    case 'RELEASE':
-      return [{ label: 'Release Status', value: fmt(d.status) }];
-    case 'PRODUCTION_ORDER':
-      return [
-        { label: 'Order Number', value: fmt(d.orderNumber) },
-        { label: 'Product', value: fmt(d.productName) },
-        { label: 'Quantity Planned', value: fmt(d.quantityPlanned) },
-        { label: 'Completed', value: fmt(d.quantityCompleted) },
-        { label: 'In Process', value: fmt(d.quantityInProcess) },
-        { label: 'Status', value: fmt(d.status) },
-      ];
-    case 'BATCH':
-      return [
-        { label: 'Identifier', value: fmt(d.batchIdentifier) },
-        { label: 'Match Field', value: fmt(d.matchField) },
-        { label: 'Cell Count', value: fmt(d.cellCount) },
-        { label: 'Supplier', value: fmt(d.supplierName) },
-      ];
-    default:
-      return [];
-  }
+          { label: 'Status', value: fmt(getBatteryTraceStatus(d)) },
+          { label: 'Modules', value: fmt(Array.isArray(d.modules) ? d.modules.length : 0) },
+          { label: 'Created', value: fmtDateShort(d.createdAt || d.created_at) },
+        ];
+      case 'RACK':
+        const rackWarehouse = getRackTraceWarehouse(d);
+        const rackStatus = getIssuedDisplayStatus(d) || preferredLifecycleStatus(d.status, rackWarehouse ? 'IN_STOCK' : undefined);
+        return [
+          { label: 'Rack Serial', value: displayRackSerial(d.serialNumber) },
+          { label: 'Rack QR Code', value: fmt(d.qrCode || d.qr_code) },
+          { label: 'Status', value: formatTraceStatus(rackStatus) },
+          { label: 'Location', value: rackWarehouse || fmt(d.location) },
+          { label: 'Batteries Connected', value: fmt(d.requiredPackCount ?? d.required_pack_count) },
+          { label: 'Date', value: fmtDateShort(d.createdAt || d.created_at) },
+        ];
+      case 'BMS':
+      case 'BMU':
+        return [
+          { label: 'Serial', value: fmt(d.serialNumber) },
+          { label: 'Type', value: node.type },
+          { label: 'Manufacturer', value: fmt(d.manufacturer || d.manufacturerName) },
+          { label: 'Status', value: fmt(getIssuedDisplayStatus(d) || d.status) },
+        ];
+      case 'SUPPLIER':
+        return [
+          { label: 'Name', value: fmt(d.name) },
+          { label: 'Date Added', value: fmtDateOnly(d.importedAt || d.imported_at || d.createdAt || d.created_at) },
+        ];
+      case 'FINAL_QC':
+        return [
+          { label: 'Status', value: fmt(d.status) },
+          { label: 'Pack Voltage (V)', value: fmt(d.packVoltageV) },
+          { label: 'Pack IR (mΩ)', value: fmt(d.internalResistanceMilliOhm) },
+          { label: 'Hi-Pot Insulation (MΩ)', value: fmt(d.hiPotInsulationMOhm) },
+          { label: 'BMS Telemetry OK', value: fmt(d.bmsTelemetryOk) },
+          { label: 'Tested By', value: fmt(d.testedBy) },
+          { label: 'Tested At', value: fmt(d.testedAt) },
+        ];
+      case 'RELEASE':
+        return [{ label: 'Release Status', value: fmt(d.status) }];
+      case 'PRODUCTION_ORDER':
+        return [
+          { label: 'Order Number', value: fmt(d.orderNumber) },
+          { label: 'Product', value: fmt(d.productName) },
+          { label: 'Quantity Planned', value: fmt(d.quantityPlanned) },
+          { label: 'Completed', value: fmt(d.quantityCompleted) },
+          { label: 'In Process', value: fmt(d.quantityInProcess) },
+          { label: 'Status', value: fmt(d.status) },
+        ];
+      case 'BATCH':
+        return [
+          { label: 'Identifier', value: fmt(d.batchIdentifier) },
+          { label: 'Match Field', value: fmt(d.matchField) },
+          { label: 'Cell Count', value: fmt(d.cellCount) },
+          { label: 'Supplier', value: fmt(d.supplierName) },
+        ];
+      default:
+        return [];
+    }
+  };
+
+  return [...getBaseFields(), ...issuanceFields];
 }
 
 function csvValue(value: unknown): string {
@@ -628,7 +648,7 @@ export const TraceabilityView: React.FC = () => {
               <div className="mt-2 space-y-1 text-xs">
                 <p><span className="text-slate-400">Type:</span> <strong className="text-white">{TYPE_LABEL[trace.entityType] || trace.entityType}</strong></p>
                 <p className="inline-flex items-center gap-1"><span className="text-slate-400">Identifier:</span> <strong className="font-mono text-emerald-300">{trace.entityType === 'CELL' ? (trace.entity?.supplierBarcode || trace.entity?.supplier_barcode || trace.identifier) : displayTraceIdentifier(trace)}</strong><CopyToClipboardButton value={trace.entityType === 'CELL' ? String(trace.entity?.supplierBarcode || trace.entity?.supplier_barcode || trace.identifier || '') : displayTraceIdentifier(trace)} label="Copy trace identifier" /></p>
-                <p><span className="text-slate-400">Status:</span> <strong className="text-white">{formatTraceStatus(trace.status)}</strong></p>
+                <p><span className="text-slate-400">Status:</span> <strong className="text-white">{formatTraceStatus(getIssuedDisplayStatus(trace.entity) || trace.status)}</strong></p>
               </div>
             </div>
             <button

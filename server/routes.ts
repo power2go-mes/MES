@@ -527,12 +527,15 @@ apiRouter.get('/roles', requirePermission('security.roles'), requireAdministrato
 
 apiRouter.post('/roles', requirePermission('security.roles'), requireAdministrator, (req, res) => {
   const { name, description, permissions, status } = req.body;
+  const now = new Date().toISOString();
   const newRole = {
     id: `role-${Date.now()}`,
     name,
     description: description || '',
     status: status || 'ACTIVE',
     permissions: permissions || [],
+    createdAt: now,
+    updatedAt: now,
   };
   db.roles.push(newRole);
   res.json(newRole);
@@ -873,217 +876,6 @@ apiRouter.post('/supplier-imports', requirePermission('cells.create'), asyncHand
   });
   if (bulkError) return res.status(502).json({ error: bulkError.message });
   return res.json(bulkResult);
-
-  let validRows = 0;
-  let duplicateRows = 0;
-  let invalidRows = 0;
-  const importedCellIds = [];
-  const existingCells: Array<{ supplier_barcode: string; internal_serial: string }> = [];
-  for (let offset = 0; ; offset += 1000) {
-    const { data: page, error: existingError } = await client
-      .from('cells')
-      .select('supplier_barcode, internal_serial')
-      .range(offset, offset + 999);
-    if (existingError) return res.status(502).json({ error: existingError.message });
-    existingCells.push(...(page || []));
-    if (!page || page.length < 1000) break;
-  }
-  const existingBarcodes = new Set((existingCells || []).map(c => c.supplier_barcode));
-  const usedInternalSerials = new Set((existingCells || []).map(c => c.internal_serial));
-  const pendingCells: any[] = [];
-  let nextInternalSerial = Math.max(
-    0,
-    ...(existingCells || []).map(c => Number(String(c.internal_serial || '').match(/(\d+)$/)?.[1] || 0)),
-  ) + 1;
-
-  const normalizeSupplier = (supplier: any) => ({
-    id: supplier.id,
-    name: supplier.name,
-    code: supplier.code,
-    country: supplier.country ?? supplier.country,
-    cellChemistry: supplier.cell_chemistry ?? supplier.cellChemistry,
-    nominalCapacityAh: supplier.nominal_capacity_ah ?? supplier.nominalCapacityAh,
-    ratingScore: supplier.rating_score ?? supplier.ratingScore,
-  });
-
-  const findStoredSupplier = async (name: string) => {
-    const { data, error } = await client
-      .from('suppliers')
-      .select('*')
-      .ilike('name', name)
-      .maybeSingle();
-    if (error) throw error;
-    return data ? normalizeSupplier(data) : undefined;
-  };
-
-  const createSupplier = async (name: string, suffix: string) => {
-    const baseCode = (name.replace(/[^a-z0-9]/gi, '').substring(0, 3) || 'SUP').toUpperCase();
-    let code = baseCode;
-    let attempt = 1;
-    while (true) {
-      const { data: codeOwner, error: codeError } = await client
-        .from('suppliers')
-        .select('*')
-        .eq('code', code)
-        .maybeSingle();
-      if (codeError) throw codeError;
-      if (!codeOwner) break;
-      if (String(codeOwner.name).toLowerCase() === name.toLowerCase()) return normalizeSupplier(codeOwner);
-      code = `${baseCode}-${attempt++}`;
-    }
-
-    const candidate = {
-      id: `sup-${Date.now()}-${suffix}`,
-      name,
-      code,
-      country: 'Unknown',
-      cell_chemistry: 'LFP',
-      nominal_capacity_ah: 100,
-      rating_score: 5,
-    };
-    const { data, error } = await client.from('suppliers').insert(candidate).select().single();
-    if (error) throw error;
-    return normalizeSupplier(data);
-  };
-
-  // Auto-detect and collect suppliers
-  // Find primary supplier from data or use fallback
-  const firstManufacturer = rows.find(r => r.manufacturer_name)?.manufacturer_name || 'Unknown Supplier';
-  let primarySupplier = db.suppliers.find(s => s.name.toLowerCase() === firstManufacturer.toLowerCase());
-  if (!primarySupplier) {
-    primarySupplier = await findStoredSupplier(firstManufacturer);
-  }
-  
-  if (!primarySupplier) {
-    primarySupplier = await createSupplier(firstManufacturer, 'primary');
-  }
-
-  for (let i = 0; i < rows.length; i++) {
-    const row = rows[i];
-    const barcode = String(row.barcode || '').trim();
-
-    if (!barcode) { invalidRows++; continue; }
-    if (existingBarcodes.has(barcode)) { duplicateRows++; continue; }
-
-    const cap = parseFloat(row.capacity);
-    const ocv = parseFloat(row.ocv);
-    const ir = parseFloat(row.ri);
-
-    if (isNaN(cap) || isNaN(ocv) || isNaN(ir)) {
-      invalidRows++;
-      continue;
-    }
-
-    // Determine supplier per cell if they differ, though we default to primary
-    const cellManufacturer = row.manufacturer_name || primarySupplier.name;
-    let cellSupplier = db.suppliers.find(s => s.name.toLowerCase() === cellManufacturer.toLowerCase());
-    if (!cellSupplier && cellManufacturer === primarySupplier.name) cellSupplier = primarySupplier;
-    if (!cellSupplier) {
-      cellSupplier = await findStoredSupplier(cellManufacturer);
-    }
-    if (!cellSupplier) {
-      cellSupplier = await createSupplier(cellManufacturer, String(i));
-    }
-
-    const cellId = `cell-imp-${Date.now()}-${i}-${randomUUID().slice(0, 8)}`;
-    let internalSerial = `P2G-CL-${String(nextInternalSerial).padStart(7, '0')}`;
-    while (usedInternalSerials.has(internalSerial)) {
-      nextInternalSerial++;
-      internalSerial = `P2G-CL-${String(nextInternalSerial).padStart(7, '0')}`;
-    }
-    usedInternalSerials.add(internalSerial);
-    nextInternalSerial++;
-
-    const cell = {
-      id: cellId,
-      internalSerial,
-      supplierBarcode: barcode,
-      supplierId: cellSupplier.id,
-      supplierName: cellManufacturer,
-      batchNumber: String(row.group || `BAT-${Date.now()}`),
-      palletNumber: String(row.pallet || `PAL-${Date.now()}`),
-      boxNumber: String(row.box_number || `BOX-${Date.now()}`),
-      manufacturingDate: row.manufacture_date || new Date().toISOString().slice(0, 10),
-      supplierCapacityAh: cap,
-      supplierOcvV: ocv,
-      supplierIrMilliOhm: ir,
-      supplierIrMohm: ir,
-      supplierGrade: String(row.gear || 'Grade-A'),
-      status: 'AVAILABLE' as any,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    };
-
-    pendingCells.push({
-      id: cell.id,
-      internal_serial: cell.internalSerial,
-      supplier_barcode: cell.supplierBarcode,
-      supplier_id: cell.supplierId,
-      supplier_name: cell.supplierName,
-      batch_number: cell.batchNumber,
-      pallet_number: cell.palletNumber,
-      box_number: cell.boxNumber,
-      manufacturing_date: cell.manufacturingDate,
-      supplier_capacity_ah: cell.supplierCapacityAh,
-      supplier_ocv_v: cell.supplierOcvV,
-      supplier_ir_mohm: cell.supplierIrMilliOhm,
-      supplier_grade: cell.supplierGrade,
-      status: cell.status,
-    });
-    existingBarcodes.add(barcode);
-    importedCellIds.push(cellId);
-    validRows++;
-  }
-
-  // Insert in batches to avoid one network round trip per supplier row.
-  for (let offset = 0; offset < pendingCells.length; offset += 500) {
-    const batch = pendingCells.slice(offset, offset + 500);
-    const { error: cellError } = await client.from('cells').upsert(batch, {
-      onConflict: 'supplier_barcode',
-      ignoreDuplicates: true,
-    });
-    if (cellError) return res.status(502).json({ error: cellError.message });
-  }
-
-  const importSummary = {
-    id: `imp-${Date.now()}`,
-    filename: filename || 'supplier_cells_manifest.csv',
-    supplierId: primarySupplier.id,
-    supplierName: primarySupplier.name,
-    totalRows: rows.length,
-    validRows,
-    duplicateRows,
-    invalidRows,
-    importedAt: new Date().toISOString(),
-    importedBy: userId,
-  };
-
-  const { error: summaryError } = await client.from('supplier_import_summaries').insert({
-    filename: importSummary.filename,
-    supplier_id: primarySupplier.id,
-    supplier_name: primarySupplier.name,
-    total_rows: importSummary.totalRows,
-    valid_rows: importSummary.validRows,
-    duplicate_rows: importSummary.duplicateRows,
-    invalid_rows: importSummary.invalidRows,
-    import_status: 'COMPLETED',
-  });
-  if (summaryError) return res.status(502).json({ error: summaryError.message });
-
-  const { error: auditError } = await client.from('audit_logs').insert({
-    user_name: 'Administrator',
-    user_role: 'admin',
-    action: `Imported ${validRows} cells (detected primarily from ${primarySupplier.name}) (${duplicateRows} duplicates skipped)`,
-    entity_type: 'IMPORT',
-    entity_id: importSummary.id,
-    new_value: importSummary,
-  });
-  if (auditError) return res.status(502).json({ error: auditError.message });
-
-  res.json({
-    summary: importSummary,
-    importedCount: validRows,
-  });
 }));
 
 apiRouter.get('/supplier-imports', (req, res) => {
@@ -1095,6 +887,344 @@ apiRouter.get('/supplier-imports', (req, res) => {
       return res.json(data || []);
     });
 });
+
+// Issuance & Return Endpoints
+apiRouter.post('/inventory/issue', asyncHandler(async (req, res) => {
+  const { entityType, entityId, serialNumber, person, department, issuedBy, notes } = req.body;
+  if (!entityType || !entityId) {
+    return res.status(400).json({ error: 'entityType and entityId are required.' });
+  }
+  if (!person || !String(person).trim()) {
+    return res.status(400).json({ error: 'Person is compulsory and required.' });
+  }
+
+  const tableMap: Record<string, string> = {
+    CELL: 'cells',
+    BMS: 'bms_units',
+    BMU: 'bmu_units',
+    MODULE: 'modules',
+    BATTERY: 'batteries',
+    RACK: 'racks',
+  };
+  const table = tableMap[String(entityType).toUpperCase()];
+  if (!table) return res.status(400).json({ error: `Unsupported entity type: ${entityType}` });
+
+  const client = getServiceClient();
+  if (!client) return res.status(503).json({ error: 'Supabase service client is not configured' });
+
+  const now = new Date().toISOString();
+  const updatePayload = {
+    issued_to_person: String(person).trim(),
+    issued_to_department: department && String(department).trim() ? String(department).trim() : null,
+    issued_by: issuedBy && String(issuedBy).trim() ? String(issuedBy).trim() : 'Operator',
+    issued_at: now,
+  };
+
+  const { error: updateError } = await client.from(table).update(updatePayload).eq('id', entityId);
+  if (updateError) return res.status(502).json({ error: updateError.message });
+
+  const deptLabel = updatePayload.issued_to_department ? ` (${updatePayload.issued_to_department})` : '';
+  await client.from('audit_logs').insert({
+    id: `log-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
+    entity_type: String(entityType).toUpperCase(),
+    entity_id: entityId,
+    action: `ISSUED: ${String(entityType).toUpperCase()} ${serialNumber || entityId} to ${updatePayload.issued_to_person}${deptLabel} by ${updatePayload.issued_by}`,
+    actor: updatePayload.issued_by,
+    result: 'SUCCESS',
+    after_state: updatePayload,
+    details: notes || null,
+  }).then(r => { if (r.error) console.warn('Audit log write error:', r.error); });
+
+  return res.json({ success: true, ...updatePayload });
+}));
+
+apiRouter.post('/inventory/return', asyncHandler(async (req, res) => {
+  const { entityType, entityId, serialNumber, returnedBy } = req.body;
+  if (!entityType || !entityId) {
+    return res.status(400).json({ error: 'entityType and entityId are required.' });
+  }
+
+  const tableMap: Record<string, string> = {
+    CELL: 'cells',
+    BMS: 'bms_units',
+    BMU: 'bmu_units',
+    MODULE: 'modules',
+    BATTERY: 'batteries',
+    RACK: 'racks',
+  };
+  const table = tableMap[String(entityType).toUpperCase()];
+  if (!table) return res.status(400).json({ error: `Unsupported entity type: ${entityType}` });
+
+  const client = getServiceClient();
+  if (!client) return res.status(503).json({ error: 'Supabase service client is not configured' });
+
+  const updatePayload = {
+    issued_to_person: null,
+    issued_to_department: null,
+    issued_by: null,
+    issued_at: null,
+  };
+
+  const { error: updateError } = await client.from(table).update(updatePayload).eq('id', entityId);
+  if (updateError) return res.status(502).json({ error: updateError.message });
+
+  const actor = returnedBy || 'SYSTEM';
+  await client.from('audit_logs').insert({
+    id: `log-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
+    entity_type: String(entityType).toUpperCase(),
+    entity_id: entityId,
+    action: `RETURNED: ${String(entityType).toUpperCase()} ${serialNumber || entityId} returned to stock by ${actor}`,
+    actor,
+    result: 'SUCCESS',
+    after_state: updatePayload,
+    details: `Returned at ${new Date().toISOString()}`,
+  }).then(r => { if (r.error) console.warn('Audit log write error:', r.error); });
+
+  return res.json({ success: true });
+}));
+
+apiRouter.get('/inventory/issued', asyncHandler(async (req, res) => {
+  const client = getServiceClient();
+  if (!client) return res.status(503).json({ error: 'Supabase service client is not configured' });
+
+  const [cells, bms, bmu, modules, batteries, racks] = await Promise.all([
+    client.from('cells').select('id, internal_serial, supplier_barcode, qr_code, status, lifecycle_status, issued_to_person, issued_to_department, issued_by, issued_at').not('issued_to_person', 'is', null),
+    client.from('bms_units').select('id, serial_number, model, status, issued_to_person, issued_to_department, issued_by, issued_at').not('issued_to_person', 'is', null),
+    client.from('bmu_units').select('id, serial_number, model, status, issued_to_person, issued_to_department, issued_by, issued_at').not('issued_to_person', 'is', null),
+    client.from('modules').select('id, serial_number, qr_code, module_type, status, lifecycle_status, issued_to_person, issued_to_department, issued_by, issued_at').not('issued_to_person', 'is', null),
+    client.from('batteries').select('id, serial_number, qr_code, status, lifecycle_status, issued_to_person, issued_to_department, issued_by, issued_at').not('issued_to_person', 'is', null),
+    client.from('racks').select('id, serial_number, qr_code, rack_template_code, location, status, issued_to_person, issued_to_department, issued_by, issued_at').not('issued_to_person', 'is', null),
+  ]);
+
+  const items = [
+    ...(cells.data || []).map((c: any) => ({
+      id: c.id,
+      entityType: 'CELL',
+      serialNumber: c.internal_serial || c.id,
+      barcode: c.supplier_barcode || c.qr_code || null,
+      issuedToPerson: c.issued_to_person,
+      issuedToDepartment: c.issued_to_department,
+      issuedBy: c.issued_by,
+      issuedAt: c.issued_at,
+      status: c.status || c.lifecycle_status,
+    })),
+    ...(bms.data || []).map((b: any) => ({
+      id: b.id,
+      entityType: 'BMS',
+      serialNumber: b.serial_number || b.id,
+      barcode: b.serial_number || null,
+      issuedToPerson: b.issued_to_person,
+      issuedToDepartment: b.issued_to_department,
+      issuedBy: b.issued_by,
+      issuedAt: b.issued_at,
+      status: b.status,
+    })),
+    ...(bmu.data || []).map((b: any) => ({
+      id: b.id,
+      entityType: 'BMU',
+      serialNumber: b.serial_number || b.id,
+      barcode: b.serial_number || null,
+      issuedToPerson: b.issued_to_person,
+      issuedToDepartment: b.issued_to_department,
+      issuedBy: b.issued_by,
+      issuedAt: b.issued_at,
+      status: b.status,
+    })),
+    ...(modules.data || []).map((m: any) => ({
+      id: m.id,
+      entityType: 'MODULE',
+      serialNumber: m.serial_number || m.id,
+      barcode: m.qr_code || m.serial_number || null,
+      issuedToPerson: m.issued_to_person,
+      issuedToDepartment: m.issued_to_department,
+      issuedBy: m.issued_by,
+      issuedAt: m.issued_at,
+      status: m.status || m.lifecycle_status,
+    })),
+    ...(batteries.data || []).map((b: any) => ({
+      id: b.id,
+      entityType: 'BATTERY',
+      serialNumber: b.serial_number || b.id,
+      barcode: b.qr_code || b.serial_number || null,
+      issuedToPerson: b.issued_to_person,
+      issuedToDepartment: b.issued_to_department,
+      issuedBy: b.issued_by,
+      issuedAt: b.issued_at,
+      status: b.status || b.lifecycle_status,
+    })),
+    ...(racks.data || []).map((r: any) => ({
+      id: r.id,
+      entityType: 'RACK',
+      serialNumber: r.serial_number || r.id,
+      barcode: r.qr_code || r.serial_number || null,
+      issuedToPerson: r.issued_to_person,
+      issuedToDepartment: r.issued_to_department,
+      issuedBy: r.issued_by,
+      issuedAt: r.issued_at,
+      status: r.status,
+    })),
+  ].sort((a, b) => new Date(b.issuedAt || 0).getTime() - new Date(a.issuedAt || 0).getTime());
+
+  return res.json(items);
+}));
+
+apiRouter.get('/inventory/lookup', asyncHandler(async (req, res) => {
+  const query = String(req.query.q || '').trim();
+  if (!query) return res.status(400).json({ error: 'Search query q is required.' });
+
+  const client = getServiceClient();
+  if (!client) return res.status(503).json({ error: 'Supabase service client is not configured' });
+
+  // Search across all 6 tables in parallel using case-insensitive ilike
+  const [cells, bms, bmu, modules, batteries, racks] = await Promise.all([
+    client.from('cells')
+      .select('id, internal_serial, supplier_barcode, qr_code, status, lifecycle_status, issued_to_person, issued_to_department, issued_by, issued_at')
+      .or(`internal_serial.ilike.${query},supplier_barcode.ilike.${query},id.ilike.${query}`)
+      .limit(1),
+    client.from('bms_units')
+      .select('id, serial_number, model, status, issued_to_person, issued_to_department, issued_by, issued_at')
+      .or(`serial_number.ilike.${query},id.ilike.${query}`)
+      .limit(1),
+    client.from('bmu_units')
+      .select('id, serial_number, model, status, issued_to_person, issued_to_department, issued_by, issued_at')
+      .or(`serial_number.ilike.${query},id.ilike.${query}`)
+      .limit(1),
+    client.from('modules')
+      .select('id, serial_number, qr_code, module_type, status, lifecycle_status, issued_to_person, issued_to_department, issued_by, issued_at')
+      .or(`serial_number.ilike.${query},qr_code.ilike.${query},id.ilike.${query}`)
+      .limit(1),
+    client.from('batteries')
+      .select('id, serial_number, qr_code, status, lifecycle_status, issued_to_person, issued_to_department, issued_by, issued_at')
+      .or(`serial_number.ilike.${query},qr_code.ilike.${query},id.ilike.${query}`)
+      .limit(1),
+    client.from('racks')
+      .select('id, serial_number, qr_code, rack_template_code, location, status, issued_to_person, issued_to_department, issued_by, issued_at')
+      .or(`serial_number.ilike.${query},qr_code.ilike.${query},id.ilike.${query}`)
+      .limit(1),
+  ]);
+
+  if (cells.data?.[0]) {
+    const c = cells.data[0];
+    return res.json({
+      found: true,
+      item: {
+        entityType: 'CELL',
+        entityId: c.id,
+        serialNumber: c.internal_serial || c.id,
+        barcode: c.supplier_barcode || c.qr_code || null,
+        status: c.status || c.lifecycle_status,
+        currentIssuance: c.issued_to_person ? {
+          issuedToPerson: c.issued_to_person,
+          issuedToDepartment: c.issued_to_department,
+          issuedBy: c.issued_by,
+          issuedAt: c.issued_at,
+        } : undefined,
+      },
+    });
+  }
+
+  if (bms.data?.[0]) {
+    const b = bms.data[0];
+    return res.json({
+      found: true,
+      item: {
+        entityType: 'BMS',
+        entityId: b.id,
+        serialNumber: b.serial_number || b.id,
+        barcode: b.serial_number || null,
+        status: b.status,
+        currentIssuance: b.issued_to_person ? {
+          issuedToPerson: b.issued_to_person,
+          issuedToDepartment: b.issued_to_department,
+          issuedBy: b.issued_by,
+          issuedAt: b.issued_at,
+        } : undefined,
+      },
+    });
+  }
+
+  if (bmu.data?.[0]) {
+    const b = bmu.data[0];
+    return res.json({
+      found: true,
+      item: {
+        entityType: 'BMU',
+        entityId: b.id,
+        serialNumber: b.serial_number || b.id,
+        barcode: b.serial_number || null,
+        status: b.status,
+        currentIssuance: b.issued_to_person ? {
+          issuedToPerson: b.issued_to_person,
+          issuedToDepartment: b.issued_to_department,
+          issuedBy: b.issued_by,
+          issuedAt: b.issued_at,
+        } : undefined,
+      },
+    });
+  }
+
+  if (modules.data?.[0]) {
+    const m = modules.data[0];
+    return res.json({
+      found: true,
+      item: {
+        entityType: 'MODULE',
+        entityId: m.id,
+        serialNumber: m.serial_number || m.id,
+        barcode: m.qr_code || m.serial_number || null,
+        status: m.status || m.lifecycle_status,
+        currentIssuance: m.issued_to_person ? {
+          issuedToPerson: m.issued_to_person,
+          issuedToDepartment: m.issued_to_department,
+          issuedBy: m.issued_by,
+          issuedAt: m.issued_at,
+        } : undefined,
+      },
+    });
+  }
+
+  if (batteries.data?.[0]) {
+    const b = batteries.data[0];
+    return res.json({
+      found: true,
+      item: {
+        entityType: 'BATTERY',
+        entityId: b.id,
+        serialNumber: b.serial_number || b.id,
+        barcode: b.qr_code || b.serial_number || null,
+        status: b.status || b.lifecycle_status,
+        currentIssuance: b.issued_to_person ? {
+          issuedToPerson: b.issued_to_person,
+          issuedToDepartment: b.issued_to_department,
+          issuedBy: b.issued_by,
+          issuedAt: b.issued_at,
+        } : undefined,
+      },
+    });
+  }
+
+  if (racks.data?.[0]) {
+    const r = racks.data[0];
+    return res.json({
+      found: true,
+      item: {
+        entityType: 'RACK',
+        entityId: r.id,
+        serialNumber: r.serial_number || r.id,
+        barcode: r.qr_code || r.serial_number || null,
+        status: r.status,
+        currentIssuance: r.issued_to_person ? {
+          issuedToPerson: r.issued_to_person,
+          issuedToDepartment: r.issued_to_department,
+          issuedBy: r.issued_by,
+          issuedAt: r.issued_at,
+        } : undefined,
+      },
+    });
+  }
+
+  return res.json({ found: false, message: `No hardware matching '${query}' found in database.` });
+}));
 
 // 7. Inventory Endpoints
 apiRouter.get('/inventory/cells', (req, res) => {

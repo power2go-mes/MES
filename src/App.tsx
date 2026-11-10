@@ -25,6 +25,7 @@ const ContainerFloorView = lazy(() => import('./components/production/ContainerF
 const ProductionPlanningView = lazy(() => import('./components/planning/ProductionPlanningView').then(module => ({ default: module.ProductionPlanningView })));
 const SupplierImportView = lazy(() => import('./components/supplier/SupplierImportView').then(module => ({ default: module.SupplierImportView })));
 const InventoryView = lazy(() => import('./components/inventory/InventoryView').then(module => ({ default: module.InventoryView })));
+const IssuedView = lazy(() => import('./components/issued/IssuedView').then(module => ({ default: module.IssuedView })));
 const TraceabilityView = lazy(() => import('./components/traceability/TraceabilityView').then(module => ({ default: module.TraceabilityView })));
 const QuarantineView = lazy(() => import('./components/quarantine/QuarantineView').then(module => ({ default: module.QuarantineView })));
 const ProductConfiguratorView = lazy(() => import('./components/products/ProductConfiguratorView').then(module => ({ default: module.ProductConfiguratorView })));
@@ -112,6 +113,8 @@ const AppContent: React.FC = () => {
         return <SupplierImportView />;
       case 'inventory':
         return <InventoryView />;
+      case 'issued':
+        return <IssuedView />;
       case 'traceability':
         return <TraceabilityView />;
       case 'quarantine':

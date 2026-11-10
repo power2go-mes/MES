@@ -1147,67 +1147,8 @@ $$ language plpgsql security definer;
 
 grant execute on function public.replace_module_cell_assignment_transaction(text, text[]) to authenticated;
 
--- GET DASHBOARD SUMMARY
-create or replace function public.get_dashboard_summary()
-returns jsonb as $$
-declare
-    v_res jsonb;
-begin
-    select jsonb_build_object(
-        'inventory', jsonb_build_object(
-            'totalCells', (select count(*) from public.cells),
-            'usedCells', (select count(*) from public.cells where status <> 'IMPORTED' or reserved_for_order_id is not null or reserved_for_battery_id is not null),
-            'availableCells', (select count(*) from public.cells where status in ('AVAILABLE','IMPORTED','ACKNOWLEDGED','OCV_TESTED','GRADED') and reserved_for_order_id is null and reserved_for_battery_id is null),
-            'reservedCells', (select count(*) from public.cells where status = 'RESERVED' or reserved_for_order_id is not null),
-            'inProcessCells', (select count(*) from public.cells where status in ('IN_PROCESS','VALIDATING','TESTING','SCANNED','PASSED')),
-            'assembledCells', (select count(*) from public.cells where status = 'ASSEMBLED' or exists (select 1 from public.module_cells mc where mc.cell_id = cells.id)),
-            'quarantinedCells', (select count(*) from public.cells where status = 'QUARANTINED'),
-            'finishedBatteries', (select count(*) from public.batteries where status in ('FINISHED','RELEASED','DISPATCHED')),
-            'inProcessBatteries', (select count(*) from public.batteries where status in ('IN_PROCESS','ASSEMBLY','TESTING','QC','CREATED')),
-            'availableBms', (select count(*) from public.bms_units where status = 'AVAILABLE' and reserved_for_battery_id is null),
-            'availableBmu', (select count(*) from public.bmu_units where status = 'AVAILABLE' and reserved_for_battery_id is null),
-            'totalBms', (select count(*) from public.bms_units),
-            'totalBmu', (select count(*) from public.bmu_units)
-        ),
-        'quality', jsonb_build_object(
-            'quarantinedCount', (select count(*) from public.quarantine_records where status = 'OPEN'),
-            'firstPassYieldPercent', coalesce(round(100.0 * (select count(*) from public.battery_tests where passed = true)::numeric / nullif((select count(*) from public.battery_tests), 0), 1), 0)
-        ),
-        'orders', jsonb_build_object(
-            'total', (select count(*) from public.production_orders),
-            'inProcess', (select count(*) from public.production_orders where status = 'IN_PROCESS'),
-            'completed', (select count(*) from public.production_orders where status = 'COMPLETED'),
-            'planned', (select count(*) from public.production_orders where status = 'PLANNED')
-        ),
-        'recentBatteries', coalesce((select jsonb_agg(jsonb_build_object(
-            'id', recent.id,
-            'serialNumber', recent.serial_number,
-            'productName', recent.name,
-            'currentStep', recent.current_step,
-            'progressPercent', recent.progress_percent,
-            'status', recent.status
-        ) order by recent.created_at desc)
-        from (
-            select b.id, b.serial_number, p.name, b.current_step, b.progress_percent, b.status, b.created_at
-            from public.batteries b
-            join public.product_templates p on p.id = b.product_id
-            where b.status not in ('RELEASED', 'WAREHOUSE', 'DISPATCHED', 'FINISHED')
-            order by b.created_at desc
-            limit 20
-        ) recent), '[]'::jsonb)
-        , 'batteryBuildTrend', coalesce((select jsonb_agg(jsonb_build_object('label', day_label, 'value', amount) order by day_label)
-            from (select to_char(created_at, 'YYYY-MM-DD') as day_label, count(*) as amount from public.batteries where status in ('FINISHED','RELEASED','DISPATCHED') group by 1 order by 1 desc limit 7) trend), '[]'::jsonb)
-        , 'finishedPackTrend', coalesce((select jsonb_agg(jsonb_build_object('label', day_label, 'value', amount) order by day_label)
-            from (select to_char(created_at, 'YYYY-MM-DD') as day_label, count(*) as amount from public.batteries where status in ('FINISHED','RELEASED','DISPATCHED') group by 1 order by 1 desc limit 7) trend), '[]'::jsonb)
-        , 'machines', coalesce((select jsonb_agg(jsonb_build_object('id', id, 'name', name, 'status', status) order by name) from public.machine_configurations), '[]'::jsonb)
-        , 'bmsTelemetry', jsonb_build_object(
-            'total', (select count(*) from public.bms_units),
-            'tested', (select count(*) from public.bms_units where test_result_json is not null)
-        )
-    ) into v_res;
-    return v_res;
-end;
-$$ language plpgsql security definer;
+-- GET DASHBOARD SUMMARY (Old zero-arg signature dropped in favor of parameterized version at line ~3830)
+drop function if exists public.get_dashboard_summary();
 
 
 -- ARCHIVE CONTROLLER
@@ -4185,3 +4126,51 @@ end;
 $$;
 revoke all on function public.move_cells_to_floor_transaction(text, text, text[]) from public;
 grant execute on function public.move_cells_to_floor_transaction(text, text, text[]) to authenticated;
+
+-- ============================================================================
+-- ISSUANCE SUBSYSTEM (Issued To / Issued By)
+-- Non-breaking additive columns for tracking issued items
+-- ============================================================================
+alter table public.cells
+    add column if not exists issued_to_person text default null,
+    add column if not exists issued_to_department text default null,
+    add column if not exists issued_by text default null,
+    add column if not exists issued_at timestamptz default null;
+
+alter table public.bms_units
+    add column if not exists issued_to_person text default null,
+    add column if not exists issued_to_department text default null,
+    add column if not exists issued_by text default null,
+    add column if not exists issued_at timestamptz default null;
+
+alter table public.bmu_units
+    add column if not exists issued_to_person text default null,
+    add column if not exists issued_to_department text default null,
+    add column if not exists issued_by text default null,
+    add column if not exists issued_at timestamptz default null;
+
+alter table public.modules
+    add column if not exists issued_to_person text default null,
+    add column if not exists issued_to_department text default null,
+    add column if not exists issued_by text default null,
+    add column if not exists issued_at timestamptz default null;
+
+alter table public.batteries
+    add column if not exists issued_to_person text default null,
+    add column if not exists issued_to_department text default null,
+    add column if not exists issued_by text default null,
+    add column if not exists issued_at timestamptz default null;
+
+alter table public.racks
+    add column if not exists issued_to_person text default null,
+    add column if not exists issued_to_department text default null,
+    add column if not exists issued_by text default null,
+    add column if not exists issued_at timestamptz default null;
+
+create index if not exists idx_cells_issued_to on public.cells (issued_to_person) where issued_to_person is not null;
+create index if not exists idx_bms_issued_to on public.bms_units (issued_to_person) where issued_to_person is not null;
+create index if not exists idx_bmu_issued_to on public.bmu_units (issued_to_person) where issued_to_person is not null;
+create index if not exists idx_modules_issued_to on public.modules (issued_to_person) where issued_to_person is not null;
+create index if not exists idx_batteries_issued_to on public.batteries (issued_to_person) where issued_to_person is not null;
+create index if not exists idx_racks_issued_to on public.racks (issued_to_person) where issued_to_person is not null;
+

@@ -36,6 +36,7 @@ const statusColors: Record<string, string> = {
   Sold: reportColors.silver,
   Damage: reportColors.red,
   Reusable: reportColors.green,
+  Issued: reportColors.green,
 };
 const packColors = [reportColors.blue, reportColors.green];
 const ceoDonutPalette = ['#245501', '#538D22', '#1A4301', '#73A942', '#143601', '#AAD576'];
@@ -51,6 +52,7 @@ const ceoStatusColors: Record<string, string> = {
   Sold: ceoDonutPalette[2],
   Damage: ceoDonutPalette[0],
   Reusable: ceoDonutPalette[5],
+  Issued: ceoDonutPalette[3],
 };
 const packColorByModel: Record<string, string> = {
   'WallMount 5kWh': reportColors.blue,
@@ -286,6 +288,7 @@ export const CEOMonitoringView: React.FC = () => {
         if (!data) return data;
         const existingDamageValue = numberOr(data.cellBuckets?.find((row: any) => ['SCRAP', 'DAMAGE'].includes(String(row.label || '').toUpperCase()))?.value);
         const existingReusableValue = numberOr(data.cellBuckets?.find((row: any) => ['RECYCLE', 'REUSABLE'].includes(String(row.label || '').toUpperCase()))?.value);
+        const existingIssuedValue = numberOr(data.cellBuckets?.find((row: any) => String(row.label || '').toUpperCase().startsWith('ISSUED'))?.value);
         const scrapCellCount = existingDamageValue || 0;
         const reusableSerialCount = new Set([
           ...(data.damageReusableSerialNumbers?.Reusable || []),
@@ -295,15 +298,20 @@ export const CEOMonitoringView: React.FC = () => {
           ? existingReusableValue
           : Math.max(numberOr(data.reusableCellCount, 0), reusableSerialCount);
         const reusableToReclassify = existingReusableValue > 0 ? 0 : reusableCount;
+        const issuedCount = existingIssuedValue > 0
+          ? existingIssuedValue
+          : (data.cellStatusSerialNumbersByLabel?.Issued?.length || data.cellStatusSerialNumbers?.Issued?.length || data.issuedCellCount || 0);
+        const issuedToReclassify = existingIssuedValue > 0 ? 0 : issuedCount;
         const patchedBuckets = normalizeCellBucketLabels(
           (data.cellBuckets || [])
-            .filter((row: any) => !['SCRAP', 'DAMAGE', 'RECYCLE', 'REUSABLE'].includes(String(row.label || '').toUpperCase()))
+            .filter((row: any) => !['SCRAP', 'DAMAGE', 'RECYCLE', 'REUSABLE'].includes(String(row.label || '').toUpperCase()) && !String(row.label || '').toUpperCase().startsWith('ISSUED'))
             .map((row: any) => String(row.label || '').toUpperCase() === 'FLOOR STOCK'
-              ? { ...row, value: Math.max(0, numberOr(row.value) - reusableToReclassify) }
+              ? { ...row, value: Math.max(0, numberOr(row.value) - reusableToReclassify - issuedToReclassify) }
               : row)
             .concat([
               { label: 'Damage', value: scrapCellCount },
               { label: 'Reusable', value: reusableCount },
+              { label: 'Issued', value: issuedCount },
             ]),
         );
         return { ...data, cellBuckets: patchedBuckets };
@@ -1600,7 +1608,7 @@ export const CEOMonitoringView: React.FC = () => {
               >
                 All cells
               </button>
-              {['In Stock', 'Floor Stock', 'Damage', 'Reusable'].map((label) => (
+              {['In Stock', 'Floor Stock', 'Damage', 'Reusable', 'Issued'].map((label) => (
                 <button
                   key={label}
                   type="button"
@@ -1616,7 +1624,7 @@ export const CEOMonitoringView: React.FC = () => {
                   data-ceo-dropdown="true"
                   onClick={() => { setOpenWarehouseFilter(null); setOpenSoldDetail(null); setOpenDonutDetail({}); setOpenCellFilter(open => !open); }}
                   aria-expanded={openCellFilter}
-                  className={`inline-flex items-center gap-1 rounded-md border px-2 py-1 ${selectedCellStatus === 'All' || !['In Stock', 'Floor Stock', 'Damage', 'Reusable'].includes(selectedCellStatus) ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-slate-200 bg-slate-50 text-slate-500'}`}
+                  className={`inline-flex items-center gap-1 rounded-md border px-2 py-1 ${selectedCellStatus === 'All' || !['In Stock', 'Floor Stock', 'Damage', 'Reusable', 'Issued'].includes(selectedCellStatus) ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-slate-200 bg-slate-50 text-slate-500'}`}
                 >
                   Other<ChevronDown className="h-3 w-3" />
                 </button>

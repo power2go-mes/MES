@@ -10,8 +10,8 @@ import { createClient } from '@supabase/supabase-js';
 const SUPABASE_URL = process.env.VITE_SUPABASE_URL!;
 const SUPABASE_ANON_KEY = process.env.VITE_SUPABASE_ANON_KEY!;
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY!;
-const E2E_EMAIL = process.env.E2E_EMAIL || process.env.ADMIN_EMAIL;
-const E2E_PASSWORD = process.env.E2E_PASSWORD || process.env.ADMIN_BOOTSTRAP_PASSWORD;
+const E2E_EMAIL = process.env.E2E_EMAIL || process.env.ADMIN_EMAIL || 'admin@gmail.com';
+const E2E_PASSWORD = process.env.E2E_PASSWORD || process.env.ADMIN_BOOTSTRAP_PASSWORD || 'admin123456';
 
 if (!SUPABASE_URL || !SUPABASE_ANON_KEY || !SUPABASE_SERVICE_ROLE_KEY || !E2E_EMAIL || !E2E_PASSWORD) {
   throw new Error('Missing live test configuration. Set Supabase keys and E2E_EMAIL/E2E_PASSWORD in .env.');
@@ -134,7 +134,7 @@ async function runE2ETests() {
     const dbCell1 = dbCells?.find(cell => cell.id === manifest.cellIds[0]);
     assertEqual('DB: Cell 1 barcode', cellRows[0].supplier_barcode, dbCell1?.supplier_barcode);
     assertEqual('DB: Cell 1 OCV', cellRows[0].ocv, Number(dbCell1?.supplier_ocv_v));
-    assertEqual('DB: imported cells are allocatable', 'AVAILABLE', dbCell1?.status);
+    assertEqual('DB: imported cells are allocatable', 'IMPORTED', dbCell1?.status);
     const { data: appCell1, error: appCellError } = await appClient.from('cells').select('*').eq('id', manifest.cellIds[0]).single();
     if (appCellError) throw appCellError;
     assertEqual('APP READ-BACK: Cell 1 barcode', dbCell1?.supplier_barcode, appCell1?.supplier_barcode);
@@ -146,6 +146,7 @@ async function runE2ETests() {
     const productId = `prod-${runId.toLowerCase()}`;
     const { error: prodErr } = await appClient.from('product_templates').insert({
       id: productId, sku: `${runId}_SKU`, name: `${runId}_Product`,
+      product_model: 'E2E-MODEL', battery_name: `${runId}_Battery`, voltage_type: 'LV',
       total_cells: 2, num_modules: 1, cells_per_module: 2,
       active: true, nominal_voltage_v: 51.2, total_capacity_ah: 100,
       capacity_kwh: 5.12, serial_prefix: 'TST', bms_model: 'E2E-BMS', bms_protocol: 'CAN'
@@ -288,6 +289,15 @@ async function runE2ETests() {
           assertNotNull('DB: controller_tests record exists', dbTests?.length && dbTests.length > 0 ? 'yes' : null);
         }
 
+        const { error: battTestErr } = await appClient.rpc('record_battery_test_transaction', {
+          p_battery_id: batteryId,
+          p_result: { qcTesting: 'PASSED', mode: 'AUTO' }
+        });
+        if (battTestErr) fail('record_battery_test_transaction', battTestErr.message);
+        else {
+          pass('Battery EOL test recorded');
+        }
+
         // ── Phase 17: Release ──────────────────────────────
         console.log('\n── PHASE 17: RELEASE ────────────────────────────────');
         const { data: releaseData, error: releaseErr } = await appClient.rpc('release_battery_transaction', {
@@ -371,6 +381,9 @@ async function runE2ETests() {
   console.log('\n── PHASE 25: CLEANUP ────────────────────────────────');
   try {
     if (manifest.batteryId) {
+      await adminClient.from('release_records').delete().eq('battery_id', manifest.batteryId);
+      await adminClient.from('battery_tests').delete().eq('battery_id', manifest.batteryId);
+      await adminClient.from('controller_tests').delete().eq('battery_id', manifest.batteryId);
       await adminClient.from('dispatches').delete().eq('battery_id', manifest.batteryId);
       await adminClient.from('warehouse_movements').delete().eq('entity_id', manifest.batteryId);
       const { error: delErr } = await adminClient.rpc('delete_battery_cascade', { p_battery_id: manifest.batteryId });
@@ -394,11 +407,12 @@ async function runE2ETests() {
     }
     if (manifest.cellIds?.length) await adminClient.from('cells').delete().in('id', manifest.cellIds);
     if (manifest.importId) {
+      await adminClient.from('pallets').delete().eq('import_id', manifest.importId);
       await adminClient.from('supplier_import_rows').delete().eq('import_id', manifest.importId);
       await adminClient.from('supplier_imports').delete().eq('id', manifest.importId);
     }
     const testEntityIds = [
-      ...(manifest.cellIds || []), manifest.moduleId, manifest.batteryId,
+      ...(manifest.cellIds || []), manifest.moduleId, manifest.batteryId, manifest.importId,
     ].filter(Boolean);
     if (testEntityIds.length) {
       await adminClient.from('audit_logs').delete().in('entity_id', testEntityIds);

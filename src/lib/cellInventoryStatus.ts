@@ -8,7 +8,8 @@ export type CellInventoryStatus =
   | 'LAHORE_WAREHOUSE'
   | 'SOLD'
   | 'DAMAGE'
-  | 'REUSABLE';
+  | 'REUSABLE'
+  | 'ISSUED';
 
 type CellStatusContext = {
   warehouseLocation?: string;
@@ -30,6 +31,7 @@ const statusLabels: Record<CellInventoryStatus, string> = {
   SOLD: 'Sold',
   DAMAGE: 'Damage',
   REUSABLE: 'Reusable',
+  ISSUED: 'Issued',
 };
 
 export const cellInventoryStatuses = Object.keys(statusLabels) as CellInventoryStatus[];
@@ -45,6 +47,14 @@ export function getCellInventoryStatus(cell: any, context: CellStatusContext = {
   const warehouseLocation = String(context.warehouseLocation || '').toUpperCase();
   const batteryStatus = String(context.batteryStatus || '').toUpperCase();
   const disposedOfAs = String(cell?.disposedOfAs ?? cell?.disposed_of_as ?? '').toUpperCase();
+
+  const isIssued = Boolean(
+    cell?.issuedToPerson?.trim()
+    || cell?.issued_to_person?.trim()
+    || lifecycleStatus === 'ISSUED'
+    || recordStatus === 'ISSUED',
+  );
+  if (isIssued) return 'ISSUED';
 
   if (warehouseLocation === 'KARACHI' || warehouseLocation === 'KARACHI_WAREHOUSE') return 'KARACHI_WAREHOUSE';
   if (warehouseLocation === 'LAHORE' || warehouseLocation === 'LAHORE_WAREHOUSE') return 'LAHORE_WAREHOUSE';

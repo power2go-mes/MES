@@ -17,6 +17,7 @@ import {
   CheckSquare,
   Activity,
   Flame,
+  UserCheck,
   FileSpreadsheet,
   Settings,
   ChevronDown,
@@ -145,6 +146,17 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
                 {(hasPermission('inventory_modules.view') || isCeo) && <button onClick={() => handleInventoryClick('MODULES')} className={`w-full flex items-center space-x-2.5 px-3 py-2 rounded-lg text-xs transition-all ${isInventoryActive('MODULES') ? 'bg-slate-100 text-slate-900 font-bold' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'}`}><Layers className="w-3.5 h-3.5 text-slate-400 shrink-0" /><span>Module Inventory</span></button>}
                 {(hasPermission('inventory_batteries.view') || isCeo) && <button onClick={() => handleInventoryClick('BATTERIES')} className={`w-full flex items-center space-x-2.5 px-3 py-2 rounded-lg text-xs transition-all ${isInventoryActive('BATTERIES') ? 'bg-slate-100 text-slate-900 font-bold' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'}`}><PackageCheck className="w-3.5 h-3.5 text-slate-400 shrink-0" /><span>Battery Inventory</span></button>}
                 {(hasPermission('inventory_racks.view') || isCeo) && <button onClick={() => handleInventoryClick('RACKS')} className={`w-full flex items-center space-x-2.5 px-3 py-2 rounded-lg text-xs transition-all ${isInventoryActive('RACKS') ? 'bg-slate-100 text-slate-900 font-bold' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'}`}><PackageCheck className="w-3.5 h-3.5 text-slate-400 shrink-0" /><span>Rack Inventory</span></button>}
+                <button
+                  onClick={() => setActiveView('issued')}
+                  className={`w-full flex items-center space-x-2.5 px-3 py-2 rounded-lg text-xs transition-all ${
+                    activeView === 'issued'
+                      ? 'bg-slate-100 text-slate-900 font-bold'
+                      : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
+                  }`}
+                >
+                  <UserCheck className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                  <span>Issued Hardware</span>
+                </button>
                 {hasPermission('warehouse.view') && <button onClick={() => setActiveView('warehouse')} className={`w-full flex items-center space-x-2.5 px-3 py-2 rounded-lg text-xs transition-all ${activeView === 'warehouse' ? 'bg-slate-100 text-slate-900 font-bold' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'}`}><PackageCheck className="w-3.5 h-3.5 text-slate-400 shrink-0" /><span>Warehouse</span></button>}
                 {hasPermission('sold.view') && <button onClick={() => setActiveView('sold')} className={`w-full flex items-center space-x-2.5 px-3 py-2 rounded-lg text-xs transition-all ${activeView === 'sold' ? 'bg-slate-100 text-slate-900 font-bold' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'}`}><PackageCheck className="w-3.5 h-3.5 text-slate-400 shrink-0" /><span>Sold</span></button>}
               </div>}

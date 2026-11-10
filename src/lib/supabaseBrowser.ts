@@ -1,8 +1,9 @@
 import { createClient, type Session, type SupabaseClient, type User } from '@supabase/supabase-js';
 
 const viteEnv: Record<string, string | undefined> = (import.meta as ImportMeta & { env?: Record<string, string | undefined> }).env ?? {};
-const supabaseUrl = String(viteEnv.VITE_SUPABASE_URL ?? '');
-const supabaseAnonKey = String(viteEnv.VITE_SUPABASE_ANON_KEY ?? '');
+const procEnv: Record<string, string | undefined> = typeof process !== 'undefined' && process.env ? process.env : {};
+const supabaseUrl = String(viteEnv.VITE_SUPABASE_URL ?? procEnv.VITE_SUPABASE_URL ?? '');
+const supabaseAnonKey = String(viteEnv.VITE_SUPABASE_ANON_KEY ?? procEnv.VITE_SUPABASE_ANON_KEY ?? '');
 
 export const isSupabaseConfigured = Boolean(supabaseUrl && supabaseAnonKey);
 

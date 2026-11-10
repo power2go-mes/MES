@@ -9,7 +9,7 @@ async function checkSchema() {
   console.log('Checking live Supabase schema...');
   
   // Test if core RPCs exist
-  const { data: dashData, error: dashErr } = await adminClient.rpc('get_dashboard_summary');
+  const { data: dashData, error: dashErr } = await adminClient.rpc('get_dashboard_summary', { p_start_date: null, p_end_date: null });
   if (dashErr) {
     console.error('\n❌ get_dashboard_summary RPC failed:', dashErr.message);
     console.log('\n⚠️  CONCLUSION: Schema has NOT been deployed to the live Supabase instance.');

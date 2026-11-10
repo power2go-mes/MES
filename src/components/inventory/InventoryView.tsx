@@ -6,8 +6,10 @@ import { batterySerialCapacityToken, normalizeBatterySerial } from '../../lib/ba
 import { normalizeRackSerial } from '../../lib/rackNaming';
 import { getCellInventoryStatus } from '../../lib/cellInventoryStatus';
 import { getControllerInventoryBucket, getInventoryStatusPageIds } from '../../lib/inventoryStatus';
-import { CellItem, BMSItem, BMUItem, ModuleItem, BatteryUnit } from '../../types';
+import { CellItem, BMSItem, BMUItem, ModuleItem, BatteryUnit, IssueEntityType, IssuanceDetails } from '../../types';
 import { downloadBatteryReport, downloadCellReport, downloadRackReport } from '../../lib/cellReportExport';
+import { getIssuedDisplayStatus, isItemIssued } from '../../lib/issuance';
+import { IssueModal } from '../common/IssueModal';
 import { QRCodeModal } from '../common/QRCodeModal';
 import { ScannerModal } from '../common/ScannerModal';
 import { BatteryReportModal } from '../common/BatteryReportModal';
@@ -28,6 +30,7 @@ import {
   Pencil,
   Trash2,
   Download,
+  UserCheck,
 } from 'lucide-react';
 
 type Tab = 'CELLS' | 'BMS' | 'BMU' | 'MODULES' | 'BATTERIES' | 'RACKS';
@@ -39,7 +42,7 @@ type CellStatusRowsCache = {
 const INVENTORY_PAGE_SIZE = 25;
 
 const cellStatuses = [
-  'IN_STOCK', 'FLOOR_STOCK', 'IN_MODULE', 'IN_PACK', 'IN_RACK', 'KARACHI_WAREHOUSE', 'LAHORE_WAREHOUSE', 'SOLD', 'DAMAGE', 'REUSABLE',
+  'IN_STOCK', 'FLOOR_STOCK', 'IN_MODULE', 'IN_PACK', 'IN_RACK', 'KARACHI_WAREHOUSE', 'LAHORE_WAREHOUSE', 'SOLD', 'DAMAGE', 'REUSABLE', 'ISSUED',
 ] as const;
 
 const displayRackSerial = normalizeRackSerial;
@@ -110,6 +113,42 @@ export const InventoryView: React.FC = () => {
   const [qrModalOpen, setQrModalOpen] = useState(false);
   const [qrData, setQrData] = useState<any | null>(null);
   const [reportBattery, setReportBattery] = useState<BatteryUnit | null>(null);
+  const [issueModalOpen, setIssueModalOpen] = useState(false);
+  const [issueTarget, setIssueTarget] = useState<{
+    entityType: IssueEntityType;
+    entityId: string;
+    serialNumber: string;
+    barcode?: string | null;
+    currentIssuance?: IssuanceDetails;
+  } | null>(null);
+
+  const openIssueModal = (
+    entityType: IssueEntityType,
+    entityId: string,
+    serialNumber: string,
+    item: {
+      issuedToPerson?: string;
+      issuedToDepartment?: string;
+      issuedBy?: string;
+      issuedAt?: string;
+    },
+    barcode?: string | null
+  ) => {
+    setIssueTarget({
+      entityType,
+      entityId,
+      serialNumber,
+      barcode: barcode || null,
+      currentIssuance: {
+        issuedToPerson: item.issuedToPerson,
+        issuedToDepartment: item.issuedToDepartment,
+        issuedBy: item.issuedBy,
+        issuedAt: item.issuedAt,
+      },
+    });
+    setIssueModalOpen(true);
+  };
+
   const cellStatusRowsCacheRef = useRef(new Map<string, CellStatusRowsCache>());
   const statusIdIndexForCurrentFilter = statusFilter && !search ? dashboardStats?.inventoryIdsByStatus : undefined;
 
@@ -146,7 +185,7 @@ export const InventoryView: React.FC = () => {
     const hasCachedStatusIds = cachedStatusIds !== undefined;
     const statusPageIds = hasCachedStatusIds
       ? getInventoryStatusPageIds(cachedStatusIds, page, pageSize)
-      : undefined;
+      : [];
     const cellStatusCacheKey = statusFilter
       ? JSON.stringify([statusFilter, search.trim().toLowerCase(), refreshKey])
       : '';
@@ -174,7 +213,7 @@ export const InventoryView: React.FC = () => {
           includeBatterySerial: true,
           limit: statusFilter && !hasCachedStatusIds ? undefined : pageSize,
           offset: statusFilter && !hasCachedStatusIds ? undefined : hasCachedStatusIds ? 0 : page * pageSize,
-          fields: 'id,internal_serial,supplier_barcode,qr_code,supplier_id,batch_number,pallet_number,box_number,supplier_ocv_v,supplier_ir_mohm,production_ocv_v,production_ir_mohm,grade,status,lifecycle_status,reserved_for_order_id,reserved_for_battery_id,tested_at,created_at,updated_at,supplier:suppliers(name)',
+          fields: 'id,internal_serial,supplier_barcode,qr_code,supplier_id,batch_number,pallet_number,box_number,supplier_ocv_v,supplier_ir_mohm,production_ocv_v,production_ir_mohm,grade,status,lifecycle_status,reserved_for_order_id,reserved_for_battery_id,tested_at,created_at,updated_at,supplier:suppliers(name),issued_to_person,issued_to_department,issued_by,issued_at',
         });
         const countsPromise = !search && !statusFilter
           ? api.getCellCounts(true)
@@ -452,6 +491,9 @@ export const InventoryView: React.FC = () => {
 
   const getStatusBadge = (status: string) => {
     const normalized = String(status || '').toUpperCase();
+    if (normalized.startsWith('ISSUED')) {
+      return 'bg-emerald-50 text-emerald-800 border-emerald-200 font-bold';
+    }
     switch (normalized) {
       case 'AVAILABLE':
       case 'IN_STOCK':
@@ -490,6 +532,8 @@ export const InventoryView: React.FC = () => {
   const batteryById = new Map(batteries.map(battery => [battery.id, battery]));
   const moduleById = new Map(modules.map(module => [module.id, module]));
   const getCellDisplayStatus = (cell: CellItem) => {
+    const issuedStatus = getIssuedDisplayStatus(cell);
+    if (issuedStatus) return issuedStatus;
     return getCellInventoryStatus(cell, {
       warehouseLocation: warehouseCellStatuses[cell.id],
       isReusable: dashboardStats?.reusableCellIds?.includes(cell.id),
@@ -500,7 +544,21 @@ export const InventoryView: React.FC = () => {
     });
   };
 
+  const getBmsDisplayStatus = (b: BMSItem) => {
+    const issuedStatus = getIssuedDisplayStatus(b);
+    if (issuedStatus) return issuedStatus;
+    return warehouseEntityStatuses[`BATTERY:${b.id}`] || b.status;
+  };
+
+  const getBmuDisplayStatus = (b: BMUItem) => {
+    const issuedStatus = getIssuedDisplayStatus(b);
+    if (issuedStatus) return issuedStatus;
+    return b.status;
+  };
+
   const getModuleDisplayStatus = (module: ModuleItem) => {
+    const issuedStatus = getIssuedDisplayStatus(module);
+    if (issuedStatus) return issuedStatus;
     const lifecycleStatus = String(module.lifecycleStatus || (module as any).lifecycle_status || '').toUpperCase();
     if (['IN_RACK', 'IN_PACK', 'SOLD', 'SCRAP'].includes(lifecycleStatus)) return lifecycleStatus;
     if (module.batteryId || (module as any).battery_id) return 'IN_PACK';
@@ -509,6 +567,8 @@ export const InventoryView: React.FC = () => {
   };
 
   const getBatteryDisplayStatus = (battery: BatteryUnit) => {
+    const issuedStatus = getIssuedDisplayStatus(battery);
+    if (issuedStatus) return issuedStatus;
     const warehouseStatus = warehouseEntityStatuses[`BATTERY:${battery.id}`];
     const normalizedWarehouseStatus = warehouseStatus ? String(warehouseStatus).toUpperCase() : '';
     const lifecycleStatus = String(battery.lifecycleStatus || battery.status || '').toUpperCase();
@@ -518,12 +578,21 @@ export const InventoryView: React.FC = () => {
     return String(battery.status || 'UNKNOWN').toUpperCase();
   };
 
-  const formatCellStatus = (status: string) => status === 'KARACHI_WAREHOUSE'
-    ? 'Karachi Warehouse'
-    : status === 'LAHORE_WAREHOUSE'
-      ? 'Lahore Warehouse'
-      : status;
+  const getRackDisplayStatus = (rack: any) => {
+    const issuedStatus = getIssuedDisplayStatus(rack);
+    if (issuedStatus) return issuedStatus;
+    return preferredLifecycleStatus(rack.status, warehouseEntityStatuses[`RACK:${rack.id}`]);
+  };
+
+  const formatCellStatus = (status: string) => {
+    if (status.startsWith('ISSUED')) return status;
+    if (status === 'KARACHI_WAREHOUSE') return 'Karachi Warehouse';
+    if (status === 'LAHORE_WAREHOUSE') return 'Lahore Warehouse';
+    return status;
+  };
+
   const formatEntityStatus = (status: string) => {
+    if (status.startsWith('ISSUED')) return status;
     if (status === 'KARACHI_WAREHOUSE') return 'Karachi Warehouse';
     if (status === 'LAHORE_WAREHOUSE') return 'Lahore Warehouse';
     if (status === 'FAILED') return 'DAMAGED';
@@ -534,32 +603,49 @@ export const InventoryView: React.FC = () => {
     const internalSerial = (c.internalSerial || '').toLowerCase();
     const supplierBarcode = (c.supplierBarcode || '').toLowerCase();
     const supplierName = (c.supplierName || '').toLowerCase();
+    const issuedTo = String(c.issuedToPerson || '').toLowerCase();
+    const dept = String(c.issuedToDepartment || '').toLowerCase();
     const matchesSearch =
       !search ||
       internalSerial.includes(search.toLowerCase()) ||
       supplierBarcode.includes(search.toLowerCase()) ||
-      supplierName.includes(search.toLowerCase());
-    const matchesStatus = !statusFilter || getCellDisplayStatus(c) === statusFilter;
+      supplierName.includes(search.toLowerCase()) ||
+      issuedTo.includes(search.toLowerCase()) ||
+      dept.includes(search.toLowerCase());
+    const displayStatus = getCellDisplayStatus(c);
+    const matchesStatus = !statusFilter || (statusFilter === 'ISSUED' ? displayStatus.startsWith('ISSUED') : displayStatus === statusFilter);
     return matchesSearch && matchesStatus;
   });
 
   const filteredBms = bmsUnits.filter(b => {
-    const matchesSearch = !search || String(b.serialNumber || '').toLowerCase().includes(search.toLowerCase()) || String(b.model || '').toLowerCase().includes(search.toLowerCase());
-    const displayStatus = getControllerInventoryBucket(b.status);
-    const matchesStatus = !statusFilter || displayStatus === statusFilter;
+    const matchesSearch = !search
+      || String(b.serialNumber || '').toLowerCase().includes(search.toLowerCase())
+      || String(b.model || '').toLowerCase().includes(search.toLowerCase())
+      || String(b.issuedToPerson || '').toLowerCase().includes(search.toLowerCase())
+      || String(b.issuedToDepartment || '').toLowerCase().includes(search.toLowerCase());
+    const displayStatus = getBmsDisplayStatus(b);
+    const matchesStatus = !statusFilter || (statusFilter === 'ISSUED' ? displayStatus.startsWith('ISSUED') : getControllerInventoryBucket(b.status) === statusFilter);
     return matchesSearch && matchesStatus;
   });
 
   const filteredBmus = bmuUnits.filter(b => {
-    const matchesSearch = !search || String(b.serialNumber || '').toLowerCase().includes(search.toLowerCase()) || String(b.model || '').toLowerCase().includes(search.toLowerCase());
-    const matchesStatus = !statusFilter || getControllerInventoryBucket(b.status) === statusFilter;
+    const matchesSearch = !search
+      || String(b.serialNumber || '').toLowerCase().includes(search.toLowerCase())
+      || String(b.model || '').toLowerCase().includes(search.toLowerCase())
+      || String(b.issuedToPerson || '').toLowerCase().includes(search.toLowerCase())
+      || String(b.issuedToDepartment || '').toLowerCase().includes(search.toLowerCase());
+    const displayStatus = getBmuDisplayStatus(b);
+    const matchesStatus = !statusFilter || (statusFilter === 'ISSUED' ? displayStatus.startsWith('ISSUED') : getControllerInventoryBucket(b.status) === statusFilter);
     return matchesSearch && matchesStatus;
   });
 
   const filteredModules = modules.filter(m => {
-    const matchesSearch = !search || m.serialNumber.toLowerCase().includes(search.toLowerCase());
+    const matchesSearch = !search
+      || m.serialNumber.toLowerCase().includes(search.toLowerCase())
+      || String(m.issuedToPerson || '').toLowerCase().includes(search.toLowerCase())
+      || String(m.issuedToDepartment || '').toLowerCase().includes(search.toLowerCase());
     const displayStatus = getModuleDisplayStatus(m);
-    const matchesStatus = !statusFilter || displayStatus === statusFilter;
+    const matchesStatus = !statusFilter || (statusFilter === 'ISSUED' ? displayStatus.startsWith('ISSUED') : displayStatus === statusFilter);
     return matchesSearch && matchesStatus;
   });
 
@@ -568,15 +654,33 @@ export const InventoryView: React.FC = () => {
     const serialNumber = String(rawBattery.serialNumber ?? rawBattery.serial_number ?? '').toLowerCase();
     const productName = String(rawBattery.productName ?? rawBattery.product_name ?? '').toLowerCase();
     const query = String(search ?? '').toLowerCase();
-    const matchesSearch = !query || serialNumber.includes(query) || productName.includes(query);
+    const matchesSearch = !query
+      || serialNumber.includes(query)
+      || productName.includes(query)
+      || String(b.issuedToPerson || '').toLowerCase().includes(query)
+      || String(b.issuedToDepartment || '').toLowerCase().includes(query);
     const displayStatus = getBatteryDisplayStatus(b);
-    const matchesStatus = !statusFilter || displayStatus === statusFilter;
+    const matchesStatus = !statusFilter || (statusFilter === 'ISSUED' ? displayStatus.startsWith('ISSUED') : displayStatus === statusFilter);
     return matchesSearch && matchesStatus;
   });
+
   const filteredRacks = racks.filter(rack => {
-    const displayStatus = preferredLifecycleStatus(rack.status, warehouseEntityStatuses[`RACK:${rack.id}`]);
-    const haystack = [rack.serialNumber, rack.serial_number, rack.rackTemplateCode, rack.rack_template_code, displayStatus, rack.location, rack.qrCode, rack.qr_code].filter(Boolean).join(' ').toLowerCase();
-    return (!search || haystack.includes(search.toLowerCase())) && (!statusFilter || displayStatus === statusFilter);
+    const displayStatus = getRackDisplayStatus(rack);
+    const haystack = [
+      rack.serialNumber,
+      rack.serial_number,
+      rack.rackTemplateCode,
+      rack.rack_template_code,
+      displayStatus,
+      rack.location,
+      rack.qrCode,
+      rack.qr_code,
+      rack.issuedToPerson,
+      rack.issued_to_person,
+      rack.issuedToDepartment,
+      rack.issued_to_department,
+    ].filter(Boolean).join(' ').toLowerCase();
+    return (!search || haystack.includes(search.toLowerCase())) && (!statusFilter || (statusFilter === 'ISSUED' ? displayStatus.startsWith('ISSUED') : displayStatus === statusFilter));
   });
 
   const displayedCells = statusFilter
@@ -686,13 +790,22 @@ export const InventoryView: React.FC = () => {
             </div>
           </div>
         </div>
-        <div className="inventory-tab-strip flex bg-slate-100/80 p-1.5 rounded-xl text-xs font-semibold border border-slate-200">
+        <div className="inventory-tab-strip flex flex-wrap items-center gap-1.5 bg-slate-100/80 p-1.5 rounded-xl text-xs font-semibold border border-slate-200">
           <button onClick={() => { setActiveTab('CELLS'); setStatusFilter(''); }} className={`px-3.5 py-1.5 rounded-lg transition-all ${activeTab === 'CELLS' ? 'bg-white text-slate-900 shadow-2xs font-bold' : 'text-slate-600 hover:text-slate-900'}`}>Cells ({cells.length})</button>
           <button onClick={() => { setActiveTab('BMS'); setStatusFilter(''); }} className={`px-3.5 py-1.5 rounded-lg transition-all ${activeTab === 'BMS' ? 'bg-white text-slate-900 shadow-2xs font-bold' : 'text-slate-600 hover:text-slate-900'}`}>BMS ({bmsUnits.length})</button>
           <button onClick={() => { setActiveTab('BMU'); setStatusFilter(''); }} className={`px-3.5 py-1.5 rounded-lg transition-all ${activeTab === 'BMU' ? 'bg-white text-slate-900 shadow-2xs font-bold' : 'text-slate-600 hover:text-slate-900'}`}>BMU ({bmuUnits.length})</button>
           <button onClick={() => { setActiveTab('MODULES'); setStatusFilter(''); }} className={`px-3.5 py-1.5 rounded-lg transition-all ${activeTab === 'MODULES' ? 'bg-white text-slate-900 shadow-2xs font-bold' : 'text-slate-600 hover:text-slate-900'}`}>Modules ({modules.length})</button>
           <button onClick={() => { setActiveTab('BATTERIES'); setStatusFilter(''); }} className={`px-3.5 py-1.5 rounded-lg transition-all ${activeTab === 'BATTERIES' ? 'bg-white text-slate-900 shadow-2xs font-bold' : 'text-slate-600 hover:text-slate-900'}`}>Batteries ({batteries.length})</button>
           <button onClick={() => { setActiveTab('RACKS'); setStatusFilter(''); }} className={`px-3.5 py-1.5 rounded-lg transition-all ${activeTab === 'RACKS' ? 'bg-white text-slate-900 shadow-2xs font-bold' : 'text-slate-600 hover:text-slate-900'}`}>Racks ({racks.length})</button>
+          <div className="w-[1px] h-4 bg-slate-300 mx-1 hidden sm:block" />
+          <button
+            onClick={() => setActiveView('issued')}
+            className="px-3.5 py-1.5 rounded-lg transition-all bg-emerald-50 text-emerald-800 hover:bg-emerald-100 border border-emerald-200/80 font-bold flex items-center gap-1.5"
+            title="Open Dedicated Issued Hardware Ledger"
+          >
+            <UserCheck className="w-3.5 h-3.5 text-emerald-600" />
+            <span>Issued Hardware</span>
+          </button>
         </div>
       </div>
 
@@ -717,6 +830,7 @@ export const InventoryView: React.FC = () => {
             className="px-3.5 py-2.5 text-xs font-semibold bg-slate-50/70 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500"
           >
             <option value="">All Statuses</option>
+            <option value="ISSUED">ISSUED (ANY)</option>
 
             {activeTab === 'CELLS' ? (
               cellStatuses.map(status => <option key={status} value={status}>{formatCellStatus(status)}</option>)
@@ -886,6 +1000,7 @@ export const InventoryView: React.FC = () => {
                   'SCRAP': 'Scrap',
                   'DAMAGE': 'Damage',
                   'REUSABLE': 'Reusable',
+                  'ISSUED': 'Issued',
                 };
                 const expectedLabel = labelMapping[status];
                 if (!expectedLabel) return null;
@@ -1000,6 +1115,18 @@ export const InventoryView: React.FC = () => {
                           <QrCode className="w-4 h-4" />
                         </button>
                         <button
+                          type="button"
+                          onClick={() => openIssueModal('CELL', cell.id, cell.internalSerial, cell, cell.supplierBarcode)}
+                          className={`p-1.5 rounded-lg transition-colors ${
+                            isItemIssued(cell)
+                              ? 'text-emerald-700 bg-emerald-50 hover:bg-emerald-100'
+                              : 'text-slate-500 hover:text-emerald-600 hover:bg-emerald-50'
+                          }`}
+                          title={isItemIssued(cell) ? `Issued to ${cell.issuedToPerson} (Click to manage/return)` : 'Issue Cell'}
+                        >
+                          <UserCheck className="w-4 h-4" />
+                        </button>
+                        <button
                           onClick={() => {
                             setQuickSearchQuery(cell.internalSerial);
                             setActiveView('traceability');
@@ -1084,11 +1211,23 @@ export const InventoryView: React.FC = () => {
                       <td className="px-5 py-3.5 text-slate-700 font-sans">{b.manufacturer || 'N/A'}</td>
                       <td className="px-5 py-3.5 text-emerald-700 font-sans">{assignedBatterySerial}</td>
                       <td className="px-5 py-3.5 font-sans">
-                        <span className={`px-2.5 py-0.5 rounded-md text-[10px] font-bold border uppercase tracking-wider ${getStatusBadge(warehouseEntityStatuses[`BATTERY:${b.id}`] || b.status)}`}>
-                          {formatEntityStatus(warehouseEntityStatuses[`BATTERY:${b.id}`] || b.status)}
+                        <span className={`px-2.5 py-0.5 rounded-md text-[10px] font-bold border uppercase tracking-wider ${getStatusBadge(getBmsDisplayStatus(b))}`}>
+                          {formatEntityStatus(getBmsDisplayStatus(b))}
                         </span>
                       </td>
                       <td className="px-5 py-3.5 text-right font-sans space-x-1">
+                        <button
+                          type="button"
+                          onClick={() => openIssueModal('BMS', b.id, b.serialNumber, b)}
+                          className={`p-1.5 rounded-lg transition-colors ${
+                            isItemIssued(b)
+                              ? 'text-emerald-700 bg-emerald-50 hover:bg-emerald-100'
+                              : 'text-slate-500 hover:text-emerald-600 hover:bg-emerald-50'
+                          }`}
+                          title={isItemIssued(b) ? `Issued to ${b.issuedToPerson} (Click to manage/return)` : 'Issue BMS'}
+                        >
+                          <UserCheck className="w-4 h-4" />
+                        </button>
                         <button
                           onClick={() => {
                             setQrData({
@@ -1099,7 +1238,7 @@ export const InventoryView: React.FC = () => {
                               metadata: {
                                 MANUFACTURER: b.manufacturer || 'N/A',
                                 ASSIGNED_BATTERY: assignedBatterySerial,
-                                STATUS: formatEntityStatus(warehouseEntityStatuses[`BATTERY:${b.id}`] || b.status),
+                                STATUS: formatEntityStatus(getBmsDisplayStatus(b)),
                               },
                             });
                             setQrModalOpen(true);
@@ -1215,9 +1354,21 @@ export const InventoryView: React.FC = () => {
                       <td className="px-5 py-3.5"><span className="inline-flex items-center gap-1 font-bold text-slate-900">{b.serialNumber}<CopyToClipboardButton value={b.serialNumber} label="Copy BMU serial number" /></span></td>
                       <td className="px-5 py-3.5 text-slate-600 font-sans">{b.manufacturer || 'N/A'}</td>
                       <td className="px-5 py-3.5 text-emerald-700 font-sans">{assignedBatterySerial}</td>
-                      <td className="px-5 py-3.5 font-sans"><span className={`px-2.5 py-0.5 rounded-md text-[10px] font-bold border uppercase tracking-wider ${getStatusBadge(b.status)}`}>{formatEntityStatus(b.status)}</span></td>
+                      <td className="px-5 py-3.5 font-sans"><span className={`px-2.5 py-0.5 rounded-md text-[10px] font-bold border uppercase tracking-wider ${getStatusBadge(getBmuDisplayStatus(b))}`}>{formatEntityStatus(getBmuDisplayStatus(b))}</span></td>
                       <td className="px-5 py-3.5 text-right font-sans space-x-1">
-                        <button onClick={() => { setQrData({ title: `BMU Controller QR: ${b.serialNumber}`, qrPayload: `${b.serialNumber}|${b.manufacturer || 'N/A'}`, serial: b.serialNumber, itemType: 'BMU', metadata: { MANUFACTURER: b.manufacturer || 'N/A', ASSIGNED_BATTERY: assignedBatterySerial, STATUS: b.status } }); setQrModalOpen(true); }} className="p-1.5 text-slate-500 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors" title="Print QR"><QrCode className="w-4 h-4" /></button>
+                        <button
+                          type="button"
+                          onClick={() => openIssueModal('BMU', b.id, b.serialNumber, b)}
+                          className={`p-1.5 rounded-lg transition-colors ${
+                            isItemIssued(b)
+                              ? 'text-emerald-700 bg-emerald-50 hover:bg-emerald-100'
+                              : 'text-slate-500 hover:text-emerald-600 hover:bg-emerald-50'
+                          }`}
+                          title={isItemIssued(b) ? `Issued to ${b.issuedToPerson} (Click to manage/return)` : 'Issue BMU'}
+                        >
+                          <UserCheck className="w-4 h-4" />
+                        </button>
+                        <button onClick={() => { setQrData({ title: `BMU Controller QR: ${b.serialNumber}`, qrPayload: `${b.serialNumber}|${b.manufacturer || 'N/A'}`, serial: b.serialNumber, itemType: 'BMU', metadata: { MANUFACTURER: b.manufacturer || 'N/A', ASSIGNED_BATTERY: assignedBatterySerial, STATUS: formatEntityStatus(getBmuDisplayStatus(b)) } }); setQrModalOpen(true); }} className="p-1.5 text-slate-500 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors" title="Print QR"><QrCode className="w-4 h-4" /></button>
                         <button onClick={() => { setQuickSearchQuery(b.serialNumber); setActiveView('traceability'); }} className="p-1.5 text-slate-500 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors" title="View Full Genealogy"><Eye className="w-4 h-4" /></button>
                         <button onClick={async () => {
                           const serialNumber = window.prompt('BMU serial number', b.serialNumber);
@@ -1314,6 +1465,18 @@ export const InventoryView: React.FC = () => {
                       </td>
                       <td className="px-5 py-3.5 text-right font-sans">
                         <button
+                          type="button"
+                          onClick={() => openIssueModal('MODULE', m.id, m.serialNumber, m, m.qrCode)}
+                          className={`p-1.5 rounded-lg transition-colors ${
+                            isItemIssued(m)
+                              ? 'text-emerald-700 bg-emerald-50 hover:bg-emerald-100'
+                              : 'text-slate-500 hover:text-emerald-600 hover:bg-emerald-50'
+                          }`}
+                          title={isItemIssued(m) ? `Issued to ${m.issuedToPerson} (Click to manage/return)` : 'Issue Module'}
+                        >
+                          <UserCheck className="w-4 h-4" />
+                        </button>
+                        <button
                           onClick={() => {
                             setQrData({
                               title: `Module QR Label: ${m.serialNumber}`,
@@ -1322,7 +1485,7 @@ export const InventoryView: React.FC = () => {
                               itemType: 'MODULE',
                               metadata: {
                                 CELLS: m.cells.length,
-                                STATUS: m.status,
+                                STATUS: getModuleDisplayStatus(m),
                               },
                             });
                             setQrModalOpen(true);
@@ -1480,6 +1643,18 @@ export const InventoryView: React.FC = () => {
                     </td>
                     <td className="px-5 py-3.5 text-right space-x-1 font-sans">
                       <button
+                        type="button"
+                        onClick={() => openIssueModal('BATTERY', b.id, b.serialNumber, b, b.qrCode)}
+                        className={`p-1.5 rounded-lg transition-colors ${
+                          isItemIssued(b)
+                            ? 'text-emerald-700 bg-emerald-50 hover:bg-emerald-100'
+                            : 'text-slate-500 hover:text-emerald-600 hover:bg-emerald-50'
+                        }`}
+                        title={isItemIssued(b) ? `Issued to ${b.issuedToPerson} (Click to manage/return)` : 'Issue Battery Pack'}
+                      >
+                        <UserCheck className="w-4 h-4" />
+                      </button>
+                      <button
                         onClick={() => {
                           setQrData({
                             title: `Battery Pack Compliance QR: ${b.serialNumber}`,
@@ -1490,7 +1665,7 @@ export const InventoryView: React.FC = () => {
                               PRODUCT: b.productName,
                               MODULES: b.modules?.length ?? 0,
                               BMS: b.bms?.serialNumber || 'N/A',
-                              STATUS: b.status,
+                              STATUS: formatEntityStatus(getBatteryDisplayStatus(b)),
                             },
                           });
                           setQrModalOpen(true);
@@ -1580,7 +1755,7 @@ export const InventoryView: React.FC = () => {
                   const template = rack.rackTemplateCode || rack.rack_template_code || '-';
                   const displaySerial = displayRackSerial(serial);
                   const displayTemplate = displayRackTemplate(template);
-                  const status = preferredLifecycleStatus(rack.status, warehouseEntityStatuses[`RACK:${rack.id}`]);
+                  const status = getRackDisplayStatus(rack);
                   const editRackSerial = async () => {
                     const currentSuffix = String(serial).match(/-(\d{4})$/)?.[1] || '';
                     const nextSuffix = window.prompt(`Enter the last 4 digits for ${displaySerial}:`, currentSuffix)?.trim() || '';
@@ -1608,6 +1783,18 @@ export const InventoryView: React.FC = () => {
                       <td className="px-5 py-3.5 text-slate-600">{rack.location || '-'}</td>
                       <td className="px-5 py-3.5"><span className={`rounded-md border px-2.5 py-0.5 text-[10px] font-bold uppercase ${getStatusBadge(status)}`}>{status}</span></td>
                       <td className="px-5 py-3.5 text-right font-sans space-x-1">
+                        <button
+                          type="button"
+                          onClick={() => openIssueModal('RACK', rack.id, String(displaySerial), rack, (rack as any).qr_code || rack.qrCode)}
+                          className={`p-1.5 rounded-lg transition-colors ${
+                            isItemIssued(rack)
+                              ? 'text-emerald-700 bg-emerald-50 hover:bg-emerald-100'
+                              : 'text-slate-500 hover:text-emerald-600 hover:bg-emerald-50'
+                          }`}
+                          title={isItemIssued(rack) ? `Issued to ${rack.issuedToPerson} (Click to manage/return)` : 'Issue Rack'}
+                        >
+                          <UserCheck className="w-4 h-4" />
+                        </button>
                         <button onClick={editRackSerial} className="p-1.5 text-slate-500 hover:text-amber-600 hover:bg-amber-50 rounded-lg transition-colors" title="Edit rack serial"><Pencil className="w-4 h-4" /></button>
                         <button onClick={() => { setQuickSearchQuery(serial); setActiveView('traceability'); }} className="p-1.5 text-slate-500 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors" title="View rack traceability"><Eye className="w-4 h-4" /></button>
                         <button onClick={() => { setQrData({ title: `Rack QR: ${displaySerial}`, qrPayload: rack.qrCode || rack.qr_code || `${serial}|RACK:${rack.id}`, serial: displaySerial, itemType: 'RACK', metadata: { TEMPLATE: displayTemplate, LOCATION: rack.location || '-', STATUS: status } }); setQrModalOpen(true); }} className="p-1.5 text-slate-500 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors" title="Print QR"><QrCode className="w-4 h-4" /></button>
@@ -1747,6 +1934,25 @@ export const InventoryView: React.FC = () => {
           setSerialScanner(null);
         }}
       />
+
+      {issueTarget && (
+        <IssueModal
+          isOpen={issueModalOpen}
+          onClose={() => {
+            setIssueModalOpen(false);
+            setIssueTarget(null);
+          }}
+          entityType={issueTarget.entityType}
+          entityId={issueTarget.entityId}
+          serialNumber={issueTarget.serialNumber}
+          barcode={issueTarget.barcode}
+          currentIssuance={issueTarget.currentIssuance}
+          onSuccess={() => {
+            triggerRefresh();
+            void loadInventory(inventoryPage);
+          }}
+        />
+      )}
     </div>
   );
 };

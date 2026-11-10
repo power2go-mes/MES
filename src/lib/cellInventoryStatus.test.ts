@@ -15,6 +15,7 @@ test('cell inventory classification gives each cell one authoritative status', (
     { id: 'sold', lifecycle_status: 'SOLD' },
     { id: 'damage', status: 'QUARANTINED' },
     { id: 'reusable', status: 'QUARANTINED' },
+    { id: 'issued', issued_to_person: 'Baqir' },
   ];
 
   const buckets = buildCellInventoryBuckets(cells, cell => ({
@@ -33,6 +34,7 @@ test('cell inventory classification gives each cell one authoritative status', (
     Sold: 1,
     Damage: 1,
     Reusable: 1,
+    Issued: 1,
   });
   assert.equal(buckets.reduce((sum, bucket) => sum + bucket.value, 0), cells.length);
 });

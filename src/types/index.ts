@@ -77,6 +77,15 @@ export type ComponentStatus =
 
 export type LifecycleStatus = 'IN_STOCK' | 'FLOOR_STOCK' | 'IN_MODULE' | 'IN_PACK' | 'IN_RACK' | 'SOLD' | 'SCRAP';
 
+export type IssueEntityType = 'CELL' | 'BMS' | 'BMU' | 'MODULE' | 'BATTERY' | 'RACK';
+
+export interface IssuanceDetails {
+  issuedToPerson?: string | null;
+  issuedToDepartment?: string | null;
+  issuedBy?: string | null;
+  issuedAt?: string | null;
+}
+
 export interface RackUnit {
   id: string;
   serialNumber: string;
@@ -87,6 +96,10 @@ export interface RackUnit {
   requiredPackTemplateCode: 'PACK_5KWH' | 'PACK_7_5KWH';
   location?: string;
   batteryIds?: string[];
+  issuedToPerson?: string | null;
+  issuedToDepartment?: string | null;
+  issuedBy?: string | null;
+  issuedAt?: string | null;
   createdAt?: string;
   updatedAt?: string;
 }
@@ -197,6 +210,10 @@ export interface CellItem {
   assignedToModuleId?: string;
   moduleSlotIndex?: number;
   quarantineReason?: string;
+  issuedToPerson?: string | null;
+  issuedToDepartment?: string | null;
+  issuedBy?: string | null;
+  issuedAt?: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -224,6 +241,10 @@ export interface BMSItem {
     testedBy: string;
   };
   quarantineReason?: string;
+  issuedToPerson?: string | null;
+  issuedToDepartment?: string | null;
+  issuedBy?: string | null;
+  issuedAt?: string | null;
   createdAt: string;
 }
 
@@ -244,6 +265,10 @@ export interface BMUItem {
     testedBy: string;
   };
   quarantineReason?: string;
+  issuedToPerson?: string | null;
+  issuedToDepartment?: string | null;
+  issuedBy?: string | null;
+  issuedAt?: string | null;
   createdAt: string;
 }
 
@@ -288,6 +313,10 @@ export interface ModuleItem {
   status: ComponentStatus;
   moduleType?: '8S' | '12S';
   lifecycleStatus?: LifecycleStatus;
+  issuedToPerson?: string | null;
+  issuedToDepartment?: string | null;
+  issuedBy?: string | null;
+  issuedAt?: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -304,6 +333,10 @@ export interface BatteryUnit {
   status: ComponentStatus;
   packTemplateCode?: 'PACK_5KWH' | 'PACK_7_5KWH';
   lifecycleStatus?: LifecycleStatus;
+  issuedToPerson?: string | null;
+  issuedToDepartment?: string | null;
+  issuedBy?: string | null;
+  issuedAt?: string | null;
   modules: ModuleItem[];
   bms?: BMSItem;
   bmu?: BMUItem;
@@ -317,6 +350,7 @@ export interface BatteryUnit {
     completedBy?: string;
     details?: string;
     values?: Record<string, any>;
+    manualValues?: Record<string, any>;
   }>;
 
   finalQcResult?: {

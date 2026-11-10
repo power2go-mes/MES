@@ -26,6 +26,7 @@ const exportStatusColors: Record<string, string> = {
   SOLD: exportColors.green,
   SCRAP: exportColors.red,
   RECYCLE: exportColors.green,
+  ISSUED: exportColors.green,
 };
 
 const exportDate = (value?: string) => value ? new Date(value).toLocaleString() : '';
@@ -187,7 +188,7 @@ type WarehouseExportRow = {
 
 const cellClassificationStatuses = [
   'IN_STOCK', 'FLOOR_STOCK', 'IN_MODULE', 'IN_PACK', 'IN_RACK',
-  'KARACHI_WAREHOUSE', 'LAHORE_WAREHOUSE', 'SOLD', 'SCRAP', 'DAMAGE', 'REUSABLE', 'RECYCLE',
+  'KARACHI_WAREHOUSE', 'LAHORE_WAREHOUSE', 'SOLD', 'SCRAP', 'DAMAGE', 'REUSABLE', 'RECYCLE', 'ISSUED',
 ];
 const classificationRank = new Map(cellClassificationStatuses.map((status, index) => [status, index]));
 const getClassificationRank = (value: unknown) => classificationRank.get(
@@ -202,6 +203,13 @@ const sortByClassification = <T extends { Classification: string; 'Serial Number
 const getCellId = (cell: CellItem) => String(cell.id || '');
 const getCellLifecycleStatus = (cell: CellItem) => String(cell.lifecycleStatus || (cell as any).lifecycle_status || '').trim().toUpperCase();
 const getCellClassification = (cell: CellItem, warehouseStatuses: Record<string, string>, reusableCellIds?: Set<string>) => {
+  const isIssued = Boolean(
+    cell.issuedToPerson?.trim()
+    || (cell as any).issued_to_person?.trim()
+    || getCellLifecycleStatus(cell) === 'ISSUED'
+    || String(cell.status || '').trim().toUpperCase() === 'ISSUED',
+  );
+  if (isIssued) return 'ISSUED';
   const warehouseStatus = String(warehouseStatuses[getCellId(cell)] || '').trim().toUpperCase();
   if (warehouseStatus === 'KARACHI_WAREHOUSE' || warehouseStatus === 'LAHORE_WAREHOUSE') return warehouseStatus;
   const lifecycleStatus = getCellLifecycleStatus(cell);
@@ -224,12 +232,18 @@ export const downloadCellReport = (
   if (cells.length === 0) throw new Error('No cell records are available to export.');
   const warehouseStatuses = options.warehouseStatuses || {};
   const reusableCellIds = options.reusableCellIds;
-  const cellRows = sortByClassification(cells.map(cell => ({
-    'Serial Number': cell.internalSerial || (cell as any).internal_serial || '',
-    'Supplier Barcode': cell.supplierBarcode || (cell as any).supplier_barcode || '',
-    'Pallet No.': cell.palletNumber || (cell as any).pallet_number || '',
-    Classification: formatClassificationLabel(getCellClassification(cell, warehouseStatuses, reusableCellIds)),
-  })));
+  const cellRows = sortByClassification(cells.map(cell => {
+    const issuedTo = cell.issuedToPerson || (cell as any).issued_to_person || '';
+    const issuedDept = cell.issuedToDepartment || (cell as any).issued_to_department || '';
+    const issuedInfo = issuedTo ? (issuedDept ? `${issuedTo} (${issuedDept})` : issuedTo) : '';
+    return {
+      'Serial Number': cell.internalSerial || (cell as any).internal_serial || '',
+      'Supplier Barcode': cell.supplierBarcode || (cell as any).supplier_barcode || '',
+      'Pallet No.': cell.palletNumber || (cell as any).pallet_number || '',
+      Classification: formatClassificationLabel(getCellClassification(cell, warehouseStatuses, reusableCellIds)),
+      'Issued To': issuedInfo,
+    };
+  }));
   const workbook = XLSX.utils.book_new();
   if (dashboardSummary && dashboardSummary.rows.length > 0) {
     const summaryRows = dashboardSummary.rows.map(row => ({ Status: formatClassificationLabel(row.label || ''), Quantity: Number(row.value) || 0 }));

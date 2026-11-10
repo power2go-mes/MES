@@ -65,6 +65,7 @@ export const DashboardView: React.FC = () => {
   const yieldRate = Number(quality.firstPassYieldPercent || 0);
   const liveCellBuckets = Array.isArray(stats.cellBuckets) ? stats.cellBuckets : [];
   const cellBucketValues = new Map<string, number>(liveCellBuckets.map((row: any) => [String(row.label), Number(row.value) || 0] as [string, number]));
+  const issuedCells = cellBucketValues.get('Issued') ?? 0;
   const statusRows = [
     { label: 'In Stock', value: cellBucketValues.get('In Stock') ?? Number(inventory.inStockCells || 0), color: '#36a852' },
     { label: 'Floor Stock', value: cellBucketValues.get('Floor Stock') ?? Number(inventory.floorStockCells || 0), color: '#2a9bd2' },
@@ -74,7 +75,9 @@ export const DashboardView: React.FC = () => {
     { label: 'Karachi Warehouse', value: cellBucketValues.get('Karachi Warehouse') ?? Number(inventory.karachiWarehouseCells || 0), color: '#14532d' },
     { label: 'Lahore Warehouse', value: cellBucketValues.get('Lahore Warehouse') ?? Number(inventory.lahoreWarehouseCells || 0), color: '#2563eb' },
     { label: 'Sold', value: cellBucketValues.get('Sold') ?? Number(inventory.soldCells || 0), color: '#059669' },
-    { label: 'Damage', value: cellBucketValues.get('Scrap') ?? Number(inventory.scrapCells || 0), color: '#b7b7b7' },
+    { label: 'Damage', value: cellBucketValues.get('Damage') ?? cellBucketValues.get('Scrap') ?? Number(inventory.scrapCells || 0), color: '#b7b7b7' },
+    { label: 'Reusable', value: cellBucketValues.get('Reusable') ?? cellBucketValues.get('Recycle') ?? 0, color: '#538D22' },
+    { label: 'Issued', value: issuedCells, color: '#3aaa35' },
   ];
   const available = statusRows
     .filter(row => row.label === 'In Stock' || row.label === 'Floor Stock')
