@@ -96,14 +96,20 @@ export const DashboardView: React.FC = () => {
   const rackCountByCapacity = new Map<number, number>();
   (stats.rackStatusBuckets || []).forEach((row: any) => {
     (row.rackTypes || []).forEach((rackType: any) => {
-      const capacity = Number(String(rackType.rackType || '').match(/^RACK_(\d+)KWH$/i)?.[1]);
-      if (rackCapacities.includes(capacity)) rackCountByCapacity.set(capacity, (rackCountByCapacity.get(capacity) || 0) + Math.max(0, Number(rackType.value) || 0));
+      const match = String(rackType.rackType || '').match(/^(?:RACK|CABINET)_(\d+(?:\.\d+)?)KWH$/i);
+      const capacity = match ? Number(match[1]) : 0;
+      if (capacity > 0) {
+        rackCountByCapacity.set(capacity, (rackCountByCapacity.get(capacity) || 0) + Math.max(0, Number(rackType.value) || 0));
+      }
     });
   });
-  const rackCapacityRows = rackCapacities.map(capacity => ({
-    label: `${capacity === 70 ? '67.5' : capacity} kWh ${capacity === 25 ? 'rack' : 'cabinet'}`,
-    value: rackCountByCapacity.get(capacity) || 0,
-  }));
+  const allCapacities = Array.from(new Set([...rackCapacities, ...Array.from(rackCountByCapacity.keys())])).sort((a, b) => a - b);
+  const rackCapacityRows = allCapacities
+    .filter(cap => rackCapacities.includes(cap) || (rackCountByCapacity.get(cap) || 0) > 0)
+    .map(capacity => ({
+      label: `${capacity === 70 ? '67.5' : capacity} kWh ${capacity <= 25 ? 'rack' : 'cabinet'}`,
+      value: rackCountByCapacity.get(capacity) || 0,
+    }));
   const rackCountTotal = rackCapacityRows.reduce((sum, row) => sum + row.value, 0);
   const moduleProgressRows = (stats.moduleProgressBuckets || []).map((row: any) => ({
     label: String(row.label || 'Unknown'),

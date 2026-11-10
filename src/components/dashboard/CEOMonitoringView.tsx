@@ -707,18 +707,28 @@ export const CEOMonitoringView: React.FC = () => {
       const rackTypes = Array.isArray(row.rackTypes) ? row.rackTypes : [];
       rackTypes.forEach((type: any) => {
         const rackType = String(type.rackType || 'UNKNOWN_RACK');
-        const match = rackType.match(/RACK_(25|45|60|70|75)KWH/i);
-        if (match) totals.set(match[1], (totals.get(match[1]) || 0) + numberOr(type.value));
+        const match = rackType.match(/(?:RACK|CABINET)_(\d+(?:\.\d+)?)KWH/i);
+        if (match) {
+          const power = match[1];
+          const isCab = rackType.toUpperCase().includes('CAB') || !['25'].includes(power);
+          const key = `${power}_${isCab ? 'CAB' : 'RACK'}`;
+          totals.set(key, (totals.get(key) || 0) + numberOr(type.value));
+        }
       });
     });
     return applyPalette(Array.from(totals.entries())
       .filter(([, value]) => value > 0)
-      .sort(([left], [right]) => Number(right) - Number(left))
-      .map(([power, value]) => ({
-        label: `${power === '70' ? '67.5' : power} kWh ${power === '25' ? 'Rack' : 'Cabinet'}`,
-        value,
-        color: reportColors.green,
-      })));
+      .sort(([left], [right]) => Number(right.split('_')[0]) - Number(left.split('_')[0]))
+      .map(([key, value]) => {
+        const [power, form] = key.split('_');
+        const displayPower = power === '70' ? '67.5' : power;
+        const formLabel = form === 'CAB' ? 'Cabinet' : 'Rack';
+        return {
+          label: `${displayPower} kWh ${formLabel}`,
+          value,
+          color: reportColors.green,
+        };
+      }));
   }, [source.rackStatusBuckets]);
   const filteredRackRows = selectedRackType === 'All' ? rackData : rackData.filter((row) => row.label === selectedRackType);
   const rackDistribution = useMemo(() => buildDashboardDistribution(
@@ -734,7 +744,7 @@ export const CEOMonitoringView: React.FC = () => {
     (source.rackStatusBuckets || []).forEach((status: any) => {
       (status.rackTypes || []).forEach((rackTypeInfo: any) => {
         const rackType = String(rackTypeInfo.rackType || '').toUpperCase();
-        const match = rackType.match(/RACK_(\d+(?:\.\d+)?)KWH/i);
+        const match = rackType.match(/(?:RACK|CABINET)_(\d+(?:\.\d+)?)KWH/i);
         if (!match) return;
         const capacityValue = Number(match[1]);
         if (capacityValue >= 45 && capacityValue <= 75 && capacityValue !== 25) {

@@ -36,10 +36,17 @@ const exportDateOnly = (value?: string) => {
   if (Number.isNaN(date.getTime())) return '';
   return `${String(date.getUTCDate()).padStart(2, '0')}-${String(date.getUTCMonth() + 1).padStart(2, '0')}-${date.getUTCFullYear()}`;
 };
-const exportRackType = (value?: string) => String(value || '')
-  .replace(/^RACK_/i, '')
-  .replace(/70KWH$/i, `${normalizeRackCapacity('70')}kWh`)
-  .replace(/KWH$/i, 'kWh');
+const exportRackType = (value?: string, rack?: any) => {
+  if (rack?.actualCapacityKwh) {
+    const isCab = rack.shellType === 'CABINET' || String(value || '').includes('CAB');
+    return `${rack.actualCapacityKwh}kWh ${isCab ? 'Cabinet' : 'Rack'}`;
+  }
+  const str = String(value || '');
+  if (str.includes('70KWH')) return '67.5kWh';
+  return str
+    .replace(/^(?:RACK|CABINET)_/i, '')
+    .replace(/KWH$/i, 'kWh');
+};
 const normalizeClientName = (value: unknown) => {
   const name = String(value || '').trim();
   const midpoint = Math.floor(name.length / 2);
@@ -298,7 +305,9 @@ export const downloadRackReport = (racks: RackUnit[], options: CellExportOptions
   if (racks.length === 0) throw new Error('No rack records are available to export.');
   const rows = racks.map(rack => ({
     'Serial Number': normalizeRackSerial(rack.serialNumber || (rack as any).serial_number || ''),
-    'Rack Type': exportRackType(rack.rackTemplateCode || (rack as any).rack_template_code),
+    'Shell Type': rack.shellType || (String(rack.rackTemplateCode || '').includes('CAB') ? 'CABINET' : 'RACK'),
+    'Capacity': rack.actualCapacityKwh ? `${rack.actualCapacityKwh} kWh` : exportRackType(rack.rackTemplateCode || (rack as any).rack_template_code, rack),
+    'Packs Installed': `${rack.installedPackCount ?? (rack.batteryIds || []).length}/${rack.maxPackCapacity ?? rack.requiredPackCount ?? 5}`,
     Classification: formatClassificationLabel(getRackClassification(rack, options.warehouseStatuses)),
     'Created At': exportDateOnly(rack.createdAt || (rack as any).created_at),
   }));

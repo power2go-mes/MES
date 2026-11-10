@@ -13,7 +13,7 @@ export function legacyRackSerialLookup(value: unknown): string {
 
 export function normalizeRackTemplateLabel(value: unknown): string {
   const template = String(value || '').trim();
-  const match = template.match(/^RACK_(\d+(?:\.\d+)?)KWH$/i);
+  const match = template.match(/^(?:RACK|CABINET)_(\d+(?:\.\d+)?)KWH$/i);
   if (!match) return template || '-';
   return `${normalizeRackCapacity(match[1])}KWH`;
 }

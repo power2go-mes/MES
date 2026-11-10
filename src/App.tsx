@@ -29,6 +29,7 @@ const IssuedView = lazy(() => import('./components/issued/IssuedView').then(modu
 const TraceabilityView = lazy(() => import('./components/traceability/TraceabilityView').then(module => ({ default: module.TraceabilityView })));
 const QuarantineView = lazy(() => import('./components/quarantine/QuarantineView').then(module => ({ default: module.QuarantineView })));
 const ProductConfiguratorView = lazy(() => import('./components/products/ProductConfiguratorView').then(module => ({ default: module.ProductConfiguratorView })));
+const RackShellConfiguratorView = lazy(() => import('./components/products/RackShellConfiguratorView').then(module => ({ default: module.RackShellConfiguratorView })));
 const AuditTrailView = lazy(() => import('./components/audit/AuditTrailView').then(module => ({ default: module.AuditTrailView })));
 const SecurityView = lazy(() => import('./components/security/SecurityView').then(module => ({ default: module.SecurityView })));
 const WarehouseView = lazy(() => import('./components/warehouse/WarehouseView').then(module => ({ default: module.WarehouseView })));
@@ -123,6 +124,8 @@ const AppContent: React.FC = () => {
         return <QuarantineView />;
       case 'products':
         return <ProductConfiguratorView />;
+      case 'rack-shells':
+        return <RackShellConfiguratorView />;
       case 'audit':
         return <AuditTrailView />;
       case 'security':

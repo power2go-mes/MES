@@ -86,16 +86,36 @@ export interface IssuanceDetails {
   issuedAt?: string | null;
 }
 
+export interface RackShellTemplate {
+  id: string;
+  name: string;
+  shellCode: string;
+  shellType: 'RACK' | 'CABINET';
+  voltageType: 'LV' | 'HV';
+  maxSlots: number;
+  nominalCapacityKwh: number;
+  description?: string | null;
+  active: boolean;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
 export interface RackUnit {
   id: string;
   serialNumber: string;
   qrCode: string;
-  rackTemplateCode: 'RACK_25KWH' | 'RACK_45KWH' | 'RACK_60KWH' | 'RACK_70KWH' | 'RACK_75KWH';
+  rackTemplateCode: string;
   status: 'IN_STOCK' | 'IN_RACK' | 'SOLD' | 'SCRAP';
   requiredPackCount: number;
-  requiredPackTemplateCode: 'PACK_5KWH' | 'PACK_7_5KWH';
+  requiredPackTemplateCode: 'PACK_5KWH' | 'PACK_7_5KWH' | string;
   location?: string;
   batteryIds?: string[];
+  shellTemplateId?: string | null;
+  shellType?: 'RACK' | 'CABINET';
+  voltageType?: 'LV' | 'HV';
+  actualCapacityKwh?: number;
+  installedPackCount?: number;
+  maxPackCapacity?: number;
   issuedToPerson?: string | null;
   issuedToDepartment?: string | null;
   issuedBy?: string | null;

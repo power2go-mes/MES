@@ -16,6 +16,7 @@ export type NavView =
   | 'traceability'
   | 'supplier'
   | 'products'
+  | 'rack-shells'
   | 'quarantine'
   | 'scrap'
   | 'audit'

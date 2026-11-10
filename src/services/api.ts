@@ -14,6 +14,7 @@ import {
   User,
   Role,
   RackUnit,
+  RackShellTemplate,
   AuditLog as AuditLogType,
 } from '../types';
 
@@ -48,6 +49,75 @@ const reverseColumnAliases = Object.fromEntries(
 const CELL_NOMINAL_CAPACITY_AH = 100;
 const CELL_NOMINAL_VOLTAGE_V = 3.2;
 const CELL_CAPACITY_KWH = (CELL_NOMINAL_CAPACITY_AH * CELL_NOMINAL_VOLTAGE_V) / 1000;
+
+export const DEFAULT_RACK_SHELL_TEMPLATES: RackShellTemplate[] = [
+  {
+    id: 'shell-rack-25kwh-lv',
+    name: '25 kWh LV Rack Frame',
+    shellCode: 'SHELL_RACK_25KWH_LV',
+    shellType: 'RACK',
+    voltageType: 'LV',
+    maxSlots: 5,
+    nominalCapacityKwh: 25.0,
+    description: 'Standard 5-slot Low-Voltage (LV) open battery rack frame for 5 kWh packs',
+    active: true,
+  },
+  {
+    id: 'shell-cab-25kwh-lv',
+    name: '25 kWh LV Cabinet Enclosure',
+    shellCode: 'SHELL_CAB_25KWH_LV',
+    shellType: 'CABINET',
+    voltageType: 'LV',
+    maxSlots: 5,
+    nominalCapacityKwh: 25.0,
+    description: 'Enclosed 5-slot Low-Voltage (LV) battery cabinet for 5 kWh packs',
+    active: true,
+  },
+  {
+    id: 'shell-cab-45kwh-hv',
+    name: '45 kWh HV Cabinet Enclosure',
+    shellCode: 'SHELL_CAB_45KWH_HV',
+    shellType: 'CABINET',
+    voltageType: 'HV',
+    maxSlots: 6,
+    nominalCapacityKwh: 45.0,
+    description: 'Enclosed 6-slot High-Voltage (HV) battery cabinet for 7.5 kWh packs',
+    active: true,
+  },
+  {
+    id: 'shell-cab-60kwh-hv',
+    name: '60 kWh HV Cabinet Enclosure',
+    shellCode: 'SHELL_CAB_60KWH_HV',
+    shellType: 'CABINET',
+    voltageType: 'HV',
+    maxSlots: 8,
+    nominalCapacityKwh: 60.0,
+    description: 'Enclosed 8-slot High-Voltage (HV) battery cabinet for 7.5 kWh packs',
+    active: true,
+  },
+  {
+    id: 'shell-cab-70kwh-hv',
+    name: '67.5 kWh HV Cabinet Enclosure',
+    shellCode: 'SHELL_CAB_70KWH_HV',
+    shellType: 'CABINET',
+    voltageType: 'HV',
+    maxSlots: 9,
+    nominalCapacityKwh: 67.5,
+    description: 'Enclosed 9-slot High-Voltage (HV) battery cabinet for 7.5 kWh packs',
+    active: true,
+  },
+  {
+    id: 'shell-cab-75kwh-hv',
+    name: '75 kWh HV Cabinet Enclosure',
+    shellCode: 'SHELL_CAB_75KWH_HV',
+    shellType: 'CABINET',
+    voltageType: 'HV',
+    maxSlots: 10,
+    nominalCapacityKwh: 75.0,
+    description: 'Enclosed 10-slot High-Voltage (HV) battery cabinet for 7.5 kWh packs',
+    active: true,
+  },
+];
 
 let dashboardStatsCache: { key: string; value: any; expiresAt: number } | null = null;
 let dashboardStatsRequest: { key: string; promise: Promise<any> } | null = null;
@@ -5452,29 +5522,207 @@ export const api = {
       rows.push(...(data || []));
       if (!data || data.length < pageSize || (requestedLimit !== undefined && rows.length >= requestedLimit)) break;
     }
-    return rows.map((rack: any) => ({
-      ...rack,
-      id: rack.id,
-      serialNumber: normalizeRackSerial(rack.serialNumber || rack.serial_number),
-      qrCode: rack.qrCode || rack.qr_code,
-      rackTemplateCode: rack.rackTemplateCode || rack.rack_template_code,
-      requiredPackCount: rack.requiredPackCount || rack.required_pack_count,
-      requiredPackTemplateCode: rack.requiredPackTemplateCode || rack.required_pack_template_code,
-      batteryIds: (rack.rackPacks || rack.rack_packs || [])
-        .sort((a: any, b: any) => (a.packSlotIndex ?? a.pack_slot_index) - (b.packSlotIndex ?? b.pack_slot_index))
-        .map((item: any) => item.batteryId || item.battery_id),
-    })) as RackUnit[];
+    return rows.map((rack: any) => {
+      const templateCode = rack.rackTemplateCode || rack.rack_template_code || '';
+      const installedCount = Number(rack.installedPackCount ?? rack.installed_pack_count ?? (rack.rackPacks || rack.rack_packs || []).length);
+      const isCab = templateCode.includes('CAB') || ['RACK_45KWH', 'RACK_60KWH', 'RACK_70KWH', 'RACK_75KWH'].includes(templateCode);
+      const isHv = templateCode.includes('HV') || ['RACK_45KWH', 'RACK_60KWH', 'RACK_70KWH', 'RACK_75KWH'].includes(templateCode);
+      const defaultCapacity = templateCode === 'RACK_25KWH' ? 25.0 : templateCode === 'RACK_45KWH' ? 45.0 : templateCode === 'RACK_60KWH' ? 60.0 : templateCode === 'RACK_70KWH' ? 67.5 : templateCode === 'RACK_75KWH' ? 75.0 : (installedCount * (isHv ? 7.5 : 5.0));
+
+      return {
+        ...rack,
+        id: rack.id,
+        serialNumber: normalizeRackSerial(rack.serialNumber || rack.serial_number),
+        qrCode: rack.qrCode || rack.qr_code,
+        rackTemplateCode: templateCode,
+        requiredPackCount: rack.requiredPackCount || rack.required_pack_count || installedCount,
+        requiredPackTemplateCode: rack.requiredPackTemplateCode || rack.required_pack_template_code || (isHv ? 'PACK_7_5KWH' : 'PACK_5KWH'),
+        location: rack.location || '',
+        status: rack.status || 'IN_STOCK',
+        shellTemplateId: rack.shellTemplateId || rack.shell_template_id || null,
+        shellType: (rack.shellType || rack.shell_type || (isCab ? 'CABINET' : 'RACK')) as 'RACK' | 'CABINET',
+        voltageType: (rack.voltageType || rack.voltage_type || (isHv ? 'HV' : 'LV')) as 'LV' | 'HV',
+        actualCapacityKwh: Number(rack.actualCapacityKwh ?? rack.actual_capacity_kwh ?? defaultCapacity),
+        installedPackCount: installedCount,
+        maxPackCapacity: Number(rack.maxPackCapacity ?? rack.max_pack_capacity ?? rack.requiredPackCount ?? rack.required_pack_count ?? 5),
+        batteryIds: (rack.rackPacks || rack.rack_packs || [])
+          .sort((a: any, b: any) => (a.packSlotIndex ?? a.pack_slot_index) - (b.packSlotIndex ?? b.pack_slot_index))
+          .map((item: any) => item.batteryId || item.battery_id),
+      };
+    }) as RackUnit[];
   },
 
-  async assembleRack(templateCode: 'RACK_25KWH' | 'RACK_45KWH' | 'RACK_60KWH' | 'RACK_70KWH' | 'RACK_75KWH', batteryIds: string[], location?: string): Promise<any> {
+  async assembleRack(
+    params: {
+      templateCode?: string;
+      batteryIds: string[];
+      location?: string;
+      shellTemplateId?: string;
+    } | string,
+    batteryIdsArg?: string[],
+    locationArg?: string
+  ): Promise<any> {
     if (!rawSupabase) throw new Error('Supabase is not configured.');
+    let templateCode = '';
+    let batteryIds: string[] = [];
+    let location = 'RACK_ASSEMBLY';
+    let shellTemplateId: string | null = null;
+
+    if (typeof params === 'object') {
+      templateCode = params.templateCode || '';
+      batteryIds = params.batteryIds || [];
+      location = params.location || 'RACK_ASSEMBLY';
+      shellTemplateId = params.shellTemplateId || null;
+    } else {
+      templateCode = params;
+      batteryIds = batteryIdsArg || [];
+      location = locationArg || 'RACK_ASSEMBLY';
+    }
+
     const { data, error } = await rawSupabase.rpc('assemble_rack_transaction', {
       p_template_code: templateCode,
       p_battery_ids: batteryIds,
-      p_location: location || 'RACK_ASSEMBLY',
+      p_location: location,
+      p_shell_template_id: shellTemplateId,
     });
     if (error) throw error;
     return toAppValue(data);
+  },
+
+  async getRackShellTemplates(includeInactive: boolean = false): Promise<RackShellTemplate[]> {
+    if (!rawSupabase) return DEFAULT_RACK_SHELL_TEMPLATES;
+    try {
+      let query = rawSupabase
+        .from('rack_shell_templates')
+        .select('*')
+        .order('nominal_capacity_kwh', { ascending: true });
+      if (!includeInactive) {
+        query = query.eq('active', true);
+      }
+      const { data, error } = await query;
+      if (error || !data || data.length === 0) {
+        return DEFAULT_RACK_SHELL_TEMPLATES;
+      }
+      return data.map((t: any) => ({
+        id: t.id,
+        name: t.name,
+        shellCode: t.shell_code || t.shellCode,
+        shellType: (t.shell_type || t.shellType) as 'RACK' | 'CABINET',
+        voltageType: (t.voltage_type || t.voltageType) as 'LV' | 'HV',
+        maxSlots: Number(t.max_slots || t.maxSlots || 5),
+        nominalCapacityKwh: Number(t.nominal_capacity_kwh || t.nominalCapacityKwh || 25),
+        description: t.description,
+        active: t.active ?? true,
+        createdAt: t.created_at || t.createdAt,
+        updatedAt: t.updated_at || t.updatedAt,
+      }));
+    } catch {
+      return DEFAULT_RACK_SHELL_TEMPLATES;
+    }
+  },
+
+  async createRackShellTemplate(template: Omit<RackShellTemplate, 'id' | 'createdAt' | 'updatedAt'>): Promise<RackShellTemplate> {
+    const id = `shell-${template.shellType.toLowerCase()}-${template.nominalCapacityKwh}kwh-${template.voltageType.toLowerCase()}-${Date.now().toString(36)}`;
+    const payload = {
+      id,
+      name: template.name,
+      shell_code: template.shellCode,
+      shell_type: template.shellType,
+      voltage_type: template.voltageType,
+      max_slots: template.maxSlots,
+      nominal_capacity_kwh: template.nominalCapacityKwh,
+      description: template.description || null,
+      active: template.active ?? true,
+    };
+    if (rawSupabase) {
+      const { data, error } = await rawSupabase
+        .from('rack_shell_templates')
+        .insert(payload)
+        .select()
+        .single();
+      if (!error && data) {
+        return {
+          id: data.id,
+          name: data.name,
+          shellCode: data.shell_code,
+          shellType: data.shell_type,
+          voltageType: data.voltage_type,
+          maxSlots: Number(data.max_slots),
+          nominalCapacityKwh: Number(data.nominal_capacity_kwh),
+          description: data.description,
+          active: data.active,
+          createdAt: data.created_at,
+          updatedAt: data.updated_at,
+        };
+      }
+    }
+    return {
+      ...payload,
+      maxSlots: payload.max_slots,
+      nominalCapacityKwh: payload.nominal_capacity_kwh,
+      shellCode: payload.shell_code,
+      shellType: payload.shell_type,
+      voltageType: payload.voltage_type,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+  },
+
+  async updateRackShellTemplate(id: string, updates: Partial<RackShellTemplate>): Promise<RackShellTemplate> {
+    const payload: any = { updated_at: new Date().toISOString() };
+    if (updates.name !== undefined) payload.name = updates.name;
+    if (updates.shellCode !== undefined) payload.shell_code = updates.shellCode;
+    if (updates.shellType !== undefined) payload.shell_type = updates.shellType;
+    if (updates.voltageType !== undefined) payload.voltage_type = updates.voltageType;
+    if (updates.maxSlots !== undefined) payload.max_slots = updates.maxSlots;
+    if (updates.nominalCapacityKwh !== undefined) payload.nominal_capacity_kwh = updates.nominalCapacityKwh;
+    if (updates.description !== undefined) payload.description = updates.description;
+    if (updates.active !== undefined) payload.active = updates.active;
+
+    if (rawSupabase) {
+      const { data, error } = await rawSupabase
+        .from('rack_shell_templates')
+        .update(payload)
+        .eq('id', id)
+        .select()
+        .single();
+      if (!error && data) {
+        return {
+          id: data.id,
+          name: data.name,
+          shellCode: data.shell_code,
+          shellType: data.shell_type,
+          voltageType: data.voltage_type,
+          maxSlots: Number(data.max_slots),
+          nominalCapacityKwh: Number(data.nominal_capacity_kwh),
+          description: data.description,
+          active: data.active,
+          createdAt: data.created_at,
+          updatedAt: data.updated_at,
+        };
+      }
+    }
+    return {
+      id,
+      name: updates.name || '',
+      shellCode: updates.shellCode || '',
+      shellType: updates.shellType || 'RACK',
+      voltageType: updates.voltageType || 'LV',
+      maxSlots: updates.maxSlots || 5,
+      nominalCapacityKwh: updates.nominalCapacityKwh || 25,
+      description: updates.description,
+      active: updates.active ?? true,
+      updatedAt: new Date().toISOString(),
+    };
+  },
+
+  async deleteRackShellTemplate(id: string): Promise<void> {
+    if (rawSupabase) {
+      await rawSupabase
+        .from('rack_shell_templates')
+        .update({ active: false, updated_at: new Date().toISOString() })
+        .eq('id', id);
+    }
   },
 
   async updateRackSerial(rackId: string, serialSuffix: string): Promise<any> {

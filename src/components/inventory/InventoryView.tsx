@@ -47,7 +47,15 @@ const cellStatuses = [
 
 const displayRackSerial = normalizeRackSerial;
 const displayBatterySerial = normalizeBatterySerial;
-const displayRackTemplate = (value: unknown) => String(value || '').toUpperCase() === 'RACK_70KWH' ? '67.5 kWh' : String(value || '-');
+const displayRackTemplate = (value: unknown, rack?: any) => {
+  if (rack?.actualCapacityKwh) return `${rack.actualCapacityKwh} kWh`;
+  if (rack?.actual_capacity_kwh) return `${rack.actual_capacity_kwh} kWh`;
+  const str = String(value || '').toUpperCase();
+  if (str === 'RACK_70KWH' || str === 'CABINET_70KWH') return '67.5 kWh';
+  const match = str.match(/(?:RACK|CABINET)_(\d+(?:\.\d+)?)KWH/);
+  if (match) return `${match[1]} kWh`;
+  return str || '-';
+};
 
 async function fetchAllInventoryPages<T>(fetchPage: (limit: number, offset: number) => Promise<T[]>): Promise<T[]> {
   const pageSize = 250;
@@ -1747,15 +1755,29 @@ export const InventoryView: React.FC = () => {
           <div className="overflow-x-auto">
             <table className="w-full text-left text-xs">
               <thead className="border-b border-slate-200 bg-slate-50 text-[10px] font-semibold uppercase text-slate-500">
-                <tr><th className="px-3 py-3 w-10"><input type="checkbox" checked={filteredRacks.length > 0 && filteredRacks.every(item => selectedIds.RACKS.includes(item.id))} onChange={() => toggleSelectAll('RACKS', filteredRacks)} className="h-4 w-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500" /></th><th className="px-5 py-3">Rack Serial</th><th className="px-5 py-3">Template</th><th className="px-5 py-3">Location</th><th className="px-5 py-3">Status</th><th className="px-5 py-3">QR / Actions</th></tr>
+                <tr>
+                  <th className="px-3 py-3 w-10">
+                    <input type="checkbox" checked={filteredRacks.length > 0 && filteredRacks.every(item => selectedIds.RACKS.includes(item.id))} onChange={() => toggleSelectAll('RACKS', filteredRacks)} className="h-4 w-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500" />
+                  </th>
+                  <th className="px-5 py-3">Rack Serial</th>
+                  <th className="px-5 py-3">Type</th>
+                  <th className="px-5 py-3">Capacity</th>
+                  <th className="px-5 py-3">Packs</th>
+                  <th className="px-5 py-3">Location</th>
+                  <th className="px-5 py-3">Status</th>
+                  <th className="px-5 py-3">QR / Actions</th>
+                </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {displayedRacks.map(rack => {
                   const serial = rack.serialNumber || rack.serial_number || rack.id;
                   const template = rack.rackTemplateCode || rack.rack_template_code || '-';
                   const displaySerial = displayRackSerial(serial);
-                  const displayTemplate = displayRackTemplate(template);
+                  const displayTemplate = displayRackTemplate(template, rack);
                   const status = getRackDisplayStatus(rack);
+                  const isCab = rack.shellType === 'CABINET' || String(template).includes('CAB') || ['RACK_45KWH', 'RACK_60KWH', 'RACK_70KWH', 'RACK_75KWH'].includes(String(template));
+                  const installedPacks = rack.installedPackCount ?? rack.batteryIds?.length ?? rack.requiredPackCount ?? 5;
+                  const maxPacks = rack.maxPackCapacity ?? rack.requiredPackCount ?? 5;
                   const editRackSerial = async () => {
                     const currentSuffix = String(serial).match(/-(\d{4})$/)?.[1] || '';
                     const nextSuffix = window.prompt(`Enter the last 4 digits for ${displaySerial}:`, currentSuffix)?.trim() || '';
@@ -1779,7 +1801,13 @@ export const InventoryView: React.FC = () => {
                         <input type="checkbox" checked={selectedIds.RACKS.includes(rack.id)} onChange={() => toggleSelectItem('RACKS', rack.id)} className="h-4 w-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500" />
                       </td>
                       <td className="px-5 py-3.5"><span className="inline-flex items-center gap-1 font-mono font-bold text-slate-900">{displaySerial}<CopyToClipboardButton value={String(serial)} label="Copy rack serial number" /></span></td>
-                      <td className="px-5 py-3.5 font-semibold text-slate-700">{displayTemplate}</td>
+                      <td className="px-5 py-3.5">
+                        <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${isCab ? 'bg-blue-100 text-blue-800' : 'bg-slate-100 text-slate-700'}`}>
+                          {isCab ? 'CABINET' : 'RACK'}
+                        </span>
+                      </td>
+                      <td className="px-5 py-3.5 font-bold text-emerald-800">{displayTemplate}</td>
+                      <td className="px-5 py-3.5 text-slate-600 font-medium">{installedPacks} / {maxPacks}</td>
                       <td className="px-5 py-3.5 text-slate-600">{rack.location || '-'}</td>
                       <td className="px-5 py-3.5"><span className={`rounded-md border px-2.5 py-0.5 text-[10px] font-bold uppercase ${getStatusBadge(status)}`}>{status}</span></td>
                       <td className="px-5 py-3.5 text-right font-sans space-x-1">
@@ -1804,7 +1832,7 @@ export const InventoryView: React.FC = () => {
                     </tr>
                   );
                 })}
-                {!loading && filteredRacks.length === 0 && <tr><td colSpan={6} className="px-5 py-12 text-center text-xs text-slate-400">No racks recorded.</td></tr>}
+                {!loading && filteredRacks.length === 0 && <tr><td colSpan={8} className="px-5 py-12 text-center text-xs text-slate-400">No racks recorded.</td></tr>}
               </tbody>
             </table>
           </div>

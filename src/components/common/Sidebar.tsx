@@ -197,6 +197,18 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
               <span>Product Types</span>
             </button>}
 
+            {hasPermission('products.view') && <button
+              onClick={() => setActiveView('rack-shells')}
+              className={`w-full flex items-center space-x-2.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+                activeView === 'rack-shells'
+                  ? 'bg-slate-900 text-white shadow-xs'
+                  : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
+              }`}
+            >
+              <Boxes className="w-3.5 h-3.5 text-slate-400" />
+              <span>Rack & Cabinet Shells</span>
+            </button>}
+
             {canManageUsers && (
               <button
                 onClick={() => setActiveView('security')}

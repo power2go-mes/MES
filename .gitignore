@@ -9,3 +9,4 @@ coverage/
 .vercel
 memory/otp-dev.log
 memory/*.tmp
+supabase/.temp/
