@@ -516,11 +516,11 @@ export const InventoryView: React.FC = () => {
       case 'IN_PACK':
       case 'IN_RACK':
       case 'SOLD':
-        return 'bg-blue-50 text-blue-700 border-blue-200';
+        return 'bg-slate-100 text-slate-800 border-slate-200';
       case 'KARACHI_WAREHOUSE':
-        return 'bg-green-50 text-green-800 border-green-200';
+        return 'bg-emerald-50 text-emerald-800 border-emerald-200';
       case 'LAHORE_WAREHOUSE':
-        return 'bg-blue-50 text-blue-800 border-blue-200';
+        return 'bg-amber-50 text-amber-800 border-amber-200';
       case 'FINISHED':
       case 'RELEASED':
       case 'DISPATCHED':
@@ -780,38 +780,38 @@ export const InventoryView: React.FC = () => {
   };
 
   return (
-    <div className="inventory-page flex-1 p-6 space-y-6 overflow-y-auto max-w-7xl mx-auto">
+    <div className="inventory-page flex-1 p-4 sm:p-6 space-y-5 overflow-y-auto max-w-7xl mx-auto">
       {/* Header */}
-      <div className="inventory-header bg-white rounded-2xl shadow-xs border border-slate-200 p-6 flex flex-col md:flex-row md:items-center justify-between gap-4">
+      <div className="inventory-header bg-white rounded-2xl shadow-sm border border-slate-200 p-5 sm:p-6 flex flex-col md:flex-row md:items-center justify-between gap-4 animate-card-enter">
         <div>
-          <div className="flex items-center space-x-3">
-            <span className="p-2.5 bg-emerald-50 border border-emerald-100 text-emerald-700 rounded-xl">
-              <Boxes className="w-5 h-5" />
+          <div className="flex items-center space-x-3.5">
+            <span className="p-2.5 bg-emerald-50 border border-emerald-200 text-emerald-700 rounded-xl shrink-0">
+              <Boxes className="w-6 h-6" />
             </span>
             <div>
               <h1 className="text-lg sm:text-xl font-black text-slate-900 tracking-tight">
-                Manufacturing & Warehouse Inventory
+                Manufacturing &amp; Warehouse Inventory
               </h1>
               <p className="text-xs text-slate-500 mt-0.5">
-                Real-time material lifecycle tracking from raw cells to finished certified packs.
+                Real-time material lifecycle tracking from raw cells to finished certified racks &amp; packs.
               </p>
             </div>
           </div>
         </div>
-        <div className="inventory-tab-strip flex flex-wrap items-center gap-1.5 bg-slate-100/80 p-1.5 rounded-xl text-xs font-semibold border border-slate-200">
-          <button onClick={() => { setActiveTab('CELLS'); setStatusFilter(''); }} className={`px-3.5 py-1.5 rounded-lg transition-all ${activeTab === 'CELLS' ? 'bg-white text-slate-900 shadow-2xs font-bold' : 'text-slate-600 hover:text-slate-900'}`}>Cells ({cells.length})</button>
-          <button onClick={() => { setActiveTab('BMS'); setStatusFilter(''); }} className={`px-3.5 py-1.5 rounded-lg transition-all ${activeTab === 'BMS' ? 'bg-white text-slate-900 shadow-2xs font-bold' : 'text-slate-600 hover:text-slate-900'}`}>BMS ({bmsUnits.length})</button>
-          <button onClick={() => { setActiveTab('BMU'); setStatusFilter(''); }} className={`px-3.5 py-1.5 rounded-lg transition-all ${activeTab === 'BMU' ? 'bg-white text-slate-900 shadow-2xs font-bold' : 'text-slate-600 hover:text-slate-900'}`}>BMU ({bmuUnits.length})</button>
-          <button onClick={() => { setActiveTab('MODULES'); setStatusFilter(''); }} className={`px-3.5 py-1.5 rounded-lg transition-all ${activeTab === 'MODULES' ? 'bg-white text-slate-900 shadow-2xs font-bold' : 'text-slate-600 hover:text-slate-900'}`}>Modules ({modules.length})</button>
-          <button onClick={() => { setActiveTab('BATTERIES'); setStatusFilter(''); }} className={`px-3.5 py-1.5 rounded-lg transition-all ${activeTab === 'BATTERIES' ? 'bg-white text-slate-900 shadow-2xs font-bold' : 'text-slate-600 hover:text-slate-900'}`}>Batteries ({batteries.length})</button>
-          <button onClick={() => { setActiveTab('RACKS'); setStatusFilter(''); }} className={`px-3.5 py-1.5 rounded-lg transition-all ${activeTab === 'RACKS' ? 'bg-white text-slate-900 shadow-2xs font-bold' : 'text-slate-600 hover:text-slate-900'}`}>Racks ({racks.length})</button>
-          <div className="w-[1px] h-4 bg-slate-300 mx-1 hidden sm:block" />
+        <div className="inventory-tab-strip flex flex-wrap items-center gap-1.5 bg-slate-100/90 p-1.5 rounded-2xl text-xs font-bold border border-slate-200">
+          <button onClick={() => { setActiveTab('CELLS'); setStatusFilter(''); }} className={`px-3.5 py-2 rounded-xl transition-all duration-200 ${activeTab === 'CELLS' ? 'bg-emerald-600 text-white shadow-xs' : 'text-slate-600 hover:bg-white hover:text-slate-900'}`}>Cells ({cells.length})</button>
+          <button onClick={() => { setActiveTab('BMS'); setStatusFilter(''); }} className={`px-3.5 py-2 rounded-xl transition-all duration-200 ${activeTab === 'BMS' ? 'bg-emerald-600 text-white shadow-xs' : 'text-slate-600 hover:bg-white hover:text-slate-900'}`}>BMS ({bmsUnits.length})</button>
+          <button onClick={() => { setActiveTab('BMU'); setStatusFilter(''); }} className={`px-3.5 py-2 rounded-xl transition-all duration-200 ${activeTab === 'BMU' ? 'bg-emerald-600 text-white shadow-xs' : 'text-slate-600 hover:bg-white hover:text-slate-900'}`}>BMU ({bmuUnits.length})</button>
+          <button onClick={() => { setActiveTab('MODULES'); setStatusFilter(''); }} className={`px-3.5 py-2 rounded-xl transition-all duration-200 ${activeTab === 'MODULES' ? 'bg-emerald-600 text-white shadow-xs' : 'text-slate-600 hover:bg-white hover:text-slate-900'}`}>Modules ({modules.length})</button>
+          <button onClick={() => { setActiveTab('BATTERIES'); setStatusFilter(''); }} className={`px-3.5 py-2 rounded-xl transition-all duration-200 ${activeTab === 'BATTERIES' ? 'bg-emerald-600 text-white shadow-xs' : 'text-slate-600 hover:bg-white hover:text-slate-900'}`}>Batteries ({batteries.length})</button>
+          <button onClick={() => { setActiveTab('RACKS'); setStatusFilter(''); }} className={`px-3.5 py-2 rounded-xl transition-all duration-200 ${activeTab === 'RACKS' ? 'bg-emerald-600 text-white shadow-xs' : 'text-slate-600 hover:bg-white hover:text-slate-900'}`}>Racks ({racks.length})</button>
+          <div className="w-[1px] h-5 bg-slate-300 mx-1 hidden sm:block" />
           <button
             onClick={() => setActiveView('issued')}
-            className="px-3.5 py-1.5 rounded-lg transition-all bg-emerald-50 text-emerald-800 hover:bg-emerald-100 border border-emerald-200/80 font-bold flex items-center gap-1.5"
+            className="px-3.5 py-2 rounded-xl transition-all bg-emerald-50 text-emerald-800 hover:bg-emerald-100 border border-emerald-200 font-bold flex items-center gap-1.5"
             title="Open Dedicated Issued Hardware Ledger"
           >
-            <UserCheck className="w-3.5 h-3.5 text-emerald-600" />
+            <UserCheck className="w-3.5 h-3.5 text-emerald-700" />
             <span>Issued Hardware</span>
           </button>
         </div>
@@ -983,6 +983,8 @@ export const InventoryView: React.FC = () => {
       })()}
 
 
+      {/* Tab Content Area with Enter Animation */}
+      <div key={activeTab} className="space-y-4 animate-tab-enter">
       {/* CELLS — Used / All toggle + summary tiles */}
       {activeTab === 'CELLS' && (
         <div className="space-y-4">
@@ -1802,7 +1804,7 @@ export const InventoryView: React.FC = () => {
                       </td>
                       <td className="px-5 py-3.5"><span className="inline-flex items-center gap-1 font-mono font-bold text-slate-900">{displaySerial}<CopyToClipboardButton value={String(serial)} label="Copy rack serial number" /></span></td>
                       <td className="px-5 py-3.5">
-                        <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${isCab ? 'bg-blue-100 text-blue-800' : 'bg-slate-100 text-slate-700'}`}>
+                        <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${isCab ? 'bg-amber-100 text-amber-800' : 'bg-slate-100 text-slate-700'}`}>
                           {isCab ? 'CABINET' : 'RACK'}
                         </span>
                       </td>
@@ -1846,6 +1848,7 @@ export const InventoryView: React.FC = () => {
           )}
         </div>
       )}
+      </div>
 
       {/* QR Modal */}
       {qrData && (

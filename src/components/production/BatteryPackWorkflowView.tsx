@@ -21,6 +21,10 @@ import {
   ChevronRight,
   Printer,
   Pencil,
+  Cpu,
+  ScanLine,
+  FolderOpen,
+  RotateCcw,
 } from "lucide-react";
 
 export const BatteryPackWorkflowView: React.FC = () => {
@@ -410,85 +414,333 @@ export const BatteryPackWorkflowView: React.FC = () => {
     controllerReady,
   );
 
-  if (
-    !activeBatteryId ||
-    !battery ||
-    !product ||
-    builderEditMode ||
-    !setupReady
-  ) {
-    return (
-      <div className="flex-1 p-8 bg-slate-50 flex items-center justify-center">
-        <div className="max-w-2xl w-full bg-white p-8 rounded-2xl border border-slate-200 shadow-sm">
-          {!battery || !product ? (
-            <>
-              <Layers className="w-12 h-12 text-slate-400 mx-auto mb-3" />
-              <h2 className="text-xl font-black text-slate-800 mb-2 text-center">
-                SELECT PACK TO ASSEMBLE
-              </h2>
-              <p className="text-sm text-slate-500 mb-6 text-center">
-                Select the battery template, choose the battery, then scan one
-                BMS or BMU and both modules in the 2D battery builder.
+  const isStep1 = !activeBatteryId || !battery || !product;
+  const isStep2 = !isStep1 && (builderEditMode || !setupReady);
+  const currentStepNum = isStep1 ? 1 : isStep2 ? 2 : 3;
+
+  const isTestingPassed =
+    battery?.stepResults.FINAL_TESTING?.status === "PASSED";
+  const isFinalQcPassed =
+    battery?.stepResults.FINAL_QC?.status === "PASSED" ||
+    battery?.status === "FINISHED";
+
+  let totalCellsCount = 0;
+  battery?.modules.forEach((m) => {
+    totalCellsCount += m.cells?.length || 0;
+  });
+
+  const handleResetToStep1 = () => {
+    setActiveBatteryId(null);
+    setBuilderOpen(false);
+    setBuilderEditMode(false);
+    setScannedControllerType(null);
+    setScannedModuleIds([]);
+  };
+
+  return (
+    <div className="flex-1 p-4 md:p-6 overflow-y-auto bg-slate-50">
+      <div className="max-w-6xl mx-auto space-y-6">
+        {/* Studio Header Card */}
+        <header className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm flex flex-wrap items-center justify-between gap-4">
+          <div className="flex items-center gap-3.5">
+            <div className="p-2.5 bg-emerald-50 rounded-xl border border-emerald-200 text-emerald-700">
+              <Layers className="w-6 h-6" />
+            </div>
+            <div>
+              <h1 className="text-xl font-black text-slate-900 tracking-tight">
+                Battery Pack Assembly
+              </h1>
+              <p className="text-xs text-slate-500 mt-0.5">
+                Select a template or existing pack, map its BMS/BMU controller and modules in 2D, then record final IR & QC release.
               </p>
-              <div className="grid gap-3 md:grid-cols-2">
-                <label className="text-xs font-bold text-slate-600">
-                  Battery template
-                  <select
-                    value={selectedProductId}
-                    onChange={(event) =>
-                      setSelectedProductId(event.target.value)
-                    }
-                    disabled={creatingBattery}
-                    className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2.5 text-sm"
+            </div>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2 text-xs">
+            {battery && (
+              <>
+                <div className="px-3 py-1.5 bg-slate-100 rounded-xl border border-slate-200 flex items-center gap-2">
+                  <div>
+                    <span className="text-slate-400 font-bold block text-[9px] uppercase">
+                      Pack Serial
+                    </span>
+                    <span className="font-mono font-black text-slate-900">
+                      {battery.serialNumber}
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => void handleEditBatterySerial()}
+                    disabled={submitting}
+                    className="rounded-lg border border-slate-200 bg-white p-1.5 text-slate-500 hover:bg-emerald-50 hover:text-emerald-700 disabled:opacity-50"
+                    title="Edit battery serial number"
                   >
-                    <option value="">Select product template</option>
-                    {products.map((item) => (
-                      <option key={item.id} value={item.id}>
-                        {item.name} · 2 modules
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <div className="rounded-lg border border-emerald-100 bg-emerald-50 px-3 py-2.5 text-xs text-emerald-900">
-                  <strong>New battery:</strong>
-                  <span className="block mt-1 text-[11px] text-emerald-700">
-                    A new unit will be created from the selected template.
+                    <Pencil className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+                <div className="px-3 py-1.5 bg-emerald-50 rounded-xl border border-emerald-200">
+                  <span className="text-emerald-600 font-bold block text-[9px] uppercase">
+                    Status
+                  </span>
+                  <span className="font-black text-emerald-800">
+                    {battery.status}
                   </span>
                 </div>
-              </div>
-              <button
-                type="button"
-                onClick={() => {
-                  void handleTemplateSelection(selectedProductId);
-                }}
-                disabled={!selectedProductId || creatingBattery}
-                className="mt-5 w-full rounded-lg bg-emerald-600 px-4 py-3 text-sm font-bold text-white transition-colors hover:bg-emerald-500 disabled:cursor-not-allowed disabled:bg-slate-300"
-              >
-                {creatingBattery ? "Creating battery..." : "Continue"}
-              </button>
-              <div className="my-6 flex items-center gap-3 text-[10px] font-black uppercase tracking-widest text-slate-400">
-                <span className="h-px flex-1 bg-slate-200" />
-                Or open an existing pack
-                <span className="h-px flex-1 bg-slate-200" />
-              </div>
-              <div className="flex gap-2">
-                <select
-                  value={selectedExistingBatteryId}
-                  onChange={(event) =>
-                    setSelectedExistingBatteryId(event.target.value)
-                  }
-                  className="min-w-0 flex-1 rounded-lg border border-slate-200 px-3 py-2.5 text-sm"
+                <button
+                  type="button"
+                  onClick={handleResetToStep1}
+                  className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-700 hover:bg-slate-50 transition-colors"
                 >
-                  <option value="">
-                    Select battery pack ({availableBatteries.length})
-                  </option>
-                  {availableBatteries.map((item) => (
-                    <option key={item.id} value={item.id}>
-                      {item.serialNumber} ·{" "}
-                      {item.productName || "Unknown product"} · {item.status}
-                    </option>
-                  ))}
-                </select>
+                  <RotateCcw className="w-3.5 h-3.5 text-slate-500" />
+                  Switch Pack
+                </button>
+              </>
+            )}
+            <button
+              type="button"
+              onClick={() => setActiveView("inventory")}
+              className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-xs font-bold text-slate-700 hover:bg-slate-50 transition-colors"
+            >
+              Pack Inventory
+            </button>
+          </div>
+        </header>
+
+        {/* Unified 3-Step Studio Progress Bar */}
+        <div className="bg-white p-2 rounded-2xl border border-slate-200 shadow-xs flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={() => {
+              if (!isStep1) handleResetToStep1();
+            }}
+            className={`flex-1 min-w-[180px] py-2.5 px-4 rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition-all ${
+              currentStepNum === 1
+                ? "bg-emerald-600 text-white shadow-xs"
+                : "bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
+            }`}
+          >
+            <span
+              className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-black ${
+                currentStepNum === 1
+                  ? "bg-white text-emerald-700"
+                  : "bg-emerald-600 text-white"
+              }`}
+            >
+              1
+            </span>
+            Template / Open Pack
+          </button>
+
+          <button
+            type="button"
+            disabled={isStep1}
+            onClick={() => {
+              if (!isStep1) setBuilderEditMode(true);
+            }}
+            className={`flex-1 min-w-[210px] py-2.5 px-4 rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition-all disabled:cursor-not-allowed ${
+              currentStepNum === 2
+                ? "bg-emerald-600 text-white shadow-xs"
+                : setupReady && !isStep1
+                ? "bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
+                : "bg-slate-50 text-slate-400"
+            }`}
+          >
+            <span
+              className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-black ${
+                currentStepNum === 2
+                  ? "bg-white text-emerald-700"
+                  : setupReady && !isStep1
+                  ? "bg-emerald-600 text-white"
+                  : "bg-slate-200 text-slate-600"
+              }`}
+            >
+              2
+            </span>
+            2D Pack Builder ({scannedModuleIds.length}/{requiredModuleCount})
+          </button>
+
+          <button
+            type="button"
+            disabled={isStep1 || !setupReady}
+            onClick={() => {
+              if (setupReady) setBuilderEditMode(false);
+            }}
+            className={`flex-1 min-w-[190px] py-2.5 px-4 rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition-all disabled:cursor-not-allowed ${
+              currentStepNum === 3
+                ? "bg-emerald-600 text-white shadow-xs"
+                : "bg-slate-50 text-slate-400"
+            }`}
+          >
+            <span
+              className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-black ${
+                currentStepNum === 3
+                  ? "bg-white text-emerald-700"
+                  : "bg-slate-200 text-slate-600"
+              }`}
+            >
+              3
+            </span>
+            Pack IR, QC & Release
+          </button>
+        </div>
+
+        {/* STEP 1: SELECT TEMPLATE OR OPEN EXISTING PACK */}
+        {isStep1 && (
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+            <div className="lg:col-span-7 bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden flex flex-col justify-between">
+              <div>
+                <div className="p-5 border-b border-slate-100 flex items-center justify-between gap-4">
+                  <div>
+                    <span className="text-[10px] font-black uppercase tracking-widest text-emerald-700">
+                      New Production Unit
+                    </span>
+                    <h2 className="text-base font-black text-slate-900 mt-0.5">
+                      Select Battery Pack Template
+                    </h2>
+                  </div>
+                  <span className="text-[11px] font-bold text-slate-400">
+                    {products.length} templates
+                  </span>
+                </div>
+
+                <div className="p-5 space-y-3">
+                  {products.length === 0 ? (
+                    <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 p-6 text-center text-xs text-slate-500">
+                      No pack templates found. Create a pack template in Setups first.
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      {products.map((item) => {
+                        const isSelected = selectedProductId === item.id;
+                        return (
+                          <button
+                            key={item.id}
+                            type="button"
+                            disabled={creatingBattery}
+                            onClick={() => setSelectedProductId(item.id)}
+                            className={`p-4 rounded-2xl border-2 text-left transition-all ${
+                              isSelected
+                                ? "border-emerald-500 bg-emerald-50/70 shadow-xs"
+                                : "border-slate-200 bg-white hover:border-emerald-300"
+                            }`}
+                          >
+                            <div className="flex items-start justify-between gap-2">
+                              <span className="text-sm font-black text-slate-900">
+                                {item.name}
+                              </span>
+                              {isSelected && (
+                                <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                              )}
+                            </div>
+                            <div className="mt-2 flex flex-wrap gap-1.5">
+                              <span className="px-2 py-0.5 rounded bg-slate-100 text-[10px] font-bold text-slate-700">
+                                {item.numModules || 2} Modules
+                              </span>
+                              {item.capacityKwh && (
+                                <span className="px-2 py-0.5 rounded bg-emerald-100 text-[10px] font-bold text-emerald-800">
+                                  {item.capacityKwh} kWh
+                                </span>
+                              )}
+                            </div>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <div className="px-5 py-4 bg-slate-50 border-t border-slate-100 flex items-center justify-between gap-4">
+                <p className="text-xs text-slate-500">
+                  Creates a fresh serialized unit and opens the 2D Pack Builder.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => {
+                    void handleTemplateSelection(selectedProductId);
+                  }}
+                  disabled={!selectedProductId || creatingBattery}
+                  className="inline-flex items-center gap-2 rounded-xl bg-emerald-600 px-5 py-2.5 text-xs font-bold text-white shadow-xs hover:bg-emerald-700 disabled:bg-slate-300 disabled:cursor-not-allowed transition-colors shrink-0"
+                >
+                  {creatingBattery ? "Creating battery..." : "Create & Continue"}
+                  <ArrowRight className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+
+            <div className="lg:col-span-5 bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden flex flex-col justify-between">
+              <div>
+                <div className="p-5 border-b border-slate-100 flex items-center justify-between gap-4">
+                  <div>
+                    <span className="text-[10px] font-black uppercase tracking-widest text-slate-500">
+                      Resume In-Progress
+                    </span>
+                    <h2 className="text-base font-black text-slate-900 mt-0.5">
+                      Open Existing Pack ({availableBatteries.length})
+                    </h2>
+                  </div>
+                  <FolderOpen className="w-5 h-5 text-slate-400" />
+                </div>
+
+                <div className="p-5 space-y-4">
+                  <div>
+                    <label className="block text-[10px] font-black uppercase tracking-wider text-slate-500 mb-1.5">
+                      In-Progress / Draft Packs
+                    </label>
+                    <select
+                      value={selectedExistingBatteryId}
+                      onChange={(event) =>
+                        setSelectedExistingBatteryId(event.target.value)
+                      }
+                      className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-2.5 text-xs font-semibold text-slate-900 focus:border-emerald-500 focus:bg-white focus:outline-none"
+                    >
+                      <option value="">
+                        Select battery pack ({availableBatteries.length})
+                      </option>
+                      {availableBatteries.map((item) => (
+                        <option key={item.id} value={item.id}>
+                          {item.serialNumber} ·{" "}
+                          {item.productName || "Unknown product"} · {item.status}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {availableBatteries.length > 0 && (
+                    <div className="space-y-1.5 max-h-[200px] overflow-y-auto pr-1">
+                      {availableBatteries.slice(0, 6).map((item) => {
+                        const active = selectedExistingBatteryId === item.id;
+                        return (
+                          <button
+                            key={item.id}
+                            type="button"
+                            onClick={() => setSelectedExistingBatteryId(item.id)}
+                            className={`w-full flex items-center justify-between gap-2 rounded-xl border px-3 py-2 text-left transition-all ${
+                              active
+                                ? "border-emerald-500 bg-emerald-50/70"
+                                : "border-slate-200 bg-white hover:border-slate-300"
+                            }`}
+                          >
+                            <div className="min-w-0">
+                              <p className="font-mono text-xs font-bold text-slate-900 truncate">
+                                {item.serialNumber}
+                              </p>
+                              <p className="text-[10px] text-slate-500 truncate">
+                                {item.productName || "Pack Unit"}
+                              </p>
+                            </div>
+                            <span className="px-2 py-0.5 rounded bg-slate-100 text-[10px] font-bold text-slate-600 shrink-0">
+                              {item.status}
+                            </span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <div className="px-5 py-4 bg-slate-50 border-t border-slate-100 flex items-center justify-end">
                 <button
                   type="button"
                   onClick={() => {
@@ -498,610 +750,571 @@ export const BatteryPackWorkflowView: React.FC = () => {
                     }
                   }}
                   disabled={!selectedExistingBatteryId || loading}
-                  className="rounded-lg bg-slate-900 px-4 py-2.5 text-xs font-bold text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-300"
+                  className="inline-flex items-center gap-2 rounded-xl bg-slate-900 px-5 py-2.5 text-xs font-bold text-white hover:bg-emerald-600 disabled:bg-slate-300 disabled:cursor-not-allowed transition-colors"
                 >
-                  Open pack
+                  Open Selected Pack
+                  <ArrowRight className="w-4 h-4" />
                 </button>
               </div>
-            </>
-          ) : null}
-          {builderOpen && (
-            <>
-              <div className="mt-5 rounded-xl border border-blue-200 bg-blue-50 p-4">
-                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                  <div>
-                    <p className="text-[10px] font-black uppercase tracking-widest text-blue-700">
-                      Controller Selection
-                    </p>
-                    <p className="mt-1 text-xs text-blue-900">
-                      Select an existing controller from inventory before
-                      scanning its barcode.
-                    </p>
-                  </div>
-                  <div className="flex gap-2">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setScanTarget("BMS");
-                        setScannerOpen(true);
-                      }}
-                      className="rounded-lg border border-blue-300 bg-white px-4 py-2 text-xs font-bold text-blue-800 hover:bg-blue-100"
-                    >
-                      Select BMS
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setScanTarget("BMU");
-                        setScannerOpen(true);
-                      }}
-                      className="rounded-lg border border-blue-300 bg-white px-4 py-2 text-xs font-bold text-blue-800 hover:bg-blue-100"
-                    >
-                      Select BMU
-                    </button>
-                  </div>
-                </div>
-              </div>
-              {battery && (
-                <div className="mt-5 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-                  <div className="flex items-center justify-between border-b border-slate-100 pb-4">
-                    <div>
-                      <p className="text-[10px] font-black uppercase tracking-widest text-emerald-600">
-                        2D Battery Builder
-                      </p>
-                      <h3 className="text-lg font-black text-slate-900">
-                        Physical Component Layout
-                      </h3>
-                      <p className="text-xs text-slate-500">
-                        Scan or verify the controller and both module positions.
-                      </p>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <span className="rounded-lg bg-slate-100 px-3 py-2 text-xs font-mono font-bold text-slate-700">
-                        {battery.serialNumber}
-                      </span>
-                      <button
-                        type="button"
-                        onClick={() => void handleEditBatterySerial()}
-                        disabled={submitting}
-                        className="rounded-lg border border-slate-200 bg-white p-2 text-slate-500 hover:bg-emerald-50 hover:text-emerald-700 disabled:opacity-50"
-                        title="Edit battery serial number"
-                      >
-                        <Pencil className="h-4 w-4" />
-                      </button>
-                    </div>
-                  </div>
-                  <div className="mt-4 rounded-xl border border-blue-200 bg-blue-50 p-4">
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <p className="text-[10px] font-black uppercase tracking-widest text-blue-700">
-                          Controller
-                        </p>
-                        <p className="mt-1 text-sm font-bold text-slate-900">
-                          {scannedControllerType
-                            ? `${scannedControllerType} verified`
-                            : "Scan BMS or BMU"}
-                        </p>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setScanTarget(scannedControllerType || "BMS");
-                          setScannerOpen(true);
-                        }}
-                        className="rounded-lg bg-blue-600 px-3 py-2 text-xs font-bold text-white"
-                      >
-                        {scannedControllerType ? "Rescan" : "Scan controller"}
-                      </button>
-                    </div>
-                  </div>
-                  <div className="mt-4 grid gap-4 md:grid-cols-2">
-                    {[0, 1].map((moduleIndex) => {
-                      const module = battery.modules?.[moduleIndex];
-                      const scanned = Boolean(
-                        module && scannedModuleIds.includes(module.id),
-                      );
-                      return (
-                        <div
-                          key={moduleIndex}
-                          className="rounded-xl border border-emerald-200 bg-emerald-50/60 p-4"
-                        >
-                          <div className="flex items-center justify-between">
-                            <div>
-                              <p className="text-[10px] font-black uppercase tracking-widest text-emerald-700">
-                                Module{" "}
-                                {String(moduleIndex + 1).padStart(2, "0")}
-                              </p>
-                              <p className="mt-1 font-mono text-xs font-bold text-slate-900">
-                                {module?.serialNumber ||
-                                  "Module slot not assigned"}
-                              </p>
-                            </div>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setScanTarget("MODULE");
-                                setScannerOpen(true);
-                              }}
-                              disabled={scanned}
-                              className="rounded-lg border border-emerald-300 bg-white px-3 py-2 text-xs font-bold text-emerald-800 disabled:opacity-60"
-                            >
-                              {scanned ? "Verified" : "Scan module"}
-                            </button>
-                          </div>
-                          <div className="mt-3 grid grid-cols-4 gap-2">
-                            {(module?.cells || []).map((cell, cellIndex) => (
-                              <div
-                                key={cell.id}
-                                className="rounded-lg border border-emerald-200 bg-white p-2 text-center"
-                              >
-                                <span className="block text-[9px] font-black text-emerald-700">
-                                  S{cellIndex + 1}
-                                </span>
-                                <span
-                                  className="mt-1 block break-all font-mono text-[8px] leading-tight text-slate-600"
-                                  title={cell.supplierBarcode || (cell as any).supplier_barcode || cell.internalSerial || (cell as any).internal_serial || cell.id}
-                                >
-                                  {cell.supplierBarcode ||
-                                    (cell as any).supplier_barcode ||
-                                    cell.internalSerial ||
-                                    (cell as any).internal_serial ||
-                                    cell.id}
-                                </span>
-                              </div>
-                            ))}
-                            {!module?.cells?.length && (
-                              <div className="col-span-4 rounded-lg border border-dashed border-emerald-300 bg-white/70 p-4 text-center text-[10px] text-slate-500">
-                                Cells appear after the module is assigned.
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              )}
-              {battery && (
-                <div className="mt-4 grid gap-3 md:grid-cols-3 text-xs">
-                  <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
-                    <strong>Modules required</strong>
-                    <span className="block mt-1 font-mono">
-                      {scannedModuleIds.length} / {requiredModuleCount} scanned
-                    </span>
-                  </div>
-                  <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
-                    <strong>Controller required</strong>
-                    <span className="block mt-1 font-mono">
-                      {controllerReady
-                        ? (scannedControllerType || "Controller") + " scanned"
-                        : "Scan BMS or BMU"}
-                    </span>
-                  </div>
-                  <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
-                    <strong>2D builder</strong>
-                    <span className="block mt-1 font-mono">
-                      {setupReady
-                        ? "Ready for testing"
-                        : "Scan controller + 2 modules"}
-                    </span>
-                  </div>
-                </div>
-              )}
-              <p
-                className={`mt-4 text-center text-xs font-bold ${setupReady ? "text-emerald-700" : "text-amber-700"}`}
-              >
-                {setupReady
-                  ? "2D battery builder complete. Continue to pack testing."
-                  : "Select a template and battery, then scan one BMS or BMU and 2 modules."}
-              </p>
-              {setupReady && (
-                <button
-                  type="button"
-                  onClick={() => setBuilderEditMode(false)}
-                  className="mt-3 w-full rounded-lg bg-slate-900 px-4 py-3 text-xs font-bold text-white hover:bg-slate-800"
-                >
-                  Continue to pack testing
-                </button>
-              )}
-              <ScannerModal
-                isOpen={scannerOpen}
-                onClose={() => setScannerOpen(false)}
-                onScan={handlePackScan}
-                title={`Scan ${scanTarget}`}
-                subtitle="Scan the component barcode assigned to this battery pack"
-              />
-            </>
-          )}
-        </div>
-      </div>
-    );
-  }
-
-  const isTestingPassed =
-    battery.stepResults.FINAL_TESTING?.status === "PASSED";
-  const isFinalQcPassed =
-    battery.stepResults.FINAL_QC?.status === "PASSED" ||
-    battery.status === "FINISHED";
-
-  // Count total cells
-  let totalCellsCount = 0;
-  battery.modules.forEach((m) => {
-    totalCellsCount += m.cells?.length || 0;
-  });
-
-  return (
-    <div className="flex-1 p-4 md:p-8 overflow-y-auto bg-slate-50">
-      <div className="max-w-6xl mx-auto space-y-6">
-        {/* Header */}
-        <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
-          <div>
-            <div className="flex items-center space-x-2 text-xs font-bold text-slate-400 uppercase tracking-widest mb-1">
-              <span>Battery Pack Workflow</span>
-              <span className="text-slate-300">•</span>
-              <span className="text-emerald-600">Final Verification</span>
             </div>
-            <h1 className="text-2xl font-black text-slate-900 tracking-tight">
-              BATTERY PACK ASSEMBLY, PACK IR & TESTING
-            </h1>
-          </div>
-
-          <div className="flex flex-wrap gap-2 text-xs">
-            <div className="px-3 py-1.5 bg-slate-100 rounded-lg border border-slate-200">
-              <span className="text-slate-400 font-bold block text-[10px] uppercase">
-                Battery Serial
-              </span>
-              <span className="font-mono font-bold text-slate-800">
-                {battery.serialNumber}
-              </span>
-            </div>
-            <div className="px-3 py-1.5 bg-slate-100 rounded-lg border border-slate-200">
-              <span className="text-slate-400 font-bold block text-[10px] uppercase">
-                Product
-              </span>
-              <span className="font-bold text-slate-800">
-                {battery.productName}
-              </span>
-            </div>
-            <div className="px-3 py-1.5 bg-emerald-50 rounded-lg border border-emerald-200">
-              <span className="text-emerald-600 font-bold block text-[10px] uppercase">
-                Status
-              </span>
-              <span className="font-bold text-emerald-800">
-                {battery.status}
-              </span>
-            </div>
-            <div className="px-3 py-1.5 bg-blue-50 rounded-lg border border-blue-200">
-              <span className="text-blue-600 font-bold block text-[10px] uppercase">
-                Modules Scanned
-              </span>
-              <span className="font-mono font-bold text-blue-800">
-                {scannedModuleIds.length} / {requiredModuleCount}
-              </span>
-            </div>
-          </div>
-        </div>
-
-        {/* Release Status Banner if Finished */}
-        {isFinalQcPassed && (
-          <div className="bg-emerald-600 text-white p-6 rounded-2xl shadow-sm flex flex-col sm:flex-row items-center justify-between gap-4">
-            <div className="flex items-center space-x-4">
-              <div className="p-3 bg-emerald-500/50 rounded-xl">
-                <CheckCircle2 className="w-8 h-8 text-white" />
-              </div>
-              <div>
-                <h3 className="text-lg font-black tracking-tight">
-                  BATTERY RELEASED & COMPLIANCE VERIFIED
-                </h3>
-                <p className="text-xs text-emerald-100">
-                  All cell, module, BMS, and pack-level testing stages passed
-                  100%. Ready for shipping or customer assignment.
-                </p>
-              </div>
-            </div>
-            <button
-              onClick={() => setQrPassportOpen(true)}
-              className="px-6 py-3 bg-white hover:bg-slate-100 text-emerald-900 font-bold rounded-xl text-xs shadow-xs transition-colors flex items-center space-x-2 shrink-0"
-            >
-              <QrCode className="w-4 h-4" />
-              <span>VIEW QR PASSPORT</span>
-            </button>
           </div>
         )}
 
-        {/* Step 1 & 2: Pack Assembly & Testing Table */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          {/* Left: Pack Enclosure & BMS Integration Verification */}
-          <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-4">
-            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-              <h2 className="text-sm font-black uppercase text-slate-900 tracking-wider">
-                1. Structural Enclosure & Components
-              </h2>
-              <span className="px-2 py-0.5 bg-emerald-50 text-emerald-800 text-[10px] font-bold rounded border border-emerald-200">
-                VERIFIED
-              </span>
+        {/* STEP 2: 2D PACK BUILDER (CONTROLLER + MODULES) */}
+        {isStep2 && battery && (
+          <div className="space-y-6">
+            {/* Controller Selection Banner */}
+            <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5">
+              <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+                <div className="flex items-start gap-3">
+                  <div
+                    className={`p-2.5 rounded-xl border ${
+                      controllerReady
+                        ? "bg-emerald-50 border-emerald-200 text-emerald-700"
+                        : "bg-amber-50 border-amber-200 text-amber-700"
+                    }`}
+                  >
+                    <Cpu className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <p className="text-[10px] font-black uppercase tracking-widest text-emerald-700">
+                      Controller Pairing (BMS / BMU)
+                    </p>
+                    <h2 className="text-sm font-black text-slate-900 mt-0.5">
+                      {scannedControllerType
+                        ? `${scannedControllerType} Verified & Assigned`
+                        : "Assign BMS or BMU Master Controller"}
+                    </h2>
+                    <p className="text-xs text-slate-500 mt-0.5">
+                      Select an available BMS or BMU unit from inventory and scan its serial barcode.
+                    </p>
+                  </div>
+                </div>
+                <div className="flex flex-wrap gap-2 shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setScanTarget("BMS");
+                      setScannerOpen(true);
+                    }}
+                    className={`inline-flex items-center gap-1.5 rounded-xl border px-4 py-2 text-xs font-bold transition-colors ${
+                      scannedControllerType === "BMS"
+                        ? "border-emerald-500 bg-emerald-600 text-white"
+                        : "border-slate-200 bg-white text-slate-700 hover:border-emerald-400 hover:bg-emerald-50"
+                    }`}
+                  >
+                    <ScanLine className="w-3.5 h-3.5" />
+                    {scannedControllerType === "BMS" ? "Rescan BMS" : "Scan BMS"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setScanTarget("BMU");
+                      setScannerOpen(true);
+                    }}
+                    className={`inline-flex items-center gap-1.5 rounded-xl border px-4 py-2 text-xs font-bold transition-colors ${
+                      scannedControllerType === "BMU"
+                        ? "border-emerald-500 bg-emerald-600 text-white"
+                        : "border-slate-200 bg-white text-slate-700 hover:border-emerald-400 hover:bg-emerald-50"
+                    }`}
+                  >
+                    <ScanLine className="w-3.5 h-3.5" />
+                    {scannedControllerType === "BMU" ? "Rescan BMU" : "Scan BMU"}
+                  </button>
+                </div>
+              </div>
             </div>
 
-            <div className="space-y-3 text-xs">
-              <div className="flex justify-between items-center p-3 bg-slate-50 rounded-xl border border-slate-100">
-                <span className="text-slate-600 font-medium">
-                  Assembled Modules:
-                </span>
-                <span className="font-bold font-mono text-slate-900">
-                  {battery.modules.length} Modules ({totalCellsCount} Cells)
+            {/* 2D Pack Enclosure Matrix */}
+            <div className="rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden">
+              <div className="flex flex-wrap items-center justify-between gap-4 border-b border-slate-100 p-5">
+                <div>
+                  <p className="text-[10px] font-black uppercase tracking-widest text-emerald-700">
+                    2D Battery Builder
+                  </p>
+                  <h3 className="text-base font-black text-slate-900 mt-0.5">
+                    Physical Component Layout · {product?.name}
+                  </h3>
+                  <p className="text-xs text-slate-500">
+                    Verify the controller and assign all {requiredModuleCount} completed sub-modules.
+                  </p>
+                </div>
+                <span className="font-mono text-sm font-black text-emerald-700 bg-emerald-50 border border-emerald-200 px-3 py-1 rounded-xl">
+                  {scannedModuleIds.length} / {requiredModuleCount} Modules
                 </span>
               </div>
-              <div className="flex justify-between items-center p-3 bg-slate-50 rounded-xl border border-slate-100">
-                <span className="text-slate-600 font-medium">BMS Board:</span>
-                <span className="font-bold font-mono text-slate-900">
-                  {battery.bms
-                    ? `${battery.bms.serialNumber} (${battery.bms.model})`
-                    : "Integrated BMS"}
-                </span>
+
+              <div className="p-5 grid gap-4 md:grid-cols-2">
+                {Array.from({ length: requiredModuleCount }, (_, moduleIndex) => {
+                  const module = battery.modules?.[moduleIndex];
+                  const scanned = Boolean(
+                    module && scannedModuleIds.includes(module.id),
+                  );
+                  return (
+                    <div
+                      key={moduleIndex}
+                      className={`rounded-2xl border-2 p-4 transition-all ${
+                        scanned
+                          ? "border-emerald-500 bg-emerald-50/40"
+                          : "border-dashed border-slate-300 bg-slate-50/70"
+                      }`}
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <div>
+                          <span
+                            className={`inline-block px-2 py-0.5 rounded text-[10px] font-black uppercase tracking-widest ${
+                              scanned
+                                ? "bg-emerald-100 text-emerald-800"
+                                : "bg-slate-200 text-slate-600"
+                            }`}
+                          >
+                            Module Slot {String(moduleIndex + 1).padStart(2, "0")}
+                          </span>
+                          <p className="mt-1.5 font-mono text-xs font-black text-slate-900">
+                            {module?.serialNumber || "Unassigned Module Slot"}
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setScanTarget("MODULE");
+                            setScannerOpen(true);
+                          }}
+                          disabled={scanned}
+                          className={`inline-flex items-center gap-1.5 rounded-xl px-3.5 py-2 text-xs font-bold transition-colors ${
+                            scanned
+                              ? "bg-emerald-600 text-white cursor-default"
+                              : "border border-emerald-300 bg-white text-emerald-800 hover:bg-emerald-50"
+                          }`}
+                        >
+                          {scanned ? (
+                            <>
+                              <CheckCircle2 className="w-3.5 h-3.5" />
+                              Verified
+                            </>
+                          ) : (
+                            <>
+                              <ScanLine className="w-3.5 h-3.5" />
+                              Scan Module
+                            </>
+                          )}
+                        </button>
+                      </div>
+
+                      <div className="mt-3 grid grid-cols-4 gap-2">
+                        {(module?.cells || []).map((cell, cellIndex) => (
+                          <div
+                            key={cell.id}
+                            className="rounded-lg border border-emerald-200 bg-white p-2 text-center shadow-2xs"
+                          >
+                            <span className="block text-[9px] font-black text-emerald-700">
+                              S{cellIndex + 1}
+                            </span>
+                            <span
+                              className="mt-0.5 block break-all font-mono text-[8px] leading-tight text-slate-600"
+                              title={
+                                cell.supplierBarcode ||
+                                (cell as any).supplier_barcode ||
+                                cell.internalSerial ||
+                                (cell as any).internal_serial ||
+                                cell.id
+                              }
+                            >
+                              {cell.supplierBarcode ||
+                                (cell as any).supplier_barcode ||
+                                cell.internalSerial ||
+                                (cell as any).internal_serial ||
+                                cell.id}
+                            </span>
+                          </div>
+                        ))}
+                        {!module?.cells?.length && (
+                          <div className="col-span-4 rounded-xl border border-dashed border-slate-300 bg-white/80 p-5 text-center text-[11px] text-slate-400">
+                            Cell matrix populates automatically after scanning an assembled module.
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
-              {battery.bmu && (
-                <div className="flex justify-between items-center p-3 bg-slate-50 rounded-xl border border-slate-100">
-                  <span className="text-slate-600 font-medium">
-                    BMU Master Controller:
+
+              {/* Readiness Footer Bar */}
+              <div className="border-t border-slate-100 bg-slate-50 px-5 py-4 flex flex-wrap items-center justify-between gap-4">
+                <div className="flex flex-wrap items-center gap-4 text-xs">
+                  <span className="inline-flex items-center gap-1.5 font-bold text-slate-700">
+                    <span
+                      className={`w-2 h-2 rounded-full ${
+                        controllerReady ? "bg-emerald-500" : "bg-amber-500"
+                      }`}
+                    />
+                    Controller:{" "}
+                    <span className="font-mono">
+                      {controllerReady ? scannedControllerType : "Pending"}
+                    </span>
                   </span>
-                  <span className="font-bold font-mono text-slate-900">
-                    {battery.bmu.serialNumber} ({battery.bmu.model})
+                  <span className="inline-flex items-center gap-1.5 font-bold text-slate-700">
+                    <span
+                      className={`w-2 h-2 rounded-full ${
+                        scannedModuleIds.length === requiredModuleCount
+                          ? "bg-emerald-500"
+                          : "bg-amber-500"
+                      }`}
+                    />
+                    Modules:{" "}
+                    <span className="font-mono">
+                      {scannedModuleIds.length}/{requiredModuleCount}
+                    </span>
                   </span>
                 </div>
-              )}
-              <div className="flex justify-between items-center p-3 bg-slate-50 rounded-xl border border-slate-100">
-                <span className="text-slate-600 font-medium">
-                  Wiring Harness & Connectors:
-                </span>
-                <span className="font-bold text-emerald-700">
-                  Torque Verified (4.5 Nm)
-                </span>
+
+                <button
+                  type="button"
+                  disabled={!setupReady}
+                  onClick={() => setBuilderEditMode(false)}
+                  className="inline-flex items-center gap-2 rounded-xl bg-slate-900 px-5 py-2.5 text-xs font-bold text-white hover:bg-emerald-600 disabled:bg-slate-300 disabled:cursor-not-allowed transition-colors"
+                >
+                  Continue to Pack Testing
+                  <ArrowRight className="w-4 h-4" />
+                </button>
               </div>
             </div>
           </div>
+        )}
 
-          {/* Right: Battery Pack IR & QC */}
-          <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-4">
-            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-              <div>
-                <h2 className="text-sm font-black uppercase text-slate-900 tracking-wider">
-                  2. Battery Pack IR & QC Testing
-                </h2>
-                <p className="text-[10px] text-slate-400">
-                  Total IR is calculated from the assigned cell values and can
-                  be adjusted.
-                </p>
-              </div>
-              <Zap className="w-4 h-4 text-emerald-600" />
-            </div>
-
-            <div className="space-y-3">
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-[10px] font-bold uppercase text-emerald-700 mb-1">
-                    Total IR Value (mΩ)
-                  </label>
-                  <input
-                    type="number"
-                    step="0.01"
-                    value={packIrMohm}
-                    onChange={(e) => setPackIrMohm(e.target.value)}
-                    className="w-full px-3 py-2 text-sm font-mono font-bold text-emerald-900 border border-emerald-300 rounded-lg focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 outline-none bg-emerald-50/30"
-                  />
+        {/* STEP 3: FINAL VERIFICATION, PACK IR TESTING & RELEASE */}
+        {!isStep1 && !isStep2 && battery && (
+          <>
+            {isFinalQcPassed && (
+              <div className="bg-emerald-600 text-white p-6 rounded-2xl shadow-sm flex flex-col sm:flex-row items-center justify-between gap-4">
+                <div className="flex items-center space-x-4">
+                  <div className="p-3 bg-emerald-500/50 rounded-xl">
+                    <CheckCircle2 className="w-8 h-8 text-white" />
+                  </div>
+                  <div>
+                    <h3 className="text-lg font-black tracking-tight">
+                      BATTERY RELEASED & COMPLIANCE VERIFIED
+                    </h3>
+                    <p className="text-xs text-emerald-100">
+                      All cell, module, BMS, and pack-level testing stages passed
+                      100%. Ready for shipping or customer assignment.
+                    </p>
+                  </div>
                 </div>
-                <div>
-                  <label className="block text-[10px] font-bold uppercase text-slate-500 mb-1">
-                    QC Testing
-                  </label>
-                  <div className="flex gap-2">
-                    {(["PASSED", "FAILED"] as const).map((status) => (
-                      <button
-                        key={status}
-                        type="button"
-                        onClick={() => setQcTesting(status)}
-                        className={`flex-1 rounded-lg border px-3 py-2 text-xs font-bold transition-colors ${
-                          qcTesting === status
-                            ? status === "PASSED"
-                              ? "border-emerald-300 bg-emerald-50 text-emerald-800"
-                              : "border-red-300 bg-red-50 text-red-800"
-                            : "border-slate-200 bg-slate-50 text-slate-500 hover:bg-slate-100"
-                        }`}
-                      >
-                        {status}
-                      </button>
-                    ))}
+                <button
+                  onClick={() => setQrPassportOpen(true)}
+                  className="px-6 py-3 bg-white hover:bg-slate-100 text-emerald-900 font-bold rounded-xl text-xs shadow-xs transition-colors flex items-center space-x-2 shrink-0"
+                >
+                  <QrCode className="w-4 h-4" />
+                  <span>VIEW QR PASSPORT</span>
+                </button>
+              </div>
+            )}
+
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              {/* Left: Pack Enclosure & BMS Integration Verification */}
+              <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-4">
+                <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+                  <div>
+                    <span className="text-[10px] font-black uppercase tracking-widest text-emerald-700">
+                      Hardware Verification
+                    </span>
+                    <h2 className="text-sm font-black uppercase text-slate-900 tracking-wider mt-0.5">
+                      Structural Enclosure & Components
+                    </h2>
+                  </div>
+                  <span className="px-2.5 py-1 bg-emerald-50 text-emerald-800 text-[10px] font-black rounded-lg border border-emerald-200">
+                    VERIFIED
+                  </span>
+                </div>
+
+                <div className="space-y-3 text-xs">
+                  <div className="flex justify-between items-center p-3 bg-slate-50 rounded-xl border border-slate-100">
+                    <span className="text-slate-600 font-medium">
+                      Assembled Modules:
+                    </span>
+                    <span className="font-bold font-mono text-slate-900">
+                      {battery.modules.length} Modules ({totalCellsCount} Cells)
+                    </span>
+                  </div>
+                  <div className="flex justify-between items-center p-3 bg-slate-50 rounded-xl border border-slate-100">
+                    <span className="text-slate-600 font-medium">
+                      BMS Board:
+                    </span>
+                    <span className="font-bold font-mono text-slate-900">
+                      {battery.bms
+                        ? `${battery.bms.serialNumber} (${battery.bms.model})`
+                        : "Integrated BMS"}
+                    </span>
+                  </div>
+                  {battery.bmu && (
+                    <div className="flex justify-between items-center p-3 bg-slate-50 rounded-xl border border-slate-100">
+                      <span className="text-slate-600 font-medium">
+                        BMU Master Controller:
+                      </span>
+                      <span className="font-bold font-mono text-slate-900">
+                        {battery.bmu.serialNumber} ({battery.bmu.model})
+                      </span>
+                    </div>
+                  )}
+                  <div className="flex justify-between items-center p-3 bg-slate-50 rounded-xl border border-slate-100">
+                    <span className="text-slate-600 font-medium">
+                      Wiring Harness & Connectors:
+                    </span>
+                    <span className="font-bold text-emerald-700">
+                      Torque Verified (4.5 Nm)
+                    </span>
                   </div>
                 </div>
               </div>
 
-              <button
-                type="button"
-                onClick={handleSavePackTesting}
-                disabled={submitting}
-                className="w-full py-2.5 bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold rounded-xl transition-colors shadow-xs"
-              >
-                {submitting
-                  ? "RECORDING PARAMETERS..."
-                  : "RECORD PACK ELECTRICAL TESTING"}
-              </button>
+              {/* Right: Battery Pack IR & QC */}
+              <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-4">
+                <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+                  <div>
+                    <span className="text-[10px] font-black uppercase tracking-widest text-emerald-700">
+                      Electrical Parameters
+                    </span>
+                    <h2 className="text-sm font-black uppercase text-slate-900 tracking-wider mt-0.5">
+                      Battery Pack IR & QC Testing
+                    </h2>
+                    <p className="text-[10px] text-slate-400">
+                      Total IR is calculated from assigned cell values and can be adjusted.
+                    </p>
+                  </div>
+                  <Zap className="w-5 h-5 text-emerald-600" />
+                </div>
+
+                <div className="space-y-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-[10px] font-bold uppercase text-emerald-700 mb-1">
+                        Total IR Value (mΩ)
+                      </label>
+                      <input
+                        type="number"
+                        step="0.01"
+                        value={packIrMohm}
+                        onChange={(e) => setPackIrMohm(e.target.value)}
+                        className="w-full px-3 py-2 text-sm font-mono font-bold text-emerald-900 border border-emerald-300 rounded-xl focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 outline-none bg-emerald-50/30"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-bold uppercase text-slate-500 mb-1">
+                        QC Testing
+                      </label>
+                      <div className="flex gap-2">
+                        {(["PASSED", "FAILED"] as const).map((status) => (
+                          <button
+                            key={status}
+                            type="button"
+                            onClick={() => setQcTesting(status)}
+                            className={`flex-1 rounded-xl border px-3 py-2 text-xs font-bold transition-colors ${
+                              qcTesting === status
+                                ? status === "PASSED"
+                                  ? "border-emerald-300 bg-emerald-50 text-emerald-800"
+                                  : "border-red-300 bg-red-50 text-red-800"
+                                : "border-slate-200 bg-slate-50 text-slate-500 hover:bg-slate-100"
+                            }`}
+                          >
+                            {status}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={handleSavePackTesting}
+                    disabled={submitting}
+                    className="w-full py-2.5 bg-slate-900 hover:bg-emerald-600 text-white text-xs font-bold rounded-xl transition-colors shadow-xs"
+                  >
+                    {submitting
+                      ? "RECORDING PARAMETERS..."
+                      : "RECORD PACK ELECTRICAL TESTING"}
+                  </button>
+                </div>
+              </div>
             </div>
-          </div>
-        </div>
 
-        {/* Step 3: Complete Manufacturing Traceability Summary Table */}
-        <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-          <div className="p-4 bg-slate-900 text-white flex items-center justify-between">
-            <div>
-              <h3 className="text-sm font-black uppercase tracking-wider">
-                Manufacturing Stage Traceability & Quality Gate
-              </h3>
-              <p className="text-xs text-slate-400">
-                All workflow milestones must be satisfied before final release
-              </p>
+            {/* Traceability Summary Table */}
+            <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+              <div className="p-4 bg-slate-900 text-white flex items-center justify-between">
+                <div>
+                  <h3 className="text-sm font-black uppercase tracking-wider">
+                    Manufacturing Stage Traceability & Quality Gate
+                  </h3>
+                  <p className="text-xs text-slate-400">
+                    All workflow milestones must be satisfied before final release
+                  </p>
+                </div>
+                <ShieldCheck className="w-5 h-5 text-emerald-400" />
+              </div>
+
+              <div className="overflow-x-auto">
+                <table className="w-full text-left border-collapse text-xs">
+                  <thead>
+                    <tr className="bg-slate-100 text-slate-600 uppercase font-bold text-[10px] tracking-wider border-b border-slate-200">
+                      <th className="px-4 py-3">Workflow Stage</th>
+                      <th className="px-4 py-3">Execution Level</th>
+                      <th className="px-4 py-3">Status</th>
+                      <th className="px-4 py-3">Operator / Inspector</th>
+                      <th className="px-4 py-3">Timestamp</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    <tr>
+                      <td className="px-4 py-3 font-bold text-slate-800">
+                        1. Cell OCV / IR Testing
+                      </td>
+                      <td className="px-4 py-3 text-slate-500 font-mono">
+                        CELL LEVEL ({totalCellsCount} Cells)
+                      </td>
+                      <td className="px-4 py-3">
+                        <span className="inline-flex items-center px-2 py-0.5 bg-emerald-100 text-emerald-800 rounded font-bold">
+                          ✓ PASSED
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 text-slate-600">
+                        {battery.stepResults.CELL_TESTING?.completedBy ||
+                          "Operator 1"}
+                      </td>
+                      <td className="px-4 py-3 text-slate-400 font-mono">
+                        {battery.stepResults.CELL_TESTING?.completedAt ||
+                          "Verified"}
+                      </td>
+                    </tr>
+                    <tr>
+                      <td className="px-4 py-3 font-bold text-slate-800">
+                        2. Cell Grading Assessment
+                      </td>
+                      <td className="px-4 py-3 text-slate-500 font-mono">
+                        CELL LEVEL
+                      </td>
+                      <td className="px-4 py-3">
+                        <span className="inline-flex items-center px-2 py-0.5 bg-emerald-100 text-emerald-800 rounded font-bold">
+                          ✓ PASSED
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 text-slate-600">
+                        {battery.stepResults.GRADING?.completedBy || "Operator 1"}
+                      </td>
+                      <td className="px-4 py-3 text-slate-400 font-mono">
+                        {battery.stepResults.GRADING?.completedAt || "Verified"}
+                      </td>
+                    </tr>
+                    <tr>
+                      <td className="px-4 py-3 font-bold text-slate-800">
+                        3. Damage History Visual Inspection
+                      </td>
+                      <td className="px-4 py-3 text-slate-500 font-mono">
+                        CELL LEVEL
+                      </td>
+                      <td className="px-4 py-3">
+                        <span className="inline-flex items-center px-2 py-0.5 bg-emerald-100 text-emerald-800 rounded font-bold">
+                          ✓ PASSED
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 text-slate-600">
+                        {battery.stepResults.DAMAGE_HISTORY?.completedBy ||
+                          "Quality Inspector"}
+                      </td>
+                      <td className="px-4 py-3 text-slate-400 font-mono">
+                        {battery.stepResults.DAMAGE_HISTORY?.completedAt ||
+                          "Verified"}
+                      </td>
+                    </tr>
+                    <tr>
+                      <td className="px-4 py-3 font-bold text-slate-800">
+                        4. Module Laser Welding & QC
+                      </td>
+                      <td className="px-4 py-3 text-slate-500 font-mono">
+                        MODULE LEVEL ({battery.modules.length} Modules)
+                      </td>
+                      <td className="px-4 py-3">
+                        <span className="inline-flex items-center px-2 py-0.5 bg-emerald-100 text-emerald-800 rounded font-bold">
+                          ✓ PASSED
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 text-slate-600">
+                        {battery.stepResults.MODULE_QC?.completedBy ||
+                          "Welding Tech"}
+                      </td>
+                      <td className="px-4 py-3 text-slate-400 font-mono">
+                        {battery.stepResults.MODULE_QC?.completedAt || "Verified"}
+                      </td>
+                    </tr>
+                    <tr>
+                      <td className="px-4 py-3 font-bold text-slate-800">
+                        5. Battery Pack IR & Hi-Pot
+                      </td>
+                      <td className="px-4 py-3 text-slate-500 font-mono">
+                        BATTERY PACK LEVEL
+                      </td>
+                      <td className="px-4 py-3">
+                        {isTestingPassed ? (
+                          <span className="inline-flex items-center px-2 py-0.5 bg-emerald-100 text-emerald-800 rounded font-bold">
+                            ✓ PASSED
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center px-2 py-0.5 bg-amber-100 text-amber-800 rounded font-bold">
+                            READY FOR SIGN-OFF
+                          </span>
+                        )}
+                      </td>
+                      <td className="px-4 py-3 text-slate-600">
+                        {currentUser.name}
+                      </td>
+                      <td className="px-4 py-3 text-slate-400 font-mono">
+                        Pending final signoff
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
             </div>
-            <ShieldCheck className="w-5 h-5 text-emerald-400" />
-          </div>
 
-          <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse text-xs">
-              <thead>
-                <tr className="bg-slate-100 text-slate-600 uppercase font-bold text-[10px] tracking-wider border-b border-slate-200">
-                  <th className="px-4 py-3">Workflow Stage</th>
-                  <th className="px-4 py-3">Execution Level</th>
-                  <th className="px-4 py-3">Status</th>
-                  <th className="px-4 py-3">Operator / Inspector</th>
-                  <th className="px-4 py-3">Timestamp</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                <tr>
-                  <td className="px-4 py-3 font-bold text-slate-800">
-                    1. Cell OCV / IR Testing
-                  </td>
-                  <td className="px-4 py-3 text-slate-500 font-mono">
-                    CELL LEVEL ({totalCellsCount} Cells)
-                  </td>
-                  <td className="px-4 py-3">
-                    <span className="inline-flex items-center px-2 py-0.5 bg-emerald-100 text-emerald-800 rounded font-bold">
-                      ✓ PASSED
-                    </span>
-                  </td>
-                  <td className="px-4 py-3 text-slate-600">
-                    {battery.stepResults.CELL_TESTING?.completedBy ||
-                      "Operator 1"}
-                  </td>
-                  <td className="px-4 py-3 text-slate-400 font-mono">
-                    {battery.stepResults.CELL_TESTING?.completedAt ||
-                      "Verified"}
-                  </td>
-                </tr>
-                <tr>
-                  <td className="px-4 py-3 font-bold text-slate-800">
-                    2. Cell Grading Assessment
-                  </td>
-                  <td className="px-4 py-3 text-slate-500 font-mono">
-                    CELL LEVEL
-                  </td>
-                  <td className="px-4 py-3">
-                    <span className="inline-flex items-center px-2 py-0.5 bg-emerald-100 text-emerald-800 rounded font-bold">
-                      ✓ PASSED
-                    </span>
-                  </td>
-                  <td className="px-4 py-3 text-slate-600">
-                    {battery.stepResults.GRADING?.completedBy || "Operator 1"}
-                  </td>
-                  <td className="px-4 py-3 text-slate-400 font-mono">
-                    {battery.stepResults.GRADING?.completedAt || "Verified"}
-                  </td>
-                </tr>
-                <tr>
-                  <td className="px-4 py-3 font-bold text-slate-800">
-                    3. Damage History Visual Inspection
-                  </td>
-                  <td className="px-4 py-3 text-slate-500 font-mono">
-                    CELL LEVEL
-                  </td>
-                  <td className="px-4 py-3">
-                    <span className="inline-flex items-center px-2 py-0.5 bg-emerald-100 text-emerald-800 rounded font-bold">
-                      ✓ PASSED
-                    </span>
-                  </td>
-                  <td className="px-4 py-3 text-slate-600">
-                    {battery.stepResults.DAMAGE_HISTORY?.completedBy ||
-                      "Quality Inspector"}
-                  </td>
-                  <td className="px-4 py-3 text-slate-400 font-mono">
-                    {battery.stepResults.DAMAGE_HISTORY?.completedAt ||
-                      "Verified"}
-                  </td>
-                </tr>
-                <tr>
-                  <td className="px-4 py-3 font-bold text-slate-800">
-                    4. Module Laser Welding & QC
-                  </td>
-                  <td className="px-4 py-3 text-slate-500 font-mono">
-                    MODULE LEVEL ({battery.modules.length} Modules)
-                  </td>
-                  <td className="px-4 py-3">
-                    <span className="inline-flex items-center px-2 py-0.5 bg-emerald-100 text-emerald-800 rounded font-bold">
-                      ✓ PASSED
-                    </span>
-                  </td>
-                  <td className="px-4 py-3 text-slate-600">
-                    {battery.stepResults.MODULE_QC?.completedBy ||
-                      "Welding Tech"}
-                  </td>
-                  <td className="px-4 py-3 text-slate-400 font-mono">
-                    {battery.stepResults.MODULE_QC?.completedAt || "Verified"}
-                  </td>
-                </tr>
-                <tr>
-                  <td className="px-4 py-3 font-bold text-slate-800">
-                    5. Battery Pack IR & Hi-Pot
-                  </td>
-                  <td className="px-4 py-3 text-slate-500 font-mono">
-                    BATTERY PACK LEVEL
-                  </td>
-                  <td className="px-4 py-3">
-                    {isTestingPassed ? (
-                      <span className="inline-flex items-center px-2 py-0.5 bg-emerald-100 text-emerald-800 rounded font-bold">
-                        ✓ PASSED
-                      </span>
-                    ) : (
-                      <span className="inline-flex items-center px-2 py-0.5 bg-amber-100 text-amber-800 rounded font-bold">
-                        READY FOR SIGN-OFF
-                      </span>
-                    )}
-                  </td>
-                  <td className="px-4 py-3 text-slate-600">
-                    {currentUser.name}
-                  </td>
-                  <td className="px-4 py-3 text-slate-400 font-mono">
-                    Pending final signoff
-                  </td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-        </div>
+            {/* Final Signoff & Release Action Bar */}
+            <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm flex flex-col sm:flex-row items-center justify-between gap-4">
+              <div>
+                <span className="text-xs font-black uppercase tracking-wider text-slate-400 block mb-1">
+                  Final Release Signoff
+                </span>
+                <p className="text-xs text-slate-600 font-medium">
+                  Signing off marks the battery as finished, registers the final
+                  warranty QR code, and updates production order quantity.
+                </p>
+              </div>
 
-        {/* Final Signoff & Release Action Bar */}
-        <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm flex flex-col sm:flex-row items-center justify-between gap-4">
-          <div>
-            <span className="text-xs font-black uppercase tracking-wider text-slate-400 block mb-1">
-              Final Release Signoff
-            </span>
-            <p className="text-xs text-slate-600 font-medium">
-              Signing off marks the battery as finished, registers the final
-              warranty QR code, and updates production order quantity.
-            </p>
-          </div>
-
-          <div className="flex space-x-3 shrink-0">
-            <button
-              type="button"
-              onClick={() => handleFinalQcSignoff("FAILED")}
-              disabled={submitting || isFinalQcPassed}
-              className="px-5 py-3 bg-red-50 hover:bg-red-100 text-red-700 font-bold rounded-xl text-xs border border-red-200 transition-colors disabled:opacity-50"
-            >
-              REJECT / SCRAP
-            </button>
-            <button
-              type="button"
-              onClick={() => handleFinalQcSignoff("PASSED")}
-              disabled={submitting || isFinalQcPassed}
-              className="px-8 py-3.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-xl text-sm shadow-xs transition-colors flex items-center space-x-2 disabled:opacity-50"
-            >
-              <CheckCircle2 className="w-4 h-4" />
-              <span>
-                {isFinalQcPassed
-                  ? "BATTERY RELEASED ✓"
-                  : "RELEASE BATTERY PACK"}
-              </span>
-            </button>
-          </div>
-        </div>
+              <div className="flex space-x-3 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => handleFinalQcSignoff("FAILED")}
+                  disabled={submitting || isFinalQcPassed}
+                  className="px-5 py-3 bg-red-50 hover:bg-red-100 text-red-700 font-bold rounded-xl text-xs border border-red-200 transition-colors disabled:opacity-50"
+                >
+                  REJECT / SCRAP
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleFinalQcSignoff("PASSED")}
+                  disabled={submitting || isFinalQcPassed}
+                  className="px-8 py-3.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-xl text-sm shadow-xs transition-colors flex items-center space-x-2 disabled:opacity-50"
+                >
+                  <CheckCircle2 className="w-4 h-4" />
+                  <span>
+                    {isFinalQcPassed
+                      ? "BATTERY RELEASED ✓"
+                      : "RELEASE BATTERY PACK"}
+                  </span>
+                </button>
+              </div>
+            </div>
+          </>
+        )}
       </div>
+
       <ReleasedBatteryQrModal
         isOpen={qrPassportOpen}
         onClose={() => setQrPassportOpen(false)}

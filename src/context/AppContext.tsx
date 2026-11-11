@@ -86,7 +86,7 @@ const useLocalStorage = <T,>(key: string, initialValue: T): [T, React.Dispatch<R
 };
 
 export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [activeView, setActiveView] = useLocalStorage<NavView>('p2g_activeView', 'production-flow');
+  const [activeView, setActiveView] = useLocalStorage<NavView>('p2g_activeView', 'ceo-monitoring');
   const [sidebarOpen, setSidebarOpen] = useLocalStorage<boolean>('p2g_sidebarOpen', true);
   const [viewHistory, setViewHistory] = useState<NavView[]>([]);
   const [activeBatteryId, setActiveBatteryId] = useLocalStorage<string | null>('p2g_activeBatteryId', null);

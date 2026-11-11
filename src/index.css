@@ -66,27 +66,68 @@
   from { transform: translateX(-180%); }
   to   { transform: translateX(340%); }
 }
-.animate-slide-up { animation: slide-up 0.2s ease-out; }
-.animate-fade-in  { animation: fade-in  0.15s ease-out; }
-.loading-progress { animation: loading-progress 1.35s ease-in-out infinite; }
+@keyframes page-enter {
+  from { opacity: 0; transform: translateY(10px) scale(0.996); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+@keyframes tab-enter {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@keyframes card-pop {
+  from { opacity: 0; transform: translateY(8px) scale(0.99); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+@keyframes login-float {
+  0%, 100% { transform: translateY(0px); }
+  50% { transform: translateY(-6px); }
+}
+.animate-slide-up    { animation: slide-up 0.22s cubic-bezier(0.16, 1, 0.3, 1) both; }
+.animate-fade-in     { animation: fade-in  0.18s ease-out both; }
+.animate-page-enter  { animation: page-enter 0.26s cubic-bezier(0.16, 1, 0.3, 1) both; }
+.animate-tab-enter   { animation: tab-enter 0.22s cubic-bezier(0.16, 1, 0.3, 1) both; }
+.animate-card-enter  { animation: card-pop 0.28s cubic-bezier(0.16, 1, 0.3, 1) both; }
+.animate-login-float { animation: login-float 5.5s ease-in-out infinite; }
+.loading-progress    { animation: loading-progress 1.35s ease-in-out infinite; }
+
+.stagger-children > * {
+  animation: card-pop 0.28s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+.stagger-children > *:nth-child(1) { animation-delay: 0ms; }
+.stagger-children > *:nth-child(2) { animation-delay: 35ms; }
+.stagger-children > *:nth-child(3) { animation-delay: 70ms; }
+.stagger-children > *:nth-child(4) { animation-delay: 105ms; }
+.stagger-children > *:nth-child(5) { animation-delay: 140ms; }
+.stagger-children > *:nth-child(6) { animation-delay: 175ms; }
+.stagger-children > *:nth-child(7) { animation-delay: 210ms; }
+.stagger-children > *:nth-child(8) { animation-delay: 245ms; }
+
+.studio-card-hover {
+  transition: transform 180ms cubic-bezier(0.16, 1, 0.3, 1), box-shadow 180ms ease, border-color 180ms ease;
+}
+.studio-card-hover:hover {
+  transform: translateY(-2px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-slide-up,
+  .animate-fade-in,
+  .animate-page-enter,
+  .animate-tab-enter,
+  .animate-card-enter,
+  .animate-login-float,
+  .stagger-children > * {
+    animation: none !important;
+  }
+  .studio-card-hover {
+    transition: none !important;
+  }
+}
 
 .dashboard-grid {
-  background-image: linear-gradient(rgba(255,255,255,.13) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,.13) 1px, transparent 1px);
+  background-image: linear-gradient(rgba(58,170,53,.09) 1px, transparent 1px), linear-gradient(90deg, rgba(58,170,53,.09) 1px, transparent 1px);
   background-size: 28px 28px;
   mask-image: linear-gradient(90deg, black, transparent 78%);
-}
-
-.dashboard-view > div > section:nth-child(2),
-.dashboard-view > div > section:nth-child(3) {
-  display: none;
-}
-
-.dashboard-view section[class*="xl:grid-cols-[1.5fr,1fr]"] {
-  display: none !important;
-}
-
-.dashboard-view > div > section:nth-child(5) {
-  display: none !important;
 }
 
 .chart-bar { animation: chart-rise .6s ease-out both; transform-origin: bottom; }

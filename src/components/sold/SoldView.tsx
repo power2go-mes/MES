@@ -153,44 +153,44 @@ export const SoldView: React.FC = () => {
   };
 
   return (
-    <div className="flex-1 p-6 space-y-6 overflow-y-auto max-w-7xl mx-auto">
-      <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-xs flex items-center justify-between gap-4">
-        <div className="flex items-center gap-3">
-          <span className="p-2.5 bg-emerald-50 border border-emerald-100 rounded-xl text-emerald-600"><ShoppingCart className="w-5 h-5" /></span>
-          <div><h1 className="text-xl font-black text-slate-900">Sold</h1><p className="text-xs text-slate-500">Select a battery pack or rack, enter the client, and record the sale.</p></div>
+    <div className="flex-1 p-4 sm:p-6 space-y-5 overflow-y-auto max-w-7xl mx-auto">
+      <div className="bg-white rounded-2xl border border-slate-200 p-5 sm:p-6 shadow-sm flex items-center justify-between gap-4 animate-card-enter">
+        <div className="flex items-center gap-3.5">
+          <span className="p-2.5 bg-emerald-50 border border-emerald-200 rounded-xl text-emerald-700 shrink-0"><ShoppingCart className="w-6 h-6" /></span>
+          <div><h1 className="text-xl font-black text-slate-900 tracking-tight">Sold Inventory &amp; Client Dispatch</h1><p className="text-xs text-slate-500 mt-0.5">Select finished battery packs or racks, assign client details, and record commercial sale handoff.</p></div>
         </div>
-        <button type="button" onClick={() => void loadItems()} className="p-2 rounded-lg border border-slate-200 text-slate-500 hover:bg-slate-50" title="Refresh sale items"><RefreshCw className="w-4 h-4" /></button>
+        <button type="button" onClick={() => void loadItems()} className="p-2.5 rounded-xl border border-slate-200 bg-white text-slate-600 hover:border-emerald-400 hover:bg-slate-50 transition-colors" title="Refresh sale items"><RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin text-emerald-600' : ''}`} /></button>
       </div>
 
-      <form onSubmit={submitSale} className="bg-white rounded-2xl border border-slate-200 p-5 shadow-xs space-y-4">
-        <div className="flex items-center gap-2 text-xs font-black uppercase tracking-wider text-slate-600"><PackageCheck className="w-4 h-4 text-emerald-600" /> Record sale</div>
+      <form onSubmit={submitSale} className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm space-y-4 animate-card-enter">
+        <div className="flex items-center gap-2 text-xs font-black uppercase tracking-wider text-emerald-700"><PackageCheck className="w-4 h-4 text-emerald-600" /> Record Sale</div>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-          <select value={saleType} onChange={event => { setSaleType(event.target.value as SaleType); setSelectedIds([]); }} className="px-3 py-2 border border-slate-200 rounded-lg text-xs font-semibold">
+          <select value={saleType} onChange={event => { setSaleType(event.target.value as SaleType); setSelectedIds([]); }} className="px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold focus:border-emerald-500 focus:bg-white focus:outline-none">
             <option value="BATTERY">Battery Pack</option>
             <option value="RACK">Rack</option>
           </select>
-          <div className="flex items-center justify-between rounded-lg border border-slate-200 px-3 py-2 text-xs md:col-span-2">
-            <span className="font-semibold text-slate-600">{selectedIds.length} selected</span>
-            <button type="button" onClick={toggleAllFiltered} disabled={loading || filteredCandidates.length === 0} className="font-bold text-emerald-700 disabled:text-slate-300">{allFilteredSelected ? 'Clear visible' : 'Select all visible'}</button>
+          <div className="flex items-center justify-between rounded-xl border border-slate-200 bg-slate-50/70 px-3.5 py-2.5 text-xs md:col-span-2">
+            <span className="font-bold text-slate-700">{selectedIds.length} selected</span>
+            <button type="button" onClick={toggleAllFiltered} disabled={loading || filteredCandidates.length === 0} className="font-bold text-emerald-700 hover:text-emerald-800 disabled:text-slate-300 transition-colors">{allFilteredSelected ? 'Clear visible' : 'Select all visible'}</button>
           </div>
-          <div className="flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-xs text-slate-600 md:col-span-2"><Search className="w-3.5 h-3.5 text-slate-400" /><input value={search} onChange={event => setSearch(event.target.value)} placeholder="Search available items" className="w-full outline-none" /></div>
-          <input value={client} onChange={event => setClient(event.target.value)} placeholder="Client name" required className="px-3 py-2 border border-slate-200 rounded-lg text-xs" />
+          <div className="flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-2.5 text-xs text-slate-600 md:col-span-2 focus-within:border-emerald-500 focus-within:bg-white"><Search className="w-3.5 h-3.5 text-slate-400" /><input value={search} onChange={event => setSearch(event.target.value)} placeholder="Search available items" className="w-full bg-transparent outline-none" /></div>
+          <input value={client} onChange={event => setClient(event.target.value)} placeholder="Client / Customer name" required className="px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium focus:border-emerald-500 focus:bg-white focus:outline-none" />
         </div>
-        <div className="max-h-56 overflow-y-auto rounded-lg border border-slate-200 divide-y divide-slate-100">
+        <div key={saleType} className="max-h-56 overflow-y-auto rounded-xl border border-slate-200 divide-y divide-slate-100 animate-tab-enter">
           {filteredCandidates.length === 0 ? <div className="p-4 text-xs text-slate-500">No available items found.</div> : filteredCandidates.map(item => (
-            <label key={item.id} className="flex items-center gap-3 px-3 py-2.5 text-xs hover:bg-slate-50">
+            <label key={item.id} className="flex items-center gap-3 px-3.5 py-2.5 text-xs hover:bg-emerald-50/40 transition-colors cursor-pointer">
               <input type="checkbox" checked={selectedIds.includes(item.id)} onChange={() => toggleSelected(item.id)} disabled={saving} className="h-4 w-4 accent-emerald-600" />
               <span className="font-mono font-bold text-slate-900">{item.serialNumber}</span>
               <span className="text-slate-500">{'productName' in item ? item.productName || item.status : normalizeRackTemplateLabel(item.rackTemplateCode)}</span>
             </label>
           ))}
         </div>
-        <button type="submit" disabled={saving || loading || selectedIds.length === 0 || !client.trim()} className="w-full md:w-auto px-5 py-2.5 bg-emerald-600 text-white rounded-lg text-xs font-bold disabled:bg-slate-300">{saving ? 'Saving sale...' : `Mark ${selectedIds.length || ''} as Sold`}</button>
+        <button type="submit" disabled={saving || loading || selectedIds.length === 0 || !client.trim()} className="w-full md:w-auto px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold shadow-xs disabled:bg-slate-300 transition-colors">{saving ? 'Saving sale...' : `Mark ${selectedIds.length || ''} as Sold`}</button>
       </form>
 
-      <div className="grid gap-6 xl:grid-cols-2">
-        <section className="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden"><div className="p-4 border-b border-slate-100 text-xs font-bold uppercase tracking-wider text-slate-600">Sold battery packs ({soldBatteries.length})</div><div className="divide-y divide-slate-100 max-h-[360px] overflow-y-auto">{soldBatteries.length === 0 ? <div className="p-4 text-xs text-slate-500">No sold battery packs found.</div> : soldBatteries.map(item => <div key={item.id} className="p-3 text-xs"><div className="font-bold text-slate-900 font-mono">{item.serialNumber}</div><div className="mt-1 text-slate-500">{item.productName || 'Battery Pack'} · SOLD</div></div>)}</div></section>
-        <section className="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden"><div className="p-4 border-b border-slate-100 text-xs font-bold uppercase tracking-wider text-slate-600">Sold racks ({soldRacks.length})</div><div className="divide-y divide-slate-100 max-h-[360px] overflow-y-auto">{soldRacks.length === 0 ? <div className="p-4 text-xs text-slate-500">No sold racks found.</div> : soldRacks.map(item => <div key={item.id} className="p-3 text-xs"><div className="font-bold text-slate-900 font-mono">{item.serialNumber}</div><div className="mt-1 text-slate-500">{normalizeRackTemplateLabel(item.rackTemplateCode)} · SOLD</div></div>)}</div></section>
+      <div className="grid gap-6 xl:grid-cols-2 stagger-children">
+        <section className="studio-card-hover bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden"><div className="p-4 border-b border-slate-100 text-xs font-black uppercase tracking-wider text-slate-600">Sold battery packs ({soldBatteries.length})</div><div className="divide-y divide-slate-100 max-h-[360px] overflow-y-auto">{soldBatteries.length === 0 ? <div className="p-4 text-xs text-slate-500">No sold battery packs found.</div> : soldBatteries.map(item => <div key={item.id} className="p-3.5 text-xs hover:bg-slate-50 transition-colors"><div className="font-bold text-slate-900 font-mono">{item.serialNumber}</div><div className="mt-1 text-slate-500">{item.productName || 'Battery Pack'} · SOLD</div></div>)}</div></section>
+        <section className="studio-card-hover bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden"><div className="p-4 border-b border-slate-100 text-xs font-black uppercase tracking-wider text-slate-600">Sold racks ({soldRacks.length})</div><div className="divide-y divide-slate-100 max-h-[360px] overflow-y-auto">{soldRacks.length === 0 ? <div className="p-4 text-xs text-slate-500">No sold racks found.</div> : soldRacks.map(item => <div key={item.id} className="p-3.5 text-xs hover:bg-slate-50 transition-colors"><div className="font-bold text-slate-900 font-mono">{item.serialNumber}</div><div className="mt-1 text-slate-500">{normalizeRackTemplateLabel(item.rackTemplateCode)} · SOLD</div></div>)}</div></section>
       </div>
 
       <section className="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden">

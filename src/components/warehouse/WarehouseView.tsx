@@ -154,23 +154,43 @@ export const WarehouseView: React.FC = () => {
       : racks.filter(item => matchesSerial(item.serialNumber) && matchesSubtype(item));
 
   return (
-    <div className="flex-1 p-6 space-y-6 overflow-y-auto max-w-7xl mx-auto">
-      <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-xs flex items-center justify-between">
-        <div className="flex items-center gap-3"><PackageCheck className="w-6 h-6 text-emerald-600" /><div><h1 className="text-xl font-black text-slate-900">Warehouse</h1><p className="text-xs text-slate-500">Receive packs, modules, and racks into Karachi or Lahore warehouse stock.</p></div></div>
-        <button type="button" onClick={() => void load()} className="p-2 rounded-lg border border-slate-200 text-slate-500 hover:bg-slate-50" title="Refresh warehouse"><RefreshCw className="w-4 h-4" /></button>
+    <div className="flex-1 p-4 sm:p-6 space-y-5 overflow-y-auto max-w-7xl mx-auto">
+      <div className="bg-white rounded-2xl border border-slate-200 p-5 sm:p-6 shadow-sm flex flex-wrap items-center justify-between gap-4 animate-card-enter">
+        <div className="flex items-center gap-3.5">
+          <span className="p-2.5 bg-emerald-50 border border-emerald-200 rounded-xl text-emerald-700 shrink-0">
+            <PackageCheck className="w-6 h-6" />
+          </span>
+          <div>
+            <h1 className="text-xl font-black text-slate-900 tracking-tight">Warehouse Stock &amp; Dispatch</h1>
+            <p className="text-xs text-slate-500 mt-0.5">Receive completed modules, battery packs, and racks into Karachi or Lahore warehouse stock.</p>
+          </div>
+        </div>
+        <div className="flex items-center gap-2">
+          <button type="button" onClick={() => setScannerOpen(true)} disabled={saving} className="inline-flex items-center gap-1.5 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold shadow-xs disabled:bg-slate-300 transition-colors">
+            <ScanLine className="w-4 h-4" />
+            <span>Scan to Receive</span>
+          </button>
+          <button type="button" onClick={() => void load()} className="p-2.5 rounded-xl border border-slate-200 bg-white text-slate-600 hover:border-emerald-400 hover:bg-slate-50 transition-colors" title="Refresh warehouse">
+            <RefreshCw className={`w-4 h-4 ${saving ? 'animate-spin text-emerald-600' : ''}`} />
+          </button>
+        </div>
       </div>
-      <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-xs grid grid-cols-1 md:grid-cols-4 gap-3">
-        <select value={receiveType} onChange={e => { setReceiveType(e.target.value as typeof receiveType); setSubFilter('ALL'); setSelectedEntity(''); setSelectedReceiveIds([]); }} className="px-3 py-2 border border-slate-200 rounded-lg text-xs"><option value="BATTERY">Battery Pack</option><option value="MODULE">Module</option><option value="RACK">Rack</option></select>
-        <input value={serialSearch} onChange={e => setSerialSearch(e.target.value)} placeholder="Search last 4 serial digits" inputMode="numeric" className="px-3 py-2 border border-slate-200 rounded-lg text-xs" />
-        <select value={subFilter} onChange={e => { setSubFilter(e.target.value); setSelectedReceiveIds([]); }} disabled={receiveType === 'RACK'} className="px-3 py-2 border border-slate-200 rounded-lg text-xs"><option value="ALL">All {receiveType === 'MODULE' ? 'module types' : 'pack powers'}</option>{receiveType === 'MODULE' ? <><option value="8S">8S</option><option value="12S">12S</option></> : receiveType === 'BATTERY' ? <><option value="5KWH">5 kWh</option><option value="7.5KWH">7.5 kWh</option></> : <option value="ALL">All racks</option>}</select>
-        <select value={receiveType === 'BATTERY' ? selectedBattery : selectedEntity} onChange={e => { const id = e.target.value; if (receiveType === 'BATTERY') setSelectedBattery(id); else setSelectedEntity(id); if (id) setSelectedReceiveIds(current => current.includes(id) ? current : [...current, id]); }} className="px-3 py-2 border border-slate-200 rounded-lg text-xs md:col-span-2"><option value="">Select {receiveType.toLowerCase()} ({filteredReceiveItems.length} found)</option>{filteredReceiveItems.map(item => <option key={item.id} value={item.id}>{item.serialNumber} ({item.status})</option>)}</select>
-        <select value={location} onChange={e => setLocation(e.target.value)} className="px-3 py-2 border border-slate-200 rounded-lg text-xs"><option value="KARACHI">Karachi Warehouse</option><option value="LAHORE">Lahore Warehouse</option></select>
-        <button type="button" onClick={() => setScannerOpen(true)} disabled={saving} className="px-3 py-2 bg-blue-600 text-white rounded-lg text-xs font-bold disabled:bg-slate-300 flex items-center justify-center gap-2"><ScanLine className="w-4 h-4" />Scan</button>
-        <button type="button" onClick={() => void receiveIdentifiers(selectedReceiveIds)} disabled={saving || selectedReceiveIds.length === 0} className="px-3 py-2 bg-emerald-600 text-white rounded-lg text-xs font-bold disabled:bg-slate-300">Receive Selected ({selectedReceiveIds.length})</button>
+
+      <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm grid grid-cols-1 md:grid-cols-4 gap-3 animate-card-enter">
+        <select value={receiveType} onChange={e => { setReceiveType(e.target.value as typeof receiveType); setSubFilter('ALL'); setSelectedEntity(''); setSelectedReceiveIds([]); }} className="px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-800 focus:border-emerald-500 focus:bg-white focus:outline-none"><option value="BATTERY">Battery Pack</option><option value="MODULE">Module</option><option value="RACK">Rack</option></select>
+        <input value={serialSearch} onChange={e => setSerialSearch(e.target.value)} placeholder="Search last 4 serial digits" inputMode="numeric" className="px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-mono focus:border-emerald-500 focus:bg-white focus:outline-none" />
+        <select value={subFilter} onChange={e => { setSubFilter(e.target.value); setSelectedReceiveIds([]); }} disabled={receiveType === 'RACK'} className="px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold focus:border-emerald-500 focus:bg-white focus:outline-none disabled:opacity-50"><option value="ALL">All {receiveType === 'MODULE' ? 'module types' : 'pack powers'}</option>{receiveType === 'MODULE' ? <><option value="8S">8S</option><option value="12S">12S</option></> : receiveType === 'BATTERY' ? <><option value="5KWH">5 kWh</option><option value="7.5KWH">7.5 kWh</option></> : <option value="ALL">All racks</option>}</select>
+        <select value={receiveType === 'BATTERY' ? selectedBattery : selectedEntity} onChange={e => { const id = e.target.value; if (receiveType === 'BATTERY') setSelectedBattery(id); else setSelectedEntity(id); if (id) setSelectedReceiveIds(current => current.includes(id) ? current : [...current, id]); }} className="px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold md:col-span-2 focus:border-emerald-500 focus:bg-white focus:outline-none"><option value="">Select {receiveType.toLowerCase()} ({filteredReceiveItems.length} found)</option>{filteredReceiveItems.map(item => <option key={item.id} value={item.id}>{item.serialNumber} ({item.status})</option>)}</select>
+        <select value={location} onChange={e => setLocation(e.target.value)} className="px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold focus:border-emerald-500 focus:bg-white focus:outline-none"><option value="KARACHI">Karachi Warehouse</option><option value="LAHORE">Lahore Warehouse</option></select>
+        <div className="flex gap-2">
+          <button type="button" onClick={() => setScannerOpen(true)} disabled={saving} className="flex-1 px-3 py-2.5 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold disabled:bg-slate-300 flex items-center justify-center gap-1.5 transition-colors"><ScanLine className="w-3.5 h-3.5" />Scan</button>
+          <button type="button" onClick={() => void receiveIdentifiers(selectedReceiveIds)} disabled={saving || selectedReceiveIds.length === 0} className="flex-1 px-3 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold disabled:bg-slate-300 transition-colors">Receive ({selectedReceiveIds.length})</button>
+        </div>
       </div>
-      <div className="bg-white rounded-2xl border border-slate-200 p-4 shadow-xs">
-        <div className="flex items-center justify-between mb-3"><span className="text-xs font-bold uppercase tracking-wider text-slate-600">Select {receiveType.toLowerCase()} items</span><label className="flex items-center gap-2 text-xs font-semibold text-slate-600"><input type="checkbox" checked={filteredReceiveItems.length > 0 && filteredReceiveItems.every(item => selectedReceiveIds.includes(item.id))} onChange={selectAllVisible} className="h-4 w-4 accent-emerald-600" /> Select all visible</label></div>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-2 max-h-40 overflow-y-auto">{filteredReceiveItems.map(item => <label key={item.id} className="flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-xs hover:bg-slate-50"><input type="checkbox" checked={selectedReceiveIds.includes(item.id)} onChange={() => toggleReceiveSelection(item.id)} className="h-4 w-4 accent-emerald-600" /><span className="truncate font-mono font-semibold">{item.serialNumber}</span></label>)}</div>
+
+      <div key={receiveType} className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm animate-tab-enter">
+        <div className="flex items-center justify-between mb-3"><span className="text-xs font-black uppercase tracking-wider text-slate-600">Select {receiveType.toLowerCase()} items</span><label className="flex items-center gap-2 text-xs font-bold text-slate-600 cursor-pointer"><input type="checkbox" checked={filteredReceiveItems.length > 0 && filteredReceiveItems.every(item => selectedReceiveIds.includes(item.id))} onChange={selectAllVisible} className="h-4 w-4 accent-emerald-600" /> Select all visible</label></div>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-2 max-h-44 overflow-y-auto stagger-children">{filteredReceiveItems.map(item => <label key={item.id} className="studio-card-hover flex items-center gap-2 rounded-xl border border-slate-200 px-3 py-2.5 text-xs hover:border-emerald-400 hover:bg-emerald-50/30 cursor-pointer"><input type="checkbox" checked={selectedReceiveIds.includes(item.id)} onChange={() => toggleReceiveSelection(item.id)} className="h-4 w-4 accent-emerald-600" /><span className="truncate font-mono font-bold text-slate-800">{item.serialNumber}</span></label>)}</div>
       </div>
       {editingItem && (
         <div className="bg-white rounded-2xl border border-slate-200 p-4 shadow-xs">

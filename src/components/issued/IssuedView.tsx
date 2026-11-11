@@ -48,20 +48,20 @@ const TYPE_CONFIG: Record<
   CELL: {
     label: 'Cell',
     icon: Cpu,
-    color: 'text-blue-600 bg-blue-50 border-blue-200',
-    badge: 'bg-blue-100 text-blue-800',
+    color: 'text-emerald-700 bg-emerald-50 border-emerald-200',
+    badge: 'bg-emerald-100 text-emerald-800',
   },
   BMS: {
     label: 'BMS',
     icon: Cpu,
-    color: 'text-indigo-600 bg-indigo-50 border-indigo-200',
-    badge: 'bg-indigo-100 text-indigo-800',
+    color: 'text-slate-700 bg-slate-100 border-slate-200',
+    badge: 'bg-slate-200 text-slate-800',
   },
   BMU: {
     label: 'BMU',
     icon: Cpu,
-    color: 'text-cyan-600 bg-cyan-50 border-cyan-200',
-    badge: 'bg-cyan-100 text-cyan-800',
+    color: 'text-amber-700 bg-amber-50 border-amber-200',
+    badge: 'bg-amber-100 text-amber-800',
   },
   MODULE: {
     label: 'Module',
@@ -246,30 +246,30 @@ export const IssuedView: React.FC = () => {
   return (
     <div className="issued-page flex-1 p-6 space-y-6 overflow-y-auto max-w-7xl mx-auto">
       {/* Header */}
-      <div className="bg-white rounded-2xl shadow-xs border border-slate-200 p-6 flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div className="flex items-center space-x-3">
-          <span className="p-2.5 bg-emerald-50 border border-emerald-100 text-emerald-700 rounded-xl">
-            <UserCheck className="w-5 h-5" />
+      <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-5 sm:p-6 flex flex-col md:flex-row md:items-center justify-between gap-4 animate-card-enter">
+        <div className="flex items-center space-x-3.5">
+          <span className="p-2.5 bg-emerald-50 border border-emerald-200 text-emerald-700 rounded-xl shrink-0">
+            <UserCheck className="w-6 h-6" />
           </span>
           <div>
-            <h1 className="text-lg sm:text-xl font-black text-slate-900 tracking-tight flex items-center gap-2">
+            <h1 className="text-lg sm:text-xl font-black text-slate-900 tracking-tight flex flex-wrap items-center gap-2">
               Issued Hardware &amp; Custody
-              <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-emerald-100 text-emerald-800 border border-emerald-200">
+              <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-emerald-50 text-emerald-800 border border-emerald-200">
                 {items.length} Active
               </span>
             </h1>
             <p className="text-xs text-slate-500 mt-0.5">
-              Live custody and custody assignment for Cells, BMS, BMU, Modules, Battery Packs, and Racks.
+              Live custody and assignment ledger for Cells, BMS, BMU, Modules, Battery Packs, and Racks.
             </p>
           </div>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <button
             type="button"
             onClick={() => void loadIssuedData()}
             disabled={loading}
-            className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-bold text-slate-700 bg-white border border-slate-200 rounded-xl hover:bg-slate-50 transition-colors"
+            className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-bold text-slate-700 bg-white border border-slate-200 rounded-xl hover:border-emerald-400 hover:bg-slate-50 transition-colors"
             title="Refresh issued hardware list"
           >
             <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin text-emerald-600' : ''}`} />
@@ -288,7 +288,7 @@ export const IssuedView: React.FC = () => {
           <button
             type="button"
             onClick={() => setScannerOpen(true)}
-            className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-500 rounded-xl shadow-xs transition-colors"
+            className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 rounded-xl shadow-xs transition-colors"
             title="Scan physical barcode, QR code, or serial label to issue hardware"
           >
             <ScanLine className="w-3.5 h-3.5" />
@@ -299,44 +299,44 @@ export const IssuedView: React.FC = () => {
             onClick={() => {
               setActiveView('inventory');
             }}
-            className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-bold text-slate-700 bg-slate-100 hover:bg-slate-200 border border-slate-200 rounded-xl shadow-xs transition-colors"
+            className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-bold text-slate-700 bg-slate-100 hover:bg-slate-200 border border-slate-200 rounded-xl transition-colors"
           >
-            <Boxes className="w-3.5 h-3.5" />
+            <Boxes className="w-3.5 h-3.5 text-emerald-700" />
             <span>View in Inventory</span>
           </button>
         </div>
       </div>
 
       {/* KPI Cards */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
-        <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-2xs">
-          <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Total Issued</div>
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 stagger-children">
+        <div className="studio-card-hover bg-white p-4 rounded-2xl border border-slate-200 shadow-xs hover:border-emerald-300">
+          <div className="text-[10px] font-black uppercase tracking-wider text-slate-400">Total Issued</div>
           <div className="mt-1 text-2xl font-black text-slate-900">{counts.total}</div>
           <div className="text-[10px] text-slate-500 mt-0.5">Across all types</div>
         </div>
-        <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-2xs">
-          <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Cells</div>
-          <div className="mt-1 text-2xl font-black text-blue-700">{counts.cells}</div>
+        <div className="studio-card-hover bg-white p-4 rounded-2xl border border-slate-200 shadow-xs hover:border-emerald-300">
+          <div className="text-[10px] font-black uppercase tracking-wider text-slate-400">Cells</div>
+          <div className="mt-1 text-2xl font-black text-emerald-700">{counts.cells}</div>
           <div className="text-[10px] text-slate-500 mt-0.5">In trial / R&amp;D</div>
         </div>
-        <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-2xs">
-          <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Controllers</div>
-          <div className="mt-1 text-2xl font-black text-indigo-700">{counts.controllers}</div>
+        <div className="studio-card-hover bg-white p-4 rounded-2xl border border-slate-200 shadow-xs hover:border-emerald-300">
+          <div className="text-[10px] font-black uppercase tracking-wider text-slate-400">Controllers</div>
+          <div className="mt-1 text-2xl font-black text-slate-900">{counts.controllers}</div>
           <div className="text-[10px] text-slate-500 mt-0.5">BMS &amp; BMU units</div>
         </div>
-        <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-2xs">
-          <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Modules</div>
+        <div className="studio-card-hover bg-white p-4 rounded-2xl border border-slate-200 shadow-xs hover:border-emerald-300">
+          <div className="text-[10px] font-black uppercase tracking-wider text-slate-400">Modules</div>
           <div className="mt-1 text-2xl font-black text-amber-700">{counts.modules}</div>
           <div className="text-[10px] text-slate-500 mt-0.5">Assigned sub-packs</div>
         </div>
-        <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-2xs">
-          <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Battery Packs</div>
+        <div className="studio-card-hover bg-white p-4 rounded-2xl border border-slate-200 shadow-xs hover:border-emerald-300">
+          <div className="text-[10px] font-black uppercase tracking-wider text-slate-400">Battery Packs</div>
           <div className="mt-1 text-2xl font-black text-emerald-700">{counts.batteries}</div>
           <div className="text-[10px] text-slate-500 mt-0.5">Demos / Testing</div>
         </div>
-        <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-2xs">
-          <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Racks</div>
-          <div className="mt-1 text-2xl font-black text-slate-800">{counts.racks}</div>
+        <div className="studio-card-hover bg-white p-4 rounded-2xl border border-slate-200 shadow-xs hover:border-emerald-300">
+          <div className="text-[10px] font-black uppercase tracking-wider text-slate-400">Racks</div>
+          <div className="mt-1 text-2xl font-black text-slate-900">{counts.racks}</div>
           <div className="text-[10px] text-slate-500 mt-0.5">Site installations</div>
         </div>
       </div>
@@ -400,7 +400,7 @@ export const IssuedView: React.FC = () => {
       </div>
 
       {/* Main Table */}
-      <div className="bg-white rounded-2xl shadow-xs border border-slate-200 overflow-hidden">
+      <div key={typeFilter} className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden animate-tab-enter">
         <div className="overflow-x-auto">
           <table className="w-full text-left text-xs font-mono">
             <thead className="bg-slate-50 text-slate-500 font-semibold border-b border-slate-200 font-sans">

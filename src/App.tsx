@@ -70,13 +70,14 @@ const AppContent: React.FC = () => {
     setVisitedViews(previous => previous.includes(effectiveView) ? previous : [...previous, effectiveView]);
   }, [effectiveView]);
 
-  // If auth is still loading (initial check in progress), show nothing
+  // If auth is still loading (initial check in progress), show studio loader
   if (authLoading) {
     return (
-      <div className="flex h-screen w-screen items-center justify-center">
-        <div className="bg-slate-900 text-white p-8 rounded-xl text-center">
-          <h1 className="text-2xl font-bold">Power2Go MES</h1>
-          <p className="mt-4 text-slate-400">Initializing authentication...</p>
+      <div className="flex h-screen w-screen items-center justify-center bg-slate-50 p-6">
+        <div className="animate-card-enter rounded-2xl border border-slate-200 bg-white px-10 py-8 text-center shadow-lg">
+          <div className="mx-auto mb-4 h-10 w-10 rounded-xl border-2 border-emerald-200 border-t-emerald-600 animate-spin" />
+          <h1 className="text-xl font-black tracking-tight text-slate-900">Power2Go MES</h1>
+          <p className="mt-1.5 text-xs font-medium text-slate-500">Initializing workstation session...</p>
         </div>
       </div>
     );
@@ -153,9 +154,23 @@ const AppContent: React.FC = () => {
         )}
         <main className="app-main flex-1 flex flex-col overflow-y-auto overflow-x-hidden relative bg-slate-50">
           <Header onOpenNavigation={openSidebar} onToggleSidebar={() => setSidebarOpen(open => !open)} isSidebarOpen={sidebarOpen} />
-          <Suspense fallback={<div className="grid flex-1 place-items-center bg-slate-50 text-xs font-bold uppercase tracking-[0.18em] text-slate-500">Loading workspace</div>}>
+          <Suspense
+            fallback={
+              <div className="grid flex-1 place-items-center bg-slate-50 p-8 animate-fade-in">
+                <div className="flex flex-col items-center gap-3">
+                  <div className="h-8 w-8 rounded-full border-2 border-emerald-200 border-t-emerald-600 animate-spin" />
+                  <span className="text-[11px] font-black uppercase tracking-[0.18em] text-slate-500">
+                    Loading workspace
+                  </span>
+                </div>
+              </div>
+            }
+          >
             {visitedViews.map(view => (
-              <div key={view} className="contents" hidden={view !== effectiveView}>
+              <div
+                key={view}
+                className={view === effectiveView ? 'flex-1 flex flex-col min-h-0 animate-page-enter' : 'hidden'}
+              >
                 {renderView(view)}
               </div>
             ))}

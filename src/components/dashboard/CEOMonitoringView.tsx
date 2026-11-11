@@ -799,7 +799,7 @@ export const CEOMonitoringView: React.FC = () => {
       value: formatNumber(batteryPackModelSummary.lv + batteryPackModelSummary.wallMount + batteryPackModelSummary.hv),
       delta: '',
       positive: releaseTrendChange === null || releaseTrendChange >= 0,
-      icon: <Factory className="h-5 w-5 text-blue-600" />,
+      icon: <Factory className="h-5 w-5 text-emerald-600" />,
       bg: reportColors.card,
       detail: (
         <div className="mt-1 text-[10px] font-medium text-emerald-600">
@@ -820,7 +820,7 @@ export const CEOMonitoringView: React.FC = () => {
       value: formatNumber(scaleValue(cabinetProduced)),
       delta: '',
       positive: true,
-      icon: <PackageCheck className="h-5 w-5 text-blue-600" />,
+      icon: <PackageCheck className="h-5 w-5 text-emerald-600" />,
       bg: reportColors.card,
       detail: (
         <div className="mt-1 text-[10px] font-medium text-emerald-600">
@@ -843,7 +843,7 @@ export const CEOMonitoringView: React.FC = () => {
       value: formatNumber(scaleValue(rackProduced)),
       delta: '',
       positive: true,
-      icon: <PackageCheck className="h-5 w-5 text-blue-600" />,
+      icon: <PackageCheck className="h-5 w-5 text-emerald-600" />,
       bg: reportColors.card,
       detail: (
         <div className="mt-1 text-[10px] font-medium text-emerald-600">
@@ -1311,19 +1311,33 @@ export const CEOMonitoringView: React.FC = () => {
   };
 
   return (
-    <div className="ceo-dashboard min-w-0 flex-1 overflow-y-auto bg-[#F7F9FB] p-3 sm:p-5" aria-busy={loading && !stats}>
+    <div className="ceo-dashboard min-w-0 flex-1 overflow-y-auto bg-slate-50 p-4 sm:p-6" aria-busy={loading && !stats}>
       <div className="mx-auto max-w-[1440px] space-y-5">
-        <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-          <div>
-            <h1 className="text-[30px] font-extrabold tracking-[-0.05em] text-slate-900">DASHBOARD</h1>
+        <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between animate-card-enter">
+          <div className="flex items-center gap-3.5">
+            <div className="p-2.5 bg-emerald-50 rounded-xl border border-emerald-200 text-emerald-700 shrink-0">
+              <Activity className="w-6 h-6" />
+            </div>
+            <div>
+              <div className="flex flex-wrap items-center gap-2">
+                <h1 className="text-xl font-black tracking-tight text-slate-900">Executive Control Dashboard</h1>
+                <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 border border-emerald-200 px-2.5 py-0.5 text-[10px] font-black uppercase tracking-wider text-emerald-700">
+                  <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                  Live Telemetry
+                </span>
+              </div>
+              <p className="text-xs text-slate-500 mt-0.5">
+                Nominal output, warehouse inventory, rack capacity, controller status, and sales distribution.
+              </p>
+            </div>
           </div>
-          <div className="flex flex-col items-stretch gap-2 lg:items-end">
+          <div className="flex flex-col items-stretch gap-2 lg:items-end shrink-0">
             <div className="flex flex-wrap items-center gap-2 lg:justify-end">
               <button
                 type="button"
                 onClick={exportReport}
                 disabled={exporting}
-                className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-700 shadow-sm transition-colors hover:border-emerald-200 hover:bg-emerald-50 hover:text-emerald-700 disabled:cursor-wait disabled:opacity-60"
+                className="inline-flex items-center gap-2 rounded-xl border border-emerald-200 bg-white px-4 py-2.5 text-xs font-bold text-emerald-800 shadow-xs transition-all hover:bg-emerald-50 disabled:cursor-wait disabled:opacity-60"
                 title="Download the current CEO monitoring report as a PDF"
               >
                 <Download className="h-3.5 w-3.5" />
@@ -1333,19 +1347,19 @@ export const CEOMonitoringView: React.FC = () => {
           </div>
         </div>
 
-        <div className="ceo-kpi-grid grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-6">
+        <div className="ceo-kpi-grid grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-6 stagger-children">
           {loading && !stats ? Array.from({ length: 6 }, (_, index) => (
-            <div key={`kpi-skeleton-${index}`} className="h-[112px] animate-pulse rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+            <div key={`kpi-skeleton-${index}`} className="h-[112px] animate-pulse rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
               <div className="h-4 w-3/5 rounded bg-slate-200" />
               <div className="mt-5 h-7 w-2/5 rounded bg-slate-200" />
             </div>
           )) : kpiCards.map((card) => (
-            <div key={card.label} className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+            <div key={card.label} className="studio-card-hover rounded-2xl border border-slate-200 bg-white p-4 shadow-sm hover:border-emerald-300">
               <div className="mb-3 flex items-center gap-2">
-                <div className="flex h-9 w-9 items-center justify-center rounded-lg" style={{ background: card.bg }}>
+                <div className="flex h-9 w-9 items-center justify-center rounded-xl border border-emerald-100" style={{ background: card.bg }}>
                   {card.icon}
                 </div>
-                <span className="text-[11px] font-medium text-slate-500">{card.label}</span>
+                <span className="text-[11px] font-bold text-slate-500">{card.label}</span>
               </div>
               <div className="text-[24px] font-extrabold tracking-[-0.04em] text-slate-900">{card.value}</div>
               {'detail' in card && card.detail ? card.detail : (card.delta ? <div className={`mt-1 text-[11px] font-semibold ${card.positive ? 'text-emerald-600' : 'text-red-500'}`}>{card.delta}</div> : <div className="mt-1 h-[14px]" />)}
@@ -1353,7 +1367,7 @@ export const CEOMonitoringView: React.FC = () => {
           ))}
         </div>
 
-        <div className="ceo-panel-grid grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-2">
+        <div className="ceo-panel-grid grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-2 stagger-children">
           <div className="ceo-panel order-1 xl:col-span-1 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
             <div className="mb-2 flex items-center justify-between">
               <div className="flex items-center gap-2">
@@ -1717,8 +1731,8 @@ export const CEOMonitoringView: React.FC = () => {
           <div className="order-8 xl:col-span-1 flex flex-col rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
             <div className="mb-2 flex items-center justify-between">
               <div className="flex items-center gap-2">
-                <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-sky-50">
-                  <Cpu className="h-4 w-4 text-sky-600" />
+                <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-50">
+                  <Cpu className="h-4 w-4 text-emerald-600" />
                 </div>
                 <div>
                   <div className="text-[15px] font-bold text-slate-900">Controller Inventory</div>

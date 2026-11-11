@@ -127,8 +127,8 @@ export const DashboardView: React.FC = () => {
   const trendLabels = Array.from(new Set([...packTrend, ...moduleTrend].map((point: any) => String(point.label)))).sort();
   const moduleTrendNames = Array.from(new Set(moduleTrend.flatMap((point: any) => (point.series || []).map((row: any) => String(row.name)))));
   const trendSeries = [
-    ...packRows.map((row: any, index: number) => ({ key: `battery:${row.label}`, name: `Battery · ${row.label}`, sourceName: row.label, kind: 'battery', color: ['#2563eb', '#f59e0b', '#16a34a'][index % 3] })),
-    ...moduleTrendNames.map((name: string, index: number) => ({ key: `module:${name}`, name: `Module · ${name}`, sourceName: name, kind: 'module', color: ['#7c3aed', '#db2777', '#0891b2'][index % 3] })),
+    ...packRows.map((row: any, index: number) => ({ key: `battery:${row.label}`, name: `Battery · ${row.label}`, sourceName: row.label, kind: 'battery', color: ['#16a34a', '#f59e0b', '#0f172a'][index % 3] })),
+    ...moduleTrendNames.map((name: string, index: number) => ({ key: `module:${name}`, name: `Module · ${name}`, sourceName: name, kind: 'module', color: ['#10b981', '#64748b', '#059669'][index % 3] })),
   ];
   const trendValue = (series: any, label: string) => {
     const source = series.kind === 'module' ? moduleTrend : packTrend;
@@ -149,102 +149,439 @@ export const DashboardView: React.FC = () => {
     catch (error: any) { setLoadError(error?.message || 'Unable to delete battery.'); }
   };
 
-  return <div className="dashboard-view flex-1 overflow-y-auto bg-slate-100 px-4 py-5 sm:px-6 lg:px-8"><div className="mx-auto max-w-[1500px] space-y-5">
-    <section className="dashboard-hero relative overflow-hidden rounded-2xl border border-slate-200 bg-white px-5 py-5 shadow-sm sm:px-7 sm:py-6"><div className="dashboard-grid absolute inset-0 opacity-10" />
-      <div className="relative flex flex-col justify-between gap-5 lg:flex-row lg:items-center"><div className="max-w-2xl"><div className="mb-3 flex flex-wrap items-center gap-2 text-[10px] font-black uppercase tracking-[0.16em]"><span className="rounded-full bg-emerald-50 px-3 py-1 text-emerald-700">Line 01 online</span><span className="text-slate-400">Power2Go MES / Control room</span></div><h1 className="text-2xl font-black tracking-tight text-slate-900 sm:text-3xl">Good morning, Administrator.</h1><p className="mt-2 max-w-xl text-xs leading-5 text-slate-500">Here is the current pulse of your battery manufacturing line.</p></div>
-        <div className="flex flex-wrap gap-2"><button type="button" onClick={() => void loadStats()} className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-3 text-xs font-bold text-slate-700 hover:border-emerald-500"><RefreshCw className="h-4 w-4 text-emerald-600" /> Refresh</button><button type="button" onClick={() => { setActiveBatteryId(null); setActiveView('production-flow'); }} className="flex items-center gap-2 rounded-xl bg-emerald-600 px-4 py-3 text-xs font-bold text-white hover:bg-emerald-700"><Sparkles className="h-4 w-4" /> Start a batch</button></div>
-      </div><div className="relative mt-6 grid grid-cols-2 gap-3 border-t border-slate-100 pt-4 sm:grid-cols-4"><HeroMetric label="Line state" value="RUNNING" accent="text-emerald-600" /><HeroMetric label="Cells tracked" value={Number(inventory.totalCells || 0).toLocaleString()} accent="text-slate-900" /><HeroMetric label="Packs released" value={Number(inventory.finishedBatteries || 0).toLocaleString()} accent="text-slate-900" /><HeroMetric label="Open batches" value={Number(stats.orders?.inProcess || 0).toLocaleString()} accent="text-slate-900" /></div>
-    </section>
-
-    <section className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">{navActions.map(({ label, view, icon: Icon }) => <button key={label} type="button" onClick={() => setActiveView(view as any)} className="group flex items-center justify-between rounded-2xl border border-slate-200 bg-white p-4 text-left shadow-sm transition hover:-translate-y-0.5 hover:border-emerald-500 hover:shadow-md"><span className="flex items-center gap-3"><span className="grid h-10 w-10 place-items-center rounded-xl bg-emerald-50 text-emerald-600"><Icon className="h-5 w-5" /></span><span className="text-sm font-bold text-slate-800">{label}</span></span><ArrowUpRight className="h-4 w-4 text-slate-300 transition group-hover:text-emerald-600" /></button>)}</section>
-
-    <section className="grid grid-cols-1 gap-5 xl:grid-cols-[1.65fr,1fr]"><Panel eyebrow="Output rhythm" title="Production by type" action={<div className="flex rounded-lg bg-slate-100 p-1">{(['7D', '30D'] as const).map(item => <button key={item} type="button" onClick={() => setRange(item)} className={`rounded-md px-3 py-1.5 text-[10px] font-black ${range === item ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-400'}`}>{item}</button>)}</div>}>
-      <div className="mt-6 border-b border-slate-100 px-1">
-        {trendLabels.length === 0 ? <div className="grid h-56 place-items-center text-xs text-slate-400">No production trend data yet</div> : <>
-          <div className="h-56 w-full overflow-hidden">
-            <svg viewBox={`0 0 ${chartWidth} ${chartHeight}`} preserveAspectRatio="none" className="h-full w-full" role="img" aria-label="Battery and module production by type">
-              {[0, 1, 2, 3].map((line) => <line key={line} x1="0" x2={chartWidth} y1={12 + line * ((chartHeight - 24) / 3)} y2={12 + line * ((chartHeight - 24) / 3)} stroke="#e5e7eb" strokeDasharray="3 5" />)}
-              {trendSeries.map((series: any) => {
-                const points = trendLabels.map((label, index) => chartPoint(index, trendValue(series, label)));
-                return <g key={series.key}>
-                  <polyline points={points.map((point: any) => `${point.x},${point.y}`).join(' ')} fill="none" stroke={series.color} strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
-                  {points.map((point: any, index: number) => { const value = trendValue(series, trendLabels[index]); return <circle key={`${series.key}-${index}`} cx={point.x} cy={point.y} r="3.5" fill={series.color}><title>{`${series.name} | ${trendLabels[index]}: ${value}`}</title></circle>; })}
-                </g>;
-              })}
-            </svg>
-          </div>
-          <div className="flex justify-between text-[9px] text-slate-400"><span>{String(trendLabels[0] || '').slice(5)}</span><span>{String(trendLabels[trendLabels.length - 1] || '').slice(5)}</span></div>
-          <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 pb-3 text-[10px] text-slate-500">{trendSeries.map((series: any) => <span key={series.key} className="flex items-center gap-1.5"><i className="h-2 w-2 rounded-full" style={{ background: series.color }} />{series.name}</span>)}</div>
-        </>}
-      </div>
-      <div className="mt-5 flex items-center justify-between"><span className="text-xs font-bold text-slate-500">{range === '7D' ? 'Latest release window' : 'Monthly build output'}</span><button type="button" onClick={() => setActiveView('production-flow')} className="flex items-center gap-1 text-xs font-bold text-emerald-600">Open production flow <ChevronRight className="h-3.5 w-3.5" /></button></div>
-    </Panel><Panel eyebrow="Inventory composition" title="Where the cells are" action={<Boxes className="h-5 w-5 text-emerald-600" />}><div className="mt-5 flex items-center gap-6"><div className="relative grid h-40 w-40 shrink-0 place-items-center rounded-full shadow-inner" style={{ background: `conic-gradient(${donut})` }}><div className="grid h-28 w-28 place-items-center rounded-full bg-white text-center shadow-sm"><strong className="text-2xl font-black text-slate-900">{totalCells.toLocaleString()}</strong><span className="text-[9px] font-bold uppercase tracking-wider text-slate-400">tracked cells</span></div></div><div className="min-w-0 flex-1 space-y-2.5">{statusRows.map(row => <div key={row.label} className="flex items-center justify-between gap-2 text-xs"><span className="flex min-w-0 items-center gap-2 font-semibold text-slate-600"><i className="h-2 w-2 shrink-0 rounded-full" style={{ background: row.color }} /><span className="truncate">{row.label}</span></span><b className="font-mono text-slate-900">{row.value.toLocaleString()}</b></div>)}</div></div><div className="mt-5 grid grid-cols-2 gap-2 border-t border-slate-100 pt-4"><div className="rounded-xl bg-emerald-50 px-3 py-2"><p className="text-[9px] font-black uppercase tracking-[0.14em] text-emerald-700">Available now</p><p className="mt-1 text-lg font-black text-emerald-900">{available.toLocaleString()}</p></div><div className="rounded-xl bg-slate-50 px-3 py-2"><p className="text-[9px] font-black uppercase tracking-[0.14em] text-slate-500">Utilized / placed</p><p className="mt-1 text-lg font-black text-slate-900">{Math.max(0, totalCells - available).toLocaleString()}</p></div></div><div className="mt-4 h-2 overflow-hidden rounded-full bg-slate-100"><div className="h-full rounded-full bg-emerald-500 transition-all duration-500" style={{ width: `${Math.min(100, available / totalCells * 100)}%` }} /></div></Panel></section>
-
-    <section className="grid grid-cols-1 gap-5 lg:grid-cols-3"><Panel eyebrow="Pack mix" title="Battery packs by model" action={<Factory className="h-5 w-5 text-emerald-600" />}><div className="mt-5 space-y-4">{packRows.length === 0 ? <div className="py-8 text-center text-xs text-slate-400">No pack model data yet</div> : packRows.map((row: any) => <div key={row.label}><div className="mb-1 flex items-center justify-between gap-3 text-xs"><span className="flex min-w-0 items-center gap-2 font-semibold text-slate-600"><i className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: row.color }} /><span className="truncate">{row.label}</span></span><b className="font-mono text-slate-900">{row.value.toLocaleString()}</b></div><div className="h-2 overflow-hidden rounded-full bg-slate-100"><div className="h-full rounded-full transition-all duration-500" style={{ width: `${(row.value / packMax) * 100}%`, background: row.color }} /></div></div>)}</div></Panel><Panel eyebrow="Rack inventory" title={`Racks by capacity · ${rackCountTotal.toLocaleString()} total`} action={<PackageCheck className="h-5 w-5 text-cyan-600" />}><div className="mt-5 space-y-3">{rackCapacityRows.map(row => <div key={row.label} className="flex items-center justify-between rounded-lg border border-slate-100 px-3 py-2.5 text-xs"><span className="font-semibold text-slate-600">{row.label}</span><b className="font-mono text-slate-900">{row.value.toLocaleString()}</b></div>)}</div></Panel><Panel eyebrow="Quality gate" title="First-pass yield" action={<ShieldCheck className="h-5 w-5 text-emerald-600" />}><div className="mt-5 flex items-end justify-between"><span className="text-5xl font-black tracking-tight text-slate-900">{yieldRate ? `${yieldRate}%` : '—'}</span><span className="mb-1 rounded-full bg-emerald-50 px-2.5 py-1 text-[10px] font-black text-emerald-700">Target 99%</span></div><div className="mt-6 h-3 rounded-full bg-slate-100"><div className="h-full rounded-full bg-emerald-500" style={{ width: `${Math.min(100, yieldRate)}%` }} /></div><p className="mt-3 text-xs text-slate-500">{Number(quality.quarantinedCount || inventory.quarantinedCells || 0).toLocaleString()} items require quality review.</p></Panel>
-      <Panel eyebrow="Component readiness" title="Controllers on hand" action={<Cpu className="h-5 w-5 text-emerald-600" />}><div className="mt-5 grid grid-cols-2 gap-3">{[['BMS', controller.availableBms, controller.assignedBms, controller.totalBms], ['BMU', controller.availableBmu, controller.assignedBmu, controller.totalBmu]].map(([label, value, assigned, total]) => <div key={String(label)} className="rounded-xl bg-slate-50 p-4"><span className="text-xs font-black text-slate-500">{label}</span><strong className="mt-2 block text-2xl font-black text-slate-900">{Number(value || 0).toLocaleString()}</strong><span className="text-[10px] text-slate-400">available of {Number(total || 0).toLocaleString()} total</span><span className="mt-1 block text-[10px] font-semibold text-emerald-600">{Number(assigned || 0).toLocaleString()} assigned</span></div>)}</div></Panel>
-      <Panel eyebrow="Line routing" title="Six production gates" action={<Zap className="h-5 w-5 text-emerald-600" />}><div className="mt-4 grid grid-cols-2 gap-2">{pipeline.map(([number, label, view]) => <button key={number} type="button" onClick={() => setActiveView(view as any)} className="flex items-center gap-2 rounded-lg border border-slate-100 p-2.5 text-left hover:border-emerald-400 hover:bg-emerald-50"><span className="font-mono text-[10px] font-black text-emerald-600">{number}</span><span className="text-[11px] font-bold text-slate-600">{label}</span></button>)}</div></Panel></section>
-
-    <section className="grid grid-cols-1 gap-5 xl:grid-cols-[1.5fr,1fr]"><Panel eyebrow="Needs attention" title={`Live WIP / ${Number(inventory.inProcessBatteries || 0)} in process`} action={<button type="button" onClick={() => setActiveView('production')} className="text-xs font-bold text-emerald-600">View all <ArrowUpRight className="inline h-3.5 w-3.5" /></button>}><div className="mt-4 space-y-2">{recentBatteries.length === 0 ? <div className="rounded-xl border border-dashed border-slate-200 p-8 text-center"><Layers className="mx-auto h-7 w-7 text-slate-300" /><p className="mt-2 text-xs font-bold text-slate-600">No active packs on the floor</p><button type="button" onClick={() => setActiveView('planning')} className="mt-3 rounded-lg bg-emerald-600 px-3 py-2 text-[11px] font-bold text-white">Create production order</button></div> : recentBatteries.map((battery: any) => <div key={battery.id} className="flex items-center justify-between gap-3 rounded-xl border border-slate-100 p-3 hover:bg-slate-50"><button type="button" onClick={() => { setActiveBatteryId(battery.id); setActiveView('production'); }} className="min-w-0 flex-1 text-left"><span className="block truncate font-mono text-xs font-black text-slate-900">{battery.serialNumber}</span><span className="mt-1 block text-[11px] text-slate-500">{String(battery.currentStep || 'NOT STARTED').replace(/_/g, ' ')}</span></button><div className="w-24"><div className="text-right text-[10px] font-black text-slate-600">{battery.progressPercent ?? 0}%</div><div className="mt-1 h-1.5 rounded-full bg-slate-100"><div className="h-full rounded-full bg-emerald-500" style={{ width: `${Math.min(100, Number(battery.progressPercent) || 0)}%` }} /></div></div><button type="button" onClick={() => { setActiveBatteryId(battery.id); setActiveView('workflow-pack'); }} className="rounded-lg p-2 text-slate-400 hover:bg-emerald-50 hover:text-emerald-600" title="Edit battery"><Pencil className="h-4 w-4" /></button><button type="button" onClick={() => void deleteBattery(battery)} className="rounded-lg p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-900" title="Delete battery"><Trash2 className="h-4 w-4" /></button></div>)}</div></Panel>
-      <Panel eyebrow="Operational health" title="At a glance" action={<Activity className="h-5 w-5 text-emerald-600" />}><div className="mt-4 divide-y divide-slate-100">{[['Quality review', `${Number(quality.quarantinedCount || 0)} open`, false], ['Scheduled batches', `${Number(stats.orders?.total || 0)} total`, false], ['Completed batches', `${Number(stats.orders?.completed || 0)} total`, false]].map(([label, value, online]) => <div key={String(label)} className="flex items-center justify-between py-3"><span className="flex items-center gap-2 text-xs font-semibold text-slate-500"><i className={`h-2 w-2 rounded-full ${online ? 'bg-emerald-500' : 'bg-slate-300'}`} />{label}</span><b className={`text-xs font-black ${online ? 'text-emerald-600' : 'text-slate-900'}`}>{value}</b></div>)}</div></Panel>
-    </section>
-
-    <section className="grid grid-cols-1 gap-4 lg:grid-cols-3">
-      <Panel eyebrow="Needs attention" title="Module assembly" action={<Layers className="h-5 w-5 text-emerald-600" />}>
-        <div className="mt-4 space-y-2">
-          {moduleProgressRows.filter(row => !['SOLD', 'IN RACK'].includes(row.label.toUpperCase())).length === 0
-            ? <p className="py-5 text-center text-xs text-slate-400">No module assembly work in progress</p>
-            : moduleProgressRows.filter(row => !['SOLD', 'IN RACK'].includes(row.label.toUpperCase())).map(row => (
-              <div key={row.label} className="flex items-center justify-between rounded-lg border border-slate-100 px-3 py-2 text-xs">
-                <span className="min-w-0 flex-1 truncate font-semibold text-slate-600">{row.label}</span><b className="mr-2 font-mono text-slate-900">{row.value.toLocaleString()}</b><button type="button" onClick={() => setActiveView('workflow-module')} className="rounded p-1 text-slate-400 hover:bg-emerald-50 hover:text-emerald-600" title="Edit module assembly"><Pencil className="h-3.5 w-3.5" /></button><button type="button" disabled className="rounded p-1 text-slate-300" title="Delete requires an individual module"><Trash2 className="h-3.5 w-3.5" /></button>
+  return (
+    <div className="dashboard-view flex-1 overflow-y-auto bg-slate-50 px-4 py-5 sm:px-6 lg:px-8">
+      <div className="mx-auto max-w-[1500px] space-y-5">
+        {/* Studio Control Room Header */}
+        <section className="dashboard-hero relative overflow-hidden rounded-2xl border border-slate-200 bg-white px-5 py-5 shadow-sm sm:px-7 sm:py-6">
+          <div className="dashboard-grid absolute inset-0 opacity-10" />
+          <div className="relative flex flex-col justify-between gap-5 lg:flex-row lg:items-center">
+            <div className="flex items-start gap-4 max-w-2xl">
+              <div className="hidden sm:flex p-3 bg-emerald-50 rounded-2xl border border-emerald-200 text-emerald-700 shrink-0 mt-0.5">
+                <Activity className="h-6 w-6" />
               </div>
-            ))}
-        </div>
-      </Panel>
-      <Panel eyebrow="Needs attention" title="Pack assembly" action={<Factory className="h-5 w-5 text-emerald-600" />}>
-        <div className="mt-4 space-y-2">
-          <div className="flex items-center justify-between rounded-lg border border-slate-100 px-3 py-2 text-xs"><span className="font-semibold text-slate-600">Packs in process</span><b className="font-mono text-slate-900">{Number(inventory.inProcessBatteries || 0).toLocaleString()}</b></div>
-          {recentBatteries.slice(0, 4).map((battery: any) => <div key={battery.id} className="flex items-center gap-2 rounded-lg border border-slate-100 px-3 py-2 text-xs"><span className="min-w-0 flex-1 truncate font-mono text-slate-600">{battery.serialNumber}</span><span className="shrink-0 font-bold text-emerald-600">{Number(battery.progressPercent || 0)}%</span><button type="button" onClick={() => { setActiveBatteryId(battery.id); setActiveView('workflow-pack'); }} className="rounded p-1 text-slate-400 hover:bg-emerald-50 hover:text-emerald-600" title="Edit battery pack"><Pencil className="h-3.5 w-3.5" /></button><button type="button" onClick={() => void deleteBattery(battery)} className="rounded p-1 text-slate-400 hover:bg-red-50 hover:text-red-600" title="Delete battery pack"><Trash2 className="h-3.5 w-3.5" /></button></div>)}
-        </div>
-      </Panel>
-      <Panel eyebrow="Needs attention" title="Rack assembly" action={<PackageCheck className="h-5 w-5 text-cyan-600" />}>
-        <div className="mt-4 space-y-2">
-          {rackProgressRows.filter(row => !['SOLD', 'IN_STOCK'].includes(row.label.toUpperCase())).length === 0
-            ? <p className="py-5 text-center text-xs text-slate-400">No rack assembly work in progress</p>
-            : rackProgressRows.filter(row => !['SOLD', 'IN_STOCK'].includes(row.label.toUpperCase())).map(row => (
-              <div key={row.label} className="flex items-center justify-between rounded-lg border border-slate-100 px-3 py-2 text-xs"><span className="min-w-0 flex-1 truncate font-semibold text-slate-600">{row.label}</span><b className="mr-2 font-mono text-slate-900">{row.value.toLocaleString()}</b><button type="button" onClick={() => setActiveView('rack-assembly')} className="rounded p-1 text-slate-400 hover:bg-emerald-50 hover:text-emerald-600" title="Edit rack assembly"><Pencil className="h-3.5 w-3.5" /></button><button type="button" disabled className="rounded p-1 text-slate-300" title="Delete requires an individual rack"><Trash2 className="h-3.5 w-3.5" /></button></div>
-            ))}
-        </div>
-      </Panel>
-    </section>
+              <div>
+                <div className="mb-2 flex flex-wrap items-center gap-2 text-[10px] font-black uppercase tracking-[0.16em]">
+                  <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 border border-emerald-200 px-3 py-1 text-emerald-700">
+                    <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+                    Line 01 Online
+                  </span>
+                  <span className="text-slate-400">Power2Go MES · Control Room</span>
+                </div>
+                <h1 className="text-2xl font-black tracking-tight text-slate-900 sm:text-3xl">
+                  Good morning, Administrator.
+                </h1>
+                <p className="mt-1.5 max-w-xl text-xs leading-5 text-slate-500">
+                  Real-time manufacturing telemetry across Floor Stock, Module Assembly, Battery Packs, and Rack Systems.
+                </p>
+              </div>
+            </div>
+            <div className="flex flex-wrap gap-2.5 shrink-0">
+              <button
+                type="button"
+                onClick={() => void loadStats()}
+                className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-xs font-bold text-slate-700 hover:border-emerald-500 hover:bg-slate-50 transition-colors shadow-2xs"
+              >
+                <RefreshCw className="h-4 w-4 text-emerald-600" />
+                Refresh
+              </button>
+              <button
+                type="button"
+                onClick={() => { setActiveBatteryId(null); setActiveView('production-flow'); }}
+                className="flex items-center gap-2 rounded-xl bg-emerald-600 px-4 py-2.5 text-xs font-bold text-white hover:bg-emerald-700 transition-colors shadow-xs"
+              >
+                <Sparkles className="h-4 w-4" />
+                Start a Batch
+              </button>
+            </div>
+          </div>
 
-    <section className="grid grid-cols-1 gap-5 lg:grid-cols-2">
-      <ProgressPanel
-        eyebrow="Module progress"
-        title={`${moduleProgressTotal.toLocaleString()} modules by stage`}
-        icon={<Layers className="h-5 w-5 text-emerald-600" />}
-        rows={moduleProgressRows}
-        color="bg-emerald-500"
-        emptyLabel="No module progress data"
-      />
-      <ProgressPanel
-        eyebrow="Rack & cabinet progress"
-        title={`${rackProgressTotal.toLocaleString()} racks in lifecycle`}
-        icon={<PackageCheck className="h-5 w-5 text-cyan-600" />}
-        rows={rackProgressRows}
-        color="bg-cyan-500"
-        emptyLabel="No rack progress data"
-        footer={rackCapacityRows.filter((row: any) => row.value > 0).map((row: any) => `${row.label}: ${row.value}`).join(' · ') || 'No racks recorded'}
-      />
-    </section>
-  </div></div>;
+          <div className="relative mt-6 grid grid-cols-2 gap-3 border-t border-slate-100 pt-4 sm:grid-cols-4 stagger-children">
+            <HeroMetric label="Line state" value="RUNNING" accent="text-emerald-700" />
+            <HeroMetric label="Cells tracked" value={Number(inventory.totalCells || 0).toLocaleString()} accent="text-slate-900" />
+            <HeroMetric label="Packs released" value={Number(inventory.finishedBatteries || 0).toLocaleString()} accent="text-slate-900" />
+            <HeroMetric label="Open batches" value={Number(stats.orders?.inProcess || 0).toLocaleString()} accent="text-slate-900" />
+          </div>
+        </section>
+
+        {/* Quick Studio Navigation */}
+        <section className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4 stagger-children">
+          {navActions.map(({ label, view, icon: Icon }) => (
+            <button
+              key={label}
+              type="button"
+              onClick={() => setActiveView(view as any)}
+              className="studio-card-hover group flex items-center justify-between rounded-2xl border border-slate-200 bg-white p-4 text-left shadow-sm hover:border-emerald-500 hover:shadow-md"
+            >
+              <span className="flex items-center gap-3">
+                <span className="grid h-10 w-10 place-items-center rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-700">
+                  <Icon className="h-5 w-5" />
+                </span>
+                <span className="text-sm font-black text-slate-800">{label}</span>
+              </span>
+              <ArrowUpRight className="h-4 w-4 text-slate-300 transition group-hover:text-emerald-600" />
+            </button>
+          ))}
+        </section>
+
+        {/* Production Rhythm & Inventory Composition */}
+        <section className="grid grid-cols-1 gap-5 xl:grid-cols-[1.65fr,1fr]">
+          <Panel
+            eyebrow="Output rhythm"
+            title="Production by type"
+            action={
+              <div className="flex rounded-xl bg-slate-100 p-1">
+                {(['7D', '30D'] as const).map(item => (
+                  <button
+                    key={item}
+                    type="button"
+                    onClick={() => setRange(item)}
+                    className={`rounded-lg px-3 py-1.5 text-[10px] font-black transition-all ${
+                      range === item ? 'bg-white text-emerald-700 shadow-xs' : 'text-slate-500 hover:text-slate-700'
+                    }`}
+                  >
+                    {item}
+                  </button>
+                ))}
+              </div>
+            }
+          >
+            <div className="mt-6 border-b border-slate-100 px-1">
+              {trendLabels.length === 0 ? (
+                <div className="grid h-56 place-items-center text-xs text-slate-400">No production trend data yet</div>
+              ) : (
+                <>
+                  <div className="h-56 w-full overflow-hidden">
+                    <svg viewBox={`0 0 ${chartWidth} ${chartHeight}`} preserveAspectRatio="none" className="h-full w-full" role="img" aria-label="Battery and module production by type">
+                      {[0, 1, 2, 3].map((line) => (
+                        <line key={line} x1="0" x2={chartWidth} y1={12 + line * ((chartHeight - 24) / 3)} y2={12 + line * ((chartHeight - 24) / 3)} stroke="#e2e8f0" strokeDasharray="3 5" />
+                      ))}
+                      {trendSeries.map((series: any) => {
+                        const points = trendLabels.map((label, index) => chartPoint(index, trendValue(series, label)));
+                        return (
+                          <g key={series.key}>
+                            <polyline points={points.map((point: any) => `${point.x},${point.y}`).join(' ')} fill="none" stroke={series.color} strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
+                            {points.map((point: any, index: number) => {
+                              const value = trendValue(series, trendLabels[index]);
+                              return (
+                                <circle key={`${series.key}-${index}`} cx={point.x} cy={point.y} r="3.5" fill={series.color}>
+                                  <title>{`${series.name} | ${trendLabels[index]}: ${value}`}</title>
+                                </circle>
+                              );
+                            })}
+                          </g>
+                        );
+                      })}
+                    </svg>
+                  </div>
+                  <div className="flex justify-between text-[9px] font-mono text-slate-400">
+                    <span>{String(trendLabels[0] || '').slice(5)}</span>
+                    <span>{String(trendLabels[trendLabels.length - 1] || '').slice(5)}</span>
+                  </div>
+                  <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 pb-3 text-[10px] font-semibold text-slate-500">
+                    {trendSeries.map((series: any) => (
+                      <span key={series.key} className="flex items-center gap-1.5">
+                        <i className="h-2 w-2 rounded-full" style={{ background: series.color }} />
+                        {series.name}
+                      </span>
+                    ))}
+                  </div>
+                </>
+              )}
+            </div>
+            <div className="mt-5 flex items-center justify-between">
+              <span className="text-xs font-bold text-slate-500">{range === '7D' ? 'Latest release window' : 'Monthly build output'}</span>
+              <button type="button" onClick={() => setActiveView('production-flow')} className="flex items-center gap-1 text-xs font-bold text-emerald-700 hover:text-emerald-800">
+                Open production flow <ChevronRight className="h-3.5 w-3.5" />
+              </button>
+            </div>
+          </Panel>
+
+          <Panel
+            eyebrow="Inventory composition"
+            title="Where the cells are"
+            action={<PanelIcon icon={<Boxes className="h-5 w-5" />} />}
+          >
+            <div className="mt-5 flex items-center gap-6">
+              <div className="relative grid h-40 w-40 shrink-0 place-items-center rounded-full shadow-inner" style={{ background: `conic-gradient(${donut})` }}>
+                <div className="grid h-28 w-28 place-items-center rounded-full bg-white text-center shadow-sm">
+                  <strong className="text-2xl font-black text-slate-900">{totalCells.toLocaleString()}</strong>
+                  <span className="text-[9px] font-bold uppercase tracking-wider text-slate-400">tracked cells</span>
+                </div>
+              </div>
+              <div className="min-w-0 flex-1 space-y-2.5">
+                {statusRows.map(row => (
+                  <div key={row.label} className="flex items-center justify-between gap-2 text-xs">
+                    <span className="flex min-w-0 items-center gap-2 font-semibold text-slate-600">
+                      <i className="h-2 w-2 shrink-0 rounded-full" style={{ background: row.color }} />
+                      <span className="truncate">{row.label}</span>
+                    </span>
+                    <b className="font-mono text-slate-900">{row.value.toLocaleString()}</b>
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div className="mt-5 grid grid-cols-2 gap-2 border-t border-slate-100 pt-4">
+              <div className="rounded-xl border border-emerald-100 bg-emerald-50 px-3 py-2">
+                <p className="text-[9px] font-black uppercase tracking-[0.14em] text-emerald-700">Available now</p>
+                <p className="mt-1 text-lg font-black text-emerald-900">{available.toLocaleString()}</p>
+              </div>
+              <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
+                <p className="text-[9px] font-black uppercase tracking-[0.14em] text-slate-500">Utilized / placed</p>
+                <p className="mt-1 text-lg font-black text-slate-900">{Math.max(0, totalCells - available).toLocaleString()}</p>
+              </div>
+            </div>
+            <div className="mt-4 h-2 overflow-hidden rounded-full bg-slate-100">
+              <div className="h-full rounded-full bg-emerald-500 transition-all duration-500" style={{ width: `${Math.min(100, available / totalCells * 100)}%` }} />
+            </div>
+          </Panel>
+        </section>
+
+        {/* Pack Mix, Rack Inventory, Quality, Controllers, Routing */}
+        <section className="grid grid-cols-1 gap-5 lg:grid-cols-3 stagger-children">
+          <Panel eyebrow="Pack mix" title="Battery packs by model" action={<PanelIcon icon={<Factory className="h-5 w-5" />} />}>
+            <div className="mt-5 space-y-4">
+              {packRows.length === 0 ? (
+                <div className="py-8 text-center text-xs text-slate-400">No pack model data yet</div>
+              ) : (
+                packRows.map((row: any) => (
+                  <div key={row.label}>
+                    <div className="mb-1 flex items-center justify-between gap-3 text-xs">
+                      <span className="flex min-w-0 items-center gap-2 font-semibold text-slate-600">
+                        <i className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: row.color }} />
+                        <span className="truncate">{row.label}</span>
+                      </span>
+                      <b className="font-mono text-slate-900">{row.value.toLocaleString()}</b>
+                    </div>
+                    <div className="h-2 overflow-hidden rounded-full bg-slate-100">
+                      <div className="h-full rounded-full transition-all duration-500" style={{ width: `${(row.value / packMax) * 100}%`, background: row.color }} />
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </Panel>
+
+          <Panel eyebrow="Rack inventory" title={`Racks by capacity · ${rackCountTotal.toLocaleString()} total`} action={<PanelIcon icon={<PackageCheck className="h-5 w-5" />} />}>
+            <div className="mt-5 space-y-2.5">
+              {rackCapacityRows.map(row => (
+                <div key={row.label} className="flex items-center justify-between rounded-xl border border-slate-200/80 bg-slate-50/70 px-3.5 py-2.5 text-xs">
+                  <span className="font-semibold text-slate-700">{row.label}</span>
+                  <b className="font-mono font-black text-slate-900">{row.value.toLocaleString()}</b>
+                </div>
+              ))}
+            </div>
+          </Panel>
+
+          <Panel eyebrow="Quality gate" title="First-pass yield" action={<PanelIcon icon={<ShieldCheck className="h-5 w-5" />} />}>
+            <div className="mt-5 flex items-end justify-between">
+              <span className="text-5xl font-black tracking-tight text-slate-900">{yieldRate ? `${yieldRate}%` : '—'}</span>
+              <span className="mb-1 rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-[10px] font-black text-emerald-700">Target 99%</span>
+            </div>
+            <div className="mt-6 h-3 overflow-hidden rounded-full bg-slate-100">
+              <div className="h-full rounded-full bg-emerald-500" style={{ width: `${Math.min(100, yieldRate)}%` }} />
+            </div>
+            <p className="mt-3 text-xs text-slate-500">
+              {Number(quality.quarantinedCount || inventory.quarantinedCells || 0).toLocaleString()} items require quality review.
+            </p>
+          </Panel>
+
+          <Panel eyebrow="Component readiness" title="Controllers on hand" action={<PanelIcon icon={<Cpu className="h-5 w-5" />} />}>
+            <div className="mt-5 grid grid-cols-2 gap-3">
+              {[['BMS', controller.availableBms, controller.assignedBms, controller.totalBms], ['BMU', controller.availableBmu, controller.assignedBmu, controller.totalBmu]].map(([label, value, assigned, total]) => (
+                <div key={String(label)} className="rounded-xl border border-slate-200/80 bg-slate-50 p-4">
+                  <span className="text-xs font-black text-slate-500">{label}</span>
+                  <strong className="mt-2 block text-2xl font-black text-slate-900">{Number(value || 0).toLocaleString()}</strong>
+                  <span className="text-[10px] text-slate-400">available of {Number(total || 0).toLocaleString()} total</span>
+                  <span className="mt-1 block text-[10px] font-bold text-emerald-700">{Number(assigned || 0).toLocaleString()} assigned</span>
+                </div>
+              ))}
+            </div>
+          </Panel>
+
+          <Panel eyebrow="Line routing" title="Six production gates" action={<PanelIcon icon={<Zap className="h-5 w-5" />} />}>
+            <div className="mt-4 grid grid-cols-2 gap-2">
+              {pipeline.map(([number, label, view]) => (
+                <button
+                  key={number}
+                  type="button"
+                  onClick={() => setActiveView(view as any)}
+                  className="flex items-center gap-2 rounded-xl border border-slate-200/80 p-2.5 text-left hover:border-emerald-400 hover:bg-emerald-50/70 transition-colors"
+                >
+                  <span className="font-mono text-[10px] font-black text-emerald-700">{number}</span>
+                  <span className="text-[11px] font-bold text-slate-700">{label}</span>
+                </button>
+              ))}
+            </div>
+          </Panel>
+        </section>
+
+        {/* Live WIP & Operational Health */}
+        <section className="grid grid-cols-1 gap-5 xl:grid-cols-[1.5fr,1fr]">
+          <Panel
+            eyebrow="Needs attention"
+            title={`Live WIP / ${Number(inventory.inProcessBatteries || 0)} in process`}
+            action={
+              <button type="button" onClick={() => setActiveView('production')} className="text-xs font-bold text-emerald-700 hover:text-emerald-800">
+                View all <ArrowUpRight className="inline h-3.5 w-3.5" />
+              </button>
+            }
+          >
+            <div className="mt-4 space-y-2">
+              {recentBatteries.length === 0 ? (
+                <div className="rounded-xl border border-dashed border-slate-200 p-8 text-center">
+                  <Layers className="mx-auto h-7 w-7 text-slate-300" />
+                  <p className="mt-2 text-xs font-bold text-slate-600">No active packs on the floor</p>
+                  <button type="button" onClick={() => setActiveView('planning')} className="mt-3 rounded-xl bg-emerald-600 px-3.5 py-2 text-[11px] font-bold text-white hover:bg-emerald-700 transition-colors">
+                    Create production order
+                  </button>
+                </div>
+              ) : (
+                recentBatteries.map((battery: any) => (
+                  <div key={battery.id} className="flex items-center justify-between gap-3 rounded-xl border border-slate-200/80 p-3 hover:border-emerald-300 hover:bg-slate-50/70 transition-colors">
+                    <button type="button" onClick={() => { setActiveBatteryId(battery.id); setActiveView('production'); }} className="min-w-0 flex-1 text-left">
+                      <span className="block truncate font-mono text-xs font-black text-slate-900">{battery.serialNumber}</span>
+                      <span className="mt-1 block text-[11px] text-slate-500">{String(battery.currentStep || 'NOT STARTED').replace(/_/g, ' ')}</span>
+                    </button>
+                    <div className="w-24">
+                      <div className="text-right text-[10px] font-black text-slate-600">{battery.progressPercent ?? 0}%</div>
+                      <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-slate-100">
+                        <div className="h-full rounded-full bg-emerald-500" style={{ width: `${Math.min(100, Number(battery.progressPercent) || 0)}%` }} />
+                      </div>
+                    </div>
+                    <button type="button" onClick={() => { setActiveBatteryId(battery.id); setActiveView('workflow-pack'); }} className="rounded-lg p-2 text-slate-400 hover:bg-emerald-50 hover:text-emerald-700" title="Edit battery">
+                      <Pencil className="h-4 w-4" />
+                    </button>
+                    <button type="button" onClick={() => void deleteBattery(battery)} className="rounded-lg p-2 text-slate-400 hover:bg-rose-50 hover:text-rose-600" title="Delete battery">
+                      <Trash2 className="h-4 w-4" />
+                    </button>
+                  </div>
+                ))
+              )}
+            </div>
+          </Panel>
+
+          <Panel eyebrow="Operational health" title="At a glance" action={<PanelIcon icon={<Activity className="h-5 w-5" />} />}>
+            <div className="mt-4 divide-y divide-slate-100">
+              {[['Quality review', `${Number(quality.quarantinedCount || 0)} open`, false], ['Scheduled batches', `${Number(stats.orders?.total || 0)} total`, false], ['Completed batches', `${Number(stats.orders?.completed || 0)} total`, true]].map(([label, value, online]) => (
+                <div key={String(label)} className="flex items-center justify-between py-3.5">
+                  <span className="flex items-center gap-2 text-xs font-semibold text-slate-600">
+                    <i className={`h-2 w-2 rounded-full ${online ? 'bg-emerald-500' : 'bg-slate-300'}`} />
+                    {label}
+                  </span>
+                  <b className={`text-xs font-black ${online ? 'text-emerald-700' : 'text-slate-900'}`}>{value}</b>
+                </div>
+              ))}
+            </div>
+          </Panel>
+        </section>
+
+        {/* Stage Attention Row */}
+        <section className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+          <Panel eyebrow="Needs attention" title="Module assembly" action={<PanelIcon icon={<Layers className="h-5 w-5" />} />}>
+            <div className="mt-4 space-y-2">
+              {moduleProgressRows.filter(row => !['SOLD', 'IN RACK'].includes(row.label.toUpperCase())).length === 0 ? (
+                <p className="py-5 text-center text-xs text-slate-400">No module assembly work in progress</p>
+              ) : (
+                moduleProgressRows.filter(row => !['SOLD', 'IN RACK'].includes(row.label.toUpperCase())).map(row => (
+                  <div key={row.label} className="flex items-center justify-between rounded-xl border border-slate-200/80 px-3 py-2 text-xs">
+                    <span className="min-w-0 flex-1 truncate font-semibold text-slate-600">{row.label}</span>
+                    <b className="mr-2 font-mono text-slate-900">{row.value.toLocaleString()}</b>
+                    <button type="button" onClick={() => setActiveView('workflow-module')} className="rounded-lg p-1 text-slate-400 hover:bg-emerald-50 hover:text-emerald-700" title="Edit module assembly">
+                      <Pencil className="h-3.5 w-3.5" />
+                    </button>
+                    <button type="button" disabled className="rounded-lg p-1 text-slate-300" title="Delete requires an individual module">
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                ))
+              )}
+            </div>
+          </Panel>
+
+          <Panel eyebrow="Needs attention" title="Pack assembly" action={<PanelIcon icon={<Factory className="h-5 w-5" />} />}>
+            <div className="mt-4 space-y-2">
+              <div className="flex items-center justify-between rounded-xl border border-slate-200/80 bg-slate-50 px-3 py-2 text-xs">
+                <span className="font-semibold text-slate-600">Packs in process</span>
+                <b className="font-mono text-slate-900">{Number(inventory.inProcessBatteries || 0).toLocaleString()}</b>
+              </div>
+              {recentBatteries.slice(0, 4).map((battery: any) => (
+                <div key={battery.id} className="flex items-center gap-2 rounded-xl border border-slate-200/80 px-3 py-2 text-xs">
+                  <span className="min-w-0 flex-1 truncate font-mono text-slate-700">{battery.serialNumber}</span>
+                  <span className="shrink-0 font-bold text-emerald-700">{Number(battery.progressPercent || 0)}%</span>
+                  <button type="button" onClick={() => { setActiveBatteryId(battery.id); setActiveView('workflow-pack'); }} className="rounded-lg p-1 text-slate-400 hover:bg-emerald-50 hover:text-emerald-700" title="Edit battery pack">
+                    <Pencil className="h-3.5 w-3.5" />
+                  </button>
+                  <button type="button" onClick={() => void deleteBattery(battery)} className="rounded-lg p-1 text-slate-400 hover:bg-rose-50 hover:text-rose-600" title="Delete battery pack">
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          </Panel>
+
+          <Panel eyebrow="Needs attention" title="Rack assembly" action={<PanelIcon icon={<PackageCheck className="h-5 w-5" />} />}>
+            <div className="mt-4 space-y-2">
+              {rackProgressRows.filter(row => !['SOLD', 'IN_STOCK'].includes(row.label.toUpperCase())).length === 0 ? (
+                <p className="py-5 text-center text-xs text-slate-400">No rack assembly work in progress</p>
+              ) : (
+                rackProgressRows.filter(row => !['SOLD', 'IN_STOCK'].includes(row.label.toUpperCase())).map(row => (
+                  <div key={row.label} className="flex items-center justify-between rounded-xl border border-slate-200/80 px-3 py-2 text-xs">
+                    <span className="min-w-0 flex-1 truncate font-semibold text-slate-600">{row.label}</span>
+                    <b className="mr-2 font-mono text-slate-900">{row.value.toLocaleString()}</b>
+                    <button type="button" onClick={() => setActiveView('rack-assembly')} className="rounded-lg p-1 text-slate-400 hover:bg-emerald-50 hover:text-emerald-700" title="Edit rack assembly">
+                      <Pencil className="h-3.5 w-3.5" />
+                    </button>
+                    <button type="button" disabled className="rounded-lg p-1 text-slate-300" title="Delete requires an individual rack">
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                ))
+              )}
+            </div>
+          </Panel>
+        </section>
+
+        {/* Lifecycle Progress Breakdown */}
+        <section className="grid grid-cols-1 gap-5 lg:grid-cols-2">
+          <ProgressPanel
+            eyebrow="Module progress"
+            title={`${moduleProgressTotal.toLocaleString()} modules by stage`}
+            icon={<PanelIcon icon={<Layers className="h-5 w-5" />} />}
+            rows={moduleProgressRows}
+            color="bg-emerald-500"
+            emptyLabel="No module progress data"
+          />
+          <ProgressPanel
+            eyebrow="Rack & cabinet progress"
+            title={`${rackProgressTotal.toLocaleString()} racks in lifecycle`}
+            icon={<PanelIcon icon={<PackageCheck className="h-5 w-5" />} />}
+            rows={rackProgressRows}
+            color="bg-emerald-700"
+            emptyLabel="No rack progress data"
+            footer={rackCapacityRows.filter((row: any) => row.value > 0).map((row: any) => `${row.label}: ${row.value}`).join(' · ') || 'No racks recorded'}
+          />
+        </section>
+      </div>
+    </div>
+  );
 };
 
+function PanelIcon({ icon }: { icon: React.ReactNode }) {
+  return <div className="p-2 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-700 shrink-0">{icon}</div>;
+}
+
 function HeroMetric({ label, value, accent = 'text-white' }: { label: string; value: string; accent?: string }) {
-  return <div><p className="text-[9px] font-black uppercase tracking-[0.16em] text-slate-400">{label}</p><p className={`mt-1 text-sm font-black ${accent}`}>{value}</p></div>;
+  return (
+    <div className="rounded-xl border border-slate-200/80 bg-slate-50/70 px-4 py-3">
+      <p className="text-[9px] font-black uppercase tracking-[0.16em] text-slate-400">{label}</p>
+      <p className={`mt-1 text-sm font-black ${accent}`}>{value}</p>
+    </div>
+  );
 }
 
 function Panel({ eyebrow, title, action, children }: { eyebrow: string; title: string; action?: React.ReactNode; children: React.ReactNode }) {
-  return <article className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6"><div className="flex items-start justify-between gap-4"><div><p className="text-[10px] font-black uppercase tracking-[0.16em] text-slate-400">{eyebrow}</p><h2 className="mt-1 text-base font-black tracking-tight text-slate-900">{title}</h2></div>{action}</div>{children}</article>;
+  return <article className="studio-card-hover rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6 hover:border-slate-300"><div className="flex items-start justify-between gap-4"><div><p className="text-[10px] font-black uppercase tracking-[0.16em] text-emerald-700">{eyebrow}</p><h2 className="mt-1 text-base font-black tracking-tight text-slate-900">{title}</h2></div>{action}</div>{children}</article>;
 }
 
 function ProgressPanel({ eyebrow, title, icon, rows, color, emptyLabel, footer }: { eyebrow: string; title: string; icon: React.ReactNode; rows: Array<{ label: string; value: number }>; color: string; emptyLabel: string; footer?: string }) {
