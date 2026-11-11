@@ -215,12 +215,18 @@ begin
           from public.batteries b
           left join public.product_templates p on p.id = b.product_id
          where b.id = any(p_battery_ids)
-         for update
+         for update of b
     loop
-        if v_voltage_type = 'LV' and coalesce(v_battery.capacity_kwh, 5.0) >= 7.0 then
+        if v_voltage_type = 'LV' and (
+            coalesce(v_battery.pack_template_code, '') = 'PACK_7_5KWH'
+            or coalesce(v_battery.capacity_kwh, 5.0) >= 7.0
+        ) then
             raise exception 'Pack % (7.5 kWh) is not compatible with an LV rack. Only 5 kWh packs allowed.', v_battery.serial_number;
         end if;
-        if v_voltage_type = 'HV' and coalesce(v_battery.capacity_kwh, 7.5) < 7.0 then
+        if v_voltage_type = 'HV' and (
+            coalesce(v_battery.pack_template_code, '') = 'PACK_5KWH'
+            or coalesce(v_battery.capacity_kwh, 7.5) < 7.0
+        ) then
             raise exception 'Pack % (5 kWh) is not compatible with an HV cabinet. Only 7.5 kWh packs allowed.', v_battery.serial_number;
         end if;
         if v_battery.status not in ('RELEASED', 'FINISHED', 'WAREHOUSE') then
@@ -290,7 +296,7 @@ begin
     values ('RACK', v_rack_id, 'IN_STOCK', 'IN_STOCK', 'Rack assembled with ' || v_pack_count || ' packs (' || v_actual_kwh || ' kWh)', auth.uid());
 
     perform public.record_genealogy_event('RACK', v_rack_id, 'ASSEMBLED', null, null, jsonb_build_object(
-        'shell_template', v_shell.name,
+        'shell_template', coalesce(v_shell.name, p_template_code),
         'shell_type', v_shell_type,
         'voltage_type', v_voltage_type,
         'actual_capacity_kwh', v_actual_kwh,
