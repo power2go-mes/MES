@@ -5651,7 +5651,7 @@ export const api = {
     // Save inspection report into rack_inspection_reports table if provided
     if (assembledRack && assembledRack.id && inspectionData) {
       try {
-        await rawSupabase.from('rack_inspection_reports').insert([{
+        const { error: insertErr } = await rawSupabase.from('rack_inspection_reports').insert([{
           rack_id: assembledRack.id,
           rack_serial: assembledRack.serialNumber || assembledRack.serial_number || '',
           pack_socs: inspectionData.packSocs || {},
@@ -5666,8 +5666,11 @@ export const api = {
           pdf_file_size: inspectionData.pdfFileSize || null,
           pdf_data_url: inspectionData.pdfDataUrl || null,
         }]);
+        if (insertErr) {
+          console.error('Failed to insert rack_inspection_reports:', insertErr);
+        }
       } catch (reportErr) {
-        console.warn('Could not save rack inspection report:', reportErr);
+        console.error('Could not save rack inspection report exception:', reportErr);
       }
     }
 
