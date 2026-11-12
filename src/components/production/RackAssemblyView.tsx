@@ -16,7 +16,11 @@ import {
   CheckCircle2,
   Info,
   Sliders,
-  Check
+  Check,
+  FileText,
+  Upload,
+  X,
+  FileCheck
 } from 'lucide-react';
 import { QRCodeModal } from '../common/QRCodeModal';
 import { ScannerModal } from '../common/ScannerModal';
@@ -49,6 +53,15 @@ export const RackAssemblyView: React.FC = () => {
   const [voltageQc, setVoltageQc] = useState(false);
   const [scannerOpen, setScannerOpen] = useState(false);
   const [batterySearch, setBatterySearch] = useState('');
+
+  // QC Test & Report Questions State
+  const [testReportPdf, setTestReportPdf] = useState<{ name: string; size: string; dataUrl?: string } | null>(null);
+  const [packSocs, setPackSocs] = useState<Record<number, string>>({ 1: '', 2: '', 3: '', 4: '', 5: '' });
+  const [batteryVoltage, setBatteryVoltage] = useState('');
+  const [peakCurrent, setPeakCurrent] = useState('');
+  const [cycle1Energy, setCycle1Energy] = useState('');
+  const [cycle2Energy, setCycle2Energy] = useState('');
+  const [solisBmsComm, setSolisBmsComm] = useState<'Stable' | 'Fault observed'>('Stable');
 
   // Pack specs based on voltage tier
   const packKwh = selectedVoltage === 'LV' ? 5.0 : 7.5;
@@ -195,6 +208,13 @@ export const RackAssemblyView: React.FC = () => {
 
       setSelected([]);
       setSelectedShell(null);
+      setTestReportPdf(null);
+      setPackSocs({ 1: '', 2: '', 3: '', 4: '', 5: '' });
+      setBatteryVoltage('');
+      setPeakCurrent('');
+      setCycle1Energy('');
+      setCycle2Energy('');
+      setSolisBmsComm('Stable');
       setStep(1);
       triggerRefresh();
       setActiveView('production-flow');
@@ -729,6 +749,237 @@ export const RackAssemblyView: React.FC = () => {
                     High-Voltage / Low-Voltage Polarity & QC Verified
                   </span>
                 </label>
+              </div>
+
+              {/* PDF Upload Section & QC Test Inspection */}
+              <div className="mt-6 rounded-2xl border border-slate-200 bg-slate-50/60 p-5 space-y-5">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-200 pb-3">
+                  <div>
+                    <div className="inline-flex items-center gap-1.5 text-[10px] font-black uppercase tracking-wider text-emerald-700 bg-emerald-100/60 px-2 py-0.5 rounded-full mb-1">
+                      <FileCheck className="w-3 h-3" />
+                      Final Test Verification
+                    </div>
+                    <h3 className="text-sm font-black text-slate-900">
+                      Rack Inspection &amp; Test Report Upload
+                    </h3>
+                  </div>
+                  <span className="text-[11px] font-medium text-slate-500">
+                    PDF Report + Electrical &amp; Communication Measurements
+                  </span>
+                </div>
+
+                {/* PDF Upload Area */}
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1.5">
+                    Upload Test Report PDF (Optional / Recommended)
+                  </label>
+                  {testReportPdf ? (
+                    <div className="flex items-center justify-between p-3.5 bg-white rounded-xl border border-emerald-300 shadow-xs">
+                      <div className="flex items-center space-x-3 overflow-hidden">
+                        <div className="w-9 h-9 rounded-lg bg-emerald-50 text-emerald-600 flex items-center justify-center shrink-0">
+                          <FileText className="w-5 h-5" />
+                        </div>
+                        <div className="min-w-0">
+                          <p className="text-xs font-bold text-slate-900 truncate">{testReportPdf.name}</p>
+                          <p className="text-[10px] text-slate-500 font-mono">{testReportPdf.size}</p>
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setTestReportPdf(null)}
+                        className="p-1.5 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 transition-colors"
+                        title="Remove PDF"
+                      >
+                        <X className="w-4 h-4" />
+                      </button>
+                    </div>
+                  ) : (
+                    <label className="flex flex-col items-center justify-center p-6 border-2 border-dashed border-slate-300 hover:border-emerald-500 rounded-xl bg-white cursor-pointer transition-colors group">
+                      <Upload className="w-6 h-6 text-slate-400 group-hover:text-emerald-600 mb-1.5 transition-colors" />
+                      <span className="text-xs font-bold text-slate-700 group-hover:text-emerald-700">
+                        Click to upload test report (.pdf)
+                      </span>
+                      <span className="text-[10px] text-slate-400 mt-0.5">
+                        Accepts official factory calibration or test PDF up to 25MB
+                      </span>
+                      <input
+                        type="file"
+                        accept="application/pdf,.pdf"
+                        className="hidden"
+                        onChange={e => {
+                          const file = e.target.files?.[0];
+                          if (file) {
+                            const sizeInMb = (file.size / (1024 * 1024)).toFixed(2);
+                            setTestReportPdf({
+                              name: file.name,
+                              size: `${sizeInMb} MB`,
+                            });
+                          }
+                        }}
+                      />
+                    </label>
+                  )}
+                </div>
+
+                {/* Technical Verification Questions */}
+                <div className="pt-2 space-y-4">
+                  {/* Q1: Pack 1/2/3/4/5 SOC (%) */}
+                  <div>
+                    <label className="block text-xs font-black text-slate-800 mb-2">
+                      1. Pack SOC (%) — State of Charge
+                    </label>
+                    <div className="grid grid-cols-2 sm:grid-cols-5 gap-2.5">
+                      {[1, 2, 3, 4, 5].map(packNum => {
+                        const isSlotUsed = packNum <= selected.length;
+                        return (
+                          <div key={packNum} className="space-y-1">
+                            <span className="text-[10px] font-bold text-slate-500 block uppercase tracking-wider">
+                              Pack {packNum} {isSlotUsed ? '• Slot Assigned' : '(Empty Slot)'}
+                            </span>
+                            <div className="relative">
+                              <input
+                                type="number"
+                                min="0"
+                                max="100"
+                                step="0.1"
+                                placeholder={isSlotUsed ? 'e.g. 52.5' : '—'}
+                                value={packSocs[packNum] || ''}
+                                onChange={e => {
+                                  const val = e.target.value;
+                                  setPackSocs(prev => ({ ...prev, [packNum]: val }));
+                                }}
+                                className={`w-full rounded-lg border px-2.5 py-1.5 text-xs font-mono font-bold focus:outline-none focus:ring-1 ${
+                                  isSlotUsed
+                                    ? 'border-slate-300 bg-white text-slate-900 focus:border-emerald-500 focus:ring-emerald-500'
+                                    : 'border-slate-200 bg-slate-100 text-slate-400'
+                                }`}
+                              />
+                              <span className="absolute right-2.5 top-1.5 text-[10px] font-bold text-slate-400">
+                                %
+                              </span>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {/* Q2: Battery voltage / Peak current */}
+                  <div>
+                    <label className="block text-xs font-black text-slate-800 mb-2">
+                      2. Battery Voltage / Peak Current (V / A)
+                    </label>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div>
+                        <span className="text-[10px] font-bold text-slate-500 block mb-1 uppercase tracking-wider">
+                          Battery Voltage (V)
+                        </span>
+                        <input
+                          type="number"
+                          step="0.01"
+                          placeholder="e.g. 51.20"
+                          value={batteryVoltage}
+                          onChange={e => setBatteryVoltage(e.target.value)}
+                          className="w-full rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-mono font-bold text-slate-900 focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                        />
+                      </div>
+                      <div>
+                        <span className="text-[10px] font-bold text-slate-500 block mb-1 uppercase tracking-wider">
+                          Peak Current (A)
+                        </span>
+                        <input
+                          type="number"
+                          step="0.1"
+                          placeholder="e.g. 100.0"
+                          value={peakCurrent}
+                          onChange={e => setPeakCurrent(e.target.value)}
+                          className="w-full rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-mono font-bold text-slate-900 focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Q3 & Q4: Cycle 01 & Cycle 02 Energy (kWh) */}
+                  <div>
+                    <label className="block text-xs font-black text-slate-800 mb-2">
+                      3 &amp; 4. Cycle Energy Charged / Discharged (kWh)
+                    </label>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div>
+                        <span className="text-[10px] font-bold text-slate-500 block mb-1 uppercase tracking-wider">
+                          Cycle 01 Energy Charged / Discharged (kWh)
+                        </span>
+                        <input
+                          type="number"
+                          step="0.01"
+                          placeholder="e.g. 24.85"
+                          value={cycle1Energy}
+                          onChange={e => setCycle1Energy(e.target.value)}
+                          className="w-full rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-mono font-bold text-slate-900 focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                        />
+                      </div>
+                      <div>
+                        <span className="text-[10px] font-bold text-slate-500 block mb-1 uppercase tracking-wider">
+                          Cycle 02 Energy Charged / Discharged (kWh)
+                        </span>
+                        <input
+                          type="number"
+                          step="0.01"
+                          placeholder="e.g. 24.90"
+                          value={cycle2Energy}
+                          onChange={e => setCycle2Energy(e.target.value)}
+                          className="w-full rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-mono font-bold text-slate-900 focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Q5: Solis-BMS Communication Checkbox */}
+                  <div>
+                    <label className="block text-xs font-black text-slate-800 mb-2">
+                      5. Solis-BMS Communication
+                    </label>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <label className={`flex items-center space-x-3 p-3 rounded-xl border cursor-pointer transition-colors ${
+                        solisBmsComm === 'Stable'
+                          ? 'border-emerald-500 bg-emerald-50/60'
+                          : 'border-slate-200 bg-white hover:bg-slate-50'
+                      }`}>
+                        <input
+                          type="radio"
+                          name="solisBmsComm"
+                          value="Stable"
+                          checked={solisBmsComm === 'Stable'}
+                          onChange={() => setSolisBmsComm('Stable')}
+                          className="w-4 h-4 text-emerald-600 focus:ring-emerald-500"
+                        />
+                        <div>
+                          <p className="text-xs font-bold text-slate-900">Stable (Passed)</p>
+                          <p className="text-[10px] text-slate-500">CAN / RS485 communication link active without frame errors</p>
+                        </div>
+                      </label>
+
+                      <label className={`flex items-center space-x-3 p-3 rounded-xl border cursor-pointer transition-colors ${
+                        solisBmsComm === 'Fault observed'
+                          ? 'border-amber-500 bg-amber-50/60'
+                          : 'border-slate-200 bg-white hover:bg-slate-50'
+                      }`}>
+                        <input
+                          type="radio"
+                          name="solisBmsComm"
+                          value="Fault observed"
+                          checked={solisBmsComm === 'Fault observed'}
+                          onChange={() => setSolisBmsComm('Fault observed')}
+                          className="w-4 h-4 text-amber-600 focus:ring-amber-500"
+                        />
+                        <div>
+                          <p className="text-xs font-bold text-slate-900">Fault observed</p>
+                          <p className="text-[10px] text-slate-500">Communication timeouts, packet loss, or alarm detected</p>
+                        </div>
+                      </label>
+                    </div>
+                  </div>
+                </div>
               </div>
 
               {/* Assembly Action Button */}
