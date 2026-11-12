@@ -56,7 +56,8 @@ export const RackAssemblyView: React.FC = () => {
 
   // QC Test & Report Questions State
   const [testReportPdf, setTestReportPdf] = useState<{ name: string; size: string; dataUrl?: string } | null>(null);
-  const [packSocs, setPackSocs] = useState<Record<number, string>>({ 1: '', 2: '', 3: '', 4: '', 5: '' });
+  const [packSocs, setPackSocs] = useState<Record<number, string>>({});
+  const [packVoltages, setPackVoltages] = useState<Record<number, string>>({});
   const [batteryVoltage, setBatteryVoltage] = useState('');
   const [peakCurrent, setPeakCurrent] = useState('');
   const [cycle1Energy, setCycle1Energy] = useState('');
@@ -209,7 +210,8 @@ export const RackAssemblyView: React.FC = () => {
       setSelected([]);
       setSelectedShell(null);
       setTestReportPdf(null);
-      setPackSocs({ 1: '', 2: '', 3: '', 4: '', 5: '' });
+      setPackSocs({});
+      setPackVoltages({});
       setBatteryVoltage('');
       setPeakCurrent('');
       setCycle1Energy('');
@@ -800,7 +802,7 @@ export const RackAssemblyView: React.FC = () => {
                         Click to upload test report (.pdf)
                       </span>
                       <span className="text-[10px] text-slate-400 mt-0.5">
-                        Accepts official factory calibration or test PDF up to 25MB
+                        Accepts official factory calibration or test PDF up to 5MB
                       </span>
                       <input
                         type="file"
@@ -809,6 +811,10 @@ export const RackAssemblyView: React.FC = () => {
                         onChange={e => {
                           const file = e.target.files?.[0];
                           if (file) {
+                            if (file.size > 5 * 1024 * 1024) {
+                              addNotification('error', 'File Too Large', 'Maximum allowed test report PDF size is 5MB.');
+                              return;
+                            }
                             const sizeInMb = (file.size / (1024 * 1024)).toFixed(2);
                             setTestReportPdf({
                               name: file.name,
@@ -823,18 +829,27 @@ export const RackAssemblyView: React.FC = () => {
 
                 {/* Technical Verification Questions */}
                 <div className="pt-2 space-y-4">
-                  {/* Q1: Pack 1/2/3/4/5 SOC (%) */}
+                  {/* Q1: Pack SOC (%) */}
                   <div>
                     <label className="block text-xs font-black text-slate-800 mb-2">
                       1. Pack SOC (%) — State of Charge
                     </label>
-                    <div className="grid grid-cols-2 sm:grid-cols-5 gap-2.5">
-                      {[1, 2, 3, 4, 5].map(packNum => {
-                        const isSlotUsed = packNum <= selected.length;
-                        return (
+                    {selected.length === 0 ? (
+                      <div className="rounded-xl border border-dashed border-slate-200 bg-white p-3 text-center text-xs text-slate-400">
+                        Select at least 1 battery pack above to enter SOC values.
+                      </div>
+                    ) : (
+                      <div className={`grid gap-2.5 ${
+                        selected.length === 1 ? 'grid-cols-1 max-w-xs' :
+                        selected.length === 2 ? 'grid-cols-1 sm:grid-cols-2' :
+                        selected.length === 3 ? 'grid-cols-1 sm:grid-cols-3' :
+                        selected.length === 4 ? 'grid-cols-2 sm:grid-cols-4' :
+                        'grid-cols-2 sm:grid-cols-5'
+                      }`}>
+                        {Array.from({ length: selected.length }, (_, i) => i + 1).map(packNum => (
                           <div key={packNum} className="space-y-1">
                             <span className="text-[10px] font-bold text-slate-500 block uppercase tracking-wider">
-                              Pack {packNum} {isSlotUsed ? '• Slot Assigned' : '(Empty Slot)'}
+                              Pack 0{packNum}
                             </span>
                             <div className="relative">
                               <input
@@ -842,61 +857,85 @@ export const RackAssemblyView: React.FC = () => {
                                 min="0"
                                 max="100"
                                 step="0.1"
-                                placeholder={isSlotUsed ? 'e.g. 52.5' : '—'}
+                                placeholder="e.g. 52.5"
                                 value={packSocs[packNum] || ''}
                                 onChange={e => {
                                   const val = e.target.value;
                                   setPackSocs(prev => ({ ...prev, [packNum]: val }));
                                 }}
-                                className={`w-full rounded-lg border px-2.5 py-1.5 text-xs font-mono font-bold focus:outline-none focus:ring-1 ${
-                                  isSlotUsed
-                                    ? 'border-slate-300 bg-white text-slate-900 focus:border-emerald-500 focus:ring-emerald-500'
-                                    : 'border-slate-200 bg-slate-100 text-slate-400'
-                                }`}
+                                className="w-full rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-mono font-bold text-slate-900 focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
                               />
                               <span className="absolute right-2.5 top-1.5 text-[10px] font-bold text-slate-400">
                                 %
                               </span>
                             </div>
                           </div>
-                        );
-                      })}
-                    </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
 
-                  {/* Q2: Battery voltage / Peak current */}
+                  {/* Q2: Battery voltage / Peak current (matches format of Q1 per attached pack count) */}
                   <div>
                     <label className="block text-xs font-black text-slate-800 mb-2">
                       2. Battery Voltage / Peak Current (V / A)
                     </label>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                      <div>
-                        <span className="text-[10px] font-bold text-slate-500 block mb-1 uppercase tracking-wider">
-                          Battery Voltage (V)
-                        </span>
-                        <input
-                          type="number"
-                          step="0.01"
-                          placeholder="e.g. 51.20"
-                          value={batteryVoltage}
-                          onChange={e => setBatteryVoltage(e.target.value)}
-                          className="w-full rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-mono font-bold text-slate-900 focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
-                        />
+                    {selected.length === 0 ? (
+                      <div className="rounded-xl border border-dashed border-slate-200 bg-white p-3 text-center text-xs text-slate-400">
+                        Select at least 1 battery pack above to enter Voltage / Current values.
                       </div>
-                      <div>
-                        <span className="text-[10px] font-bold text-slate-500 block mb-1 uppercase tracking-wider">
-                          Peak Current (A)
-                        </span>
-                        <input
-                          type="number"
-                          step="0.1"
-                          placeholder="e.g. 100.0"
-                          value={peakCurrent}
-                          onChange={e => setPeakCurrent(e.target.value)}
-                          className="w-full rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-mono font-bold text-slate-900 focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
-                        />
+                    ) : (
+                      <div className={`grid gap-2.5 ${
+                        selected.length === 1 ? 'grid-cols-1 max-w-md' :
+                        selected.length === 2 ? 'grid-cols-1 sm:grid-cols-2' :
+                        selected.length === 3 ? 'grid-cols-1 sm:grid-cols-3' :
+                        selected.length === 4 ? 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-4' :
+                        'grid-cols-1 sm:grid-cols-2 lg:grid-cols-5'
+                      }`}>
+                        {Array.from({ length: selected.length }, (_, i) => i + 1).map(packNum => (
+                          <div key={packNum} className="p-2.5 rounded-xl border border-slate-200 bg-white space-y-2">
+                            <span className="text-[10px] font-black text-emerald-700 block uppercase tracking-wider border-b border-slate-100 pb-1">
+                              Pack 0{packNum}
+                            </span>
+                            <div>
+                              <span className="text-[9px] font-bold text-slate-500 block uppercase">Voltage (V)</span>
+                              <div className="relative mt-0.5">
+                                <input
+                                  type="number"
+                                  step="0.01"
+                                  placeholder="51.20"
+                                  value={packVoltages[packNum] || ''}
+                                  onChange={e => {
+                                    const val = e.target.value;
+                                    setPackVoltages(prev => ({ ...prev, [packNum]: val }));
+                                  }}
+                                  className="w-full rounded-lg border border-slate-300 bg-white px-2 py-1 text-xs font-mono font-bold text-slate-900 focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                                />
+                                <span className="absolute right-2 top-1 text-[9px] font-bold text-slate-400">V</span>
+                              </div>
+                            </div>
+                            <div>
+                              <span className="text-[9px] font-bold text-slate-500 block uppercase">Peak Current (A)</span>
+                              <div className="relative mt-0.5">
+                                <input
+                                  type="number"
+                                  step="0.1"
+                                  placeholder="100.0"
+                                  value={packNum === 1 ? peakCurrent : (packSocs[`curr_${packNum}`] || '')}
+                                  onChange={e => {
+                                    const val = e.target.value;
+                                    if (packNum === 1) setPeakCurrent(val);
+                                    setPackSocs(prev => ({ ...prev, [`curr_${packNum}`]: val }));
+                                  }}
+                                  className="w-full rounded-lg border border-slate-300 bg-white px-2 py-1 text-xs font-mono font-bold text-slate-900 focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                                />
+                                <span className="absolute right-2 top-1 text-[9px] font-bold text-slate-400">A</span>
+                              </div>
+                            </div>
+                          </div>
+                        ))}
                       </div>
-                    </div>
+                    )}
                   </div>
 
                   {/* Q3 & Q4: Cycle 01 & Cycle 02 Energy (kWh) */}
