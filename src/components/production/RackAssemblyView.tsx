@@ -60,8 +60,10 @@ export const RackAssemblyView: React.FC = () => {
   const [packVoltages, setPackVoltages] = useState<Record<number, string>>({});
   const [batteryVoltage, setBatteryVoltage] = useState('');
   const [peakCurrent, setPeakCurrent] = useState('');
-  const [cycle1Energy, setCycle1Energy] = useState('');
-  const [cycle2Energy, setCycle2Energy] = useState('');
+  const [cycle1Charged, setCycle1Charged] = useState('');
+  const [cycle1Discharged, setCycle1Discharged] = useState('');
+  const [cycle2Charged, setCycle2Charged] = useState('');
+  const [cycle2Discharged, setCycle2Discharged] = useState('');
   const [solisBmsComm, setSolisBmsComm] = useState<'Stable' | 'Fault observed'>('Stable');
 
   // Pack specs based on voltage tier
@@ -214,8 +216,10 @@ export const RackAssemblyView: React.FC = () => {
       setPackVoltages({});
       setBatteryVoltage('');
       setPeakCurrent('');
-      setCycle1Energy('');
-      setCycle2Energy('');
+      setCycle1Charged('');
+      setCycle1Discharged('');
+      setCycle2Charged('');
+      setCycle2Discharged('');
       setSolisBmsComm('Stable');
       setStep(1);
       triggerRefresh();
@@ -938,35 +942,70 @@ export const RackAssemblyView: React.FC = () => {
                     )}
                   </div>
 
-                  {/* Q3 & Q4: Cycle 01 & Cycle 02 Energy (kWh) */}
+                  {/* Q3: Cycle 01 Energy (kWh) - Charging & Discharging */}
                   <div>
                     <label className="block text-xs font-black text-slate-800 mb-2">
-                      3 &amp; 4. Cycle Energy Charged / Discharged (kWh)
+                      3. Cycle 01 Energy (kWh)
                     </label>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                       <div>
                         <span className="text-[10px] font-bold text-slate-500 block mb-1 uppercase tracking-wider">
-                          Cycle 01 Energy Charged / Discharged (kWh)
+                          Cycle 01 Charged (kWh)
                         </span>
                         <input
                           type="number"
                           step="0.01"
-                          placeholder="e.g. 24.85"
-                          value={cycle1Energy}
-                          onChange={e => setCycle1Energy(e.target.value)}
+                          placeholder="e.g. 25.10"
+                          value={cycle1Charged}
+                          onChange={e => setCycle1Charged(e.target.value)}
                           className="w-full rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-mono font-bold text-slate-900 focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
                         />
                       </div>
                       <div>
                         <span className="text-[10px] font-bold text-slate-500 block mb-1 uppercase tracking-wider">
-                          Cycle 02 Energy Charged / Discharged (kWh)
+                          Cycle 01 Discharged (kWh)
+                        </span>
+                        <input
+                          type="number"
+                          step="0.01"
+                          placeholder="e.g. 24.85"
+                          value={cycle1Discharged}
+                          onChange={e => setCycle1Discharged(e.target.value)}
+                          className="w-full rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-mono font-bold text-slate-900 focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Q4: Cycle 02 Energy (kWh) - Charging & Discharging */}
+                  <div>
+                    <label className="block text-xs font-black text-slate-800 mb-2">
+                      4. Cycle 02 Energy (kWh)
+                    </label>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div>
+                        <span className="text-[10px] font-bold text-slate-500 block mb-1 uppercase tracking-wider">
+                          Cycle 02 Charged (kWh)
+                        </span>
+                        <input
+                          type="number"
+                          step="0.01"
+                          placeholder="e.g. 25.05"
+                          value={cycle2Charged}
+                          onChange={e => setCycle2Charged(e.target.value)}
+                          className="w-full rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-mono font-bold text-slate-900 focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                        />
+                      </div>
+                      <div>
+                        <span className="text-[10px] font-bold text-slate-500 block mb-1 uppercase tracking-wider">
+                          Cycle 02 Discharged (kWh)
                         </span>
                         <input
                           type="number"
                           step="0.01"
                           placeholder="e.g. 24.90"
-                          value={cycle2Energy}
-                          onChange={e => setCycle2Energy(e.target.value)}
+                          value={cycle2Discharged}
+                          onChange={e => setCycle2Discharged(e.target.value)}
                           className="w-full rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-mono font-bold text-slate-900 focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
                         />
                       </div>
