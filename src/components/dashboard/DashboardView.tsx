@@ -56,7 +56,7 @@ export const DashboardView: React.FC = () => {
     <p className="mt-2 text-xs text-slate-500">{loadError}</p><button type="button" onClick={() => void loadStats()} className="mt-5 rounded-xl bg-emerald-600 px-4 py-2.5 text-xs font-bold text-white">Retry</button>
   </div></div>;
 
-  if (loading || !stats) return <div className="flex-1 grid place-items-center p-8"><div className="text-center"><Activity className="mx-auto h-8 w-8 animate-spin text-emerald-600" /><p className="mt-3 text-[11px] font-black uppercase tracking-[0.18em] text-slate-500">Loading line telemetry</p></div></div>;
+  if (loading || !stats) return <div className="flex-1 grid place-items-center p-8"><div className="text-center"><p className="mt-3 text-[11px] font-black uppercase tracking-[0.18em] text-slate-500">Loading line telemetry</p></div></div>;
 
   const inventory = stats.inventory || {};
   const quality = stats.quality || {};

@@ -130,13 +130,13 @@ const AppContent: React.FC = () => {
       case 'audit':
         return <AuditTrailView />;
       case 'security':
-        return canManageUsers ? <SecurityView /> : <DashboardView />;
+        return canManageUsers ? <SecurityView /> : <CEOMonitoringView />;
       case 'warehouse':
         return <WarehouseView />;
       case 'sold':
         return <SoldView />;
       default:
-        return <DashboardView />;
+        return <CEOMonitoringView />;
     }
   };
 
