@@ -5533,37 +5533,40 @@ export const api = {
     try {
       const rackIds = rows.map((r: any) => r.id);
       if (rackIds.length > 0) {
-        const { data: reports } = await supabase
+        const { data: reports, error: reportsError } = await supabase
           .from('rack_inspection_reports')
           .select('*')
           .in('rack_id', rackIds);
+        if (reportsError) throw reportsError;
         if (reports && Array.isArray(reports)) {
           reports.forEach((rep: any) => {
-            if (rep.rack_id) {
-              inspectionMap.set(rep.rack_id, {
+            const reportRackId = rep.rackId || rep.rack_id;
+            if (reportRackId) {
+              inspectionMap.set(reportRackId, {
                 id: rep.id,
-                rackId: rep.rack_id,
-                rackSerial: rep.rack_serial,
-                packSocs: rep.pack_socs,
-                packVoltages: rep.pack_voltages,
-                packCurrents: rep.pack_currents,
-                cycle1ChargedKwh: rep.cycle1_charged_kwh,
-                cycle1DischargedKwh: rep.cycle1_discharged_kwh,
-                cycle2ChargedKwh: rep.cycle2_charged_kwh,
-                cycle2DischargedKwh: rep.cycle2_discharged_kwh,
-                solisBmsComm: rep.solis_bms_comm,
-                pdfFileName: rep.pdf_file_name,
-                pdfFileSize: rep.pdf_file_size,
-                pdfDataUrl: rep.pdf_data_url,
-                createdAt: rep.created_at,
-                createdBy: rep.created_by,
+                rackId: reportRackId,
+                rackSerial: rep.rackSerial || rep.rack_serial,
+                packSocs: rep.packSocs || rep.pack_socs || {},
+                packVoltages: rep.packVoltages || rep.pack_voltages || {},
+                packCurrents: rep.packCurrents || rep.pack_currents || {},
+                cycle1ChargedKwh: rep.cycle1ChargedKwh ?? rep.cycle1_charged_kwh,
+                cycle1DischargedKwh: rep.cycle1DischargedKwh ?? rep.cycle1_discharged_kwh,
+                cycle2ChargedKwh: rep.cycle2ChargedKwh ?? rep.cycle2_charged_kwh,
+                cycle2DischargedKwh: rep.cycle2DischargedKwh ?? rep.cycle2_discharged_kwh,
+                solisBmsComm: rep.solisBmsComm || rep.solis_bms_comm,
+                pdfFileName: rep.pdfFileName || rep.pdf_file_name,
+                pdfFileSize: rep.pdfFileSize || rep.pdf_file_size,
+                pdfDataUrl: rep.pdfDataUrl || rep.pdf_data_url,
+                createdAt: rep.createdAt || rep.created_at,
+                createdBy: rep.createdBy || rep.created_by,
               });
             }
           });
         }
       }
-    } catch {
-      // Table may not exist yet or no access - fail gracefully
+    } catch (error) {
+      console.error('Failed to load rack inspection reports:', error);
+      throw error;
     }
 
     return rows.map((rack: any) => {
@@ -5639,41 +5642,15 @@ export const api = {
       location = locationArg || 'RACK_ASSEMBLY';
     }
 
-    const { data, error } = await rawSupabase.rpc('assemble_rack_transaction', {
+    const { data, error } = await rawSupabase.rpc('assemble_rack_with_inspection', {
       p_template_code: templateCode,
       p_battery_ids: batteryIds,
       p_location: location,
       p_shell_template_id: shellTemplateId,
+      p_inspection_data: inspectionData || {},
     });
     if (error) throw error;
     const assembledRack = toAppValue(data);
-
-    // Save inspection report into rack_inspection_reports table if provided
-    if (assembledRack && assembledRack.id && inspectionData) {
-      try {
-        const { error: insertErr } = await rawSupabase.from('rack_inspection_reports').insert([{
-          rack_id: assembledRack.id,
-          rack_serial: assembledRack.serialNumber || assembledRack.serial_number || '',
-          pack_socs: inspectionData.packSocs || {},
-          pack_voltages: inspectionData.packVoltages || {},
-          pack_currents: inspectionData.packCurrents || {},
-          cycle1_charged_kwh: inspectionData.cycle1ChargedKwh ?? null,
-          cycle1_discharged_kwh: inspectionData.cycle1DischargedKwh ?? null,
-          cycle2_charged_kwh: inspectionData.cycle2ChargedKwh ?? null,
-          cycle2_discharged_kwh: inspectionData.cycle2DischargedKwh ?? null,
-          solis_bms_comm: inspectionData.solisBmsComm || 'Stable',
-          pdf_file_name: inspectionData.pdfFileName || null,
-          pdf_file_size: inspectionData.pdfFileSize || null,
-          pdf_data_url: inspectionData.pdfDataUrl || null,
-        }]);
-        if (insertErr) {
-          console.error('Failed to insert rack_inspection_reports:', insertErr);
-        }
-      } catch (reportErr) {
-        console.error('Could not save rack inspection report exception:', reportErr);
-      }
-    }
-
     return assembledRack;
   },
 
