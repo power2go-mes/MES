@@ -201,6 +201,24 @@ export const RackAssemblyView: React.FC = () => {
         batteryIds: selected,
         location,
         shellTemplateId: selectedShell.id,
+        inspectionData: {
+          packSocs,
+          packVoltages,
+          packCurrents: Object.fromEntries(
+            selected.map((_, i) => [
+              i + 1,
+              i === 0 ? peakCurrent : (packSocs[`curr_${i + 1}`] || '')
+            ])
+          ),
+          cycle1ChargedKwh: cycle1Charged ? Number(cycle1Charged) : null,
+          cycle1DischargedKwh: cycle1Discharged ? Number(cycle1Discharged) : null,
+          cycle2ChargedKwh: cycle2Charged ? Number(cycle2Charged) : null,
+          cycle2DischargedKwh: cycle2Discharged ? Number(cycle2Discharged) : null,
+          solisBmsComm,
+          pdfFileName: testReportPdf?.name || null,
+          pdfFileSize: testReportPdf?.size || null,
+          pdfDataUrl: testReportPdf?.dataUrl || null,
+        },
       });
 
       addNotification(
@@ -820,10 +838,15 @@ export const RackAssemblyView: React.FC = () => {
                               return;
                             }
                             const sizeInMb = (file.size / (1024 * 1024)).toFixed(2);
-                            setTestReportPdf({
-                              name: file.name,
-                              size: `${sizeInMb} MB`,
-                            });
+                            const reader = new FileReader();
+                            reader.onload = () => {
+                              setTestReportPdf({
+                                name: file.name,
+                                size: `${sizeInMb} MB`,
+                                dataUrl: reader.result as string,
+                              });
+                            };
+                            reader.readAsDataURL(file);
                           }
                         }}
                       />

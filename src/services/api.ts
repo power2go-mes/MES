@@ -5528,6 +5528,44 @@ export const api = {
       rows.push(...(data || []));
       if (!data || data.length < pageSize || (requestedLimit !== undefined && rows.length >= requestedLimit)) break;
     }
+    // Try to fetch inspection reports for racks
+    let inspectionMap = new Map<string, any>();
+    try {
+      const rackIds = rows.map((r: any) => r.id);
+      if (rackIds.length > 0) {
+        const { data: reports } = await supabase
+          .from('rack_inspection_reports')
+          .select('*')
+          .in('rack_id', rackIds);
+        if (reports && Array.isArray(reports)) {
+          reports.forEach((rep: any) => {
+            if (rep.rack_id) {
+              inspectionMap.set(rep.rack_id, {
+                id: rep.id,
+                rackId: rep.rack_id,
+                rackSerial: rep.rack_serial,
+                packSocs: rep.pack_socs,
+                packVoltages: rep.pack_voltages,
+                packCurrents: rep.pack_currents,
+                cycle1ChargedKwh: rep.cycle1_charged_kwh,
+                cycle1DischargedKwh: rep.cycle1_discharged_kwh,
+                cycle2ChargedKwh: rep.cycle2_charged_kwh,
+                cycle2DischargedKwh: rep.cycle2_discharged_kwh,
+                solisBmsComm: rep.solis_bms_comm,
+                pdfFileName: rep.pdf_file_name,
+                pdfFileSize: rep.pdf_file_size,
+                pdfDataUrl: rep.pdf_data_url,
+                createdAt: rep.created_at,
+                createdBy: rep.created_by,
+              });
+            }
+          });
+        }
+      }
+    } catch {
+      // Table may not exist yet or no access - fail gracefully
+    }
+
     return rows.map((rack: any) => {
       const templateCode = rack.rackTemplateCode || rack.rack_template_code || '';
       const installedCount = Number(rack.installedPackCount ?? rack.installed_pack_count ?? (rack.rackPacks || rack.rack_packs || []).length);
@@ -5551,6 +5589,7 @@ export const api = {
         actualCapacityKwh: Number(rack.actualCapacityKwh ?? rack.actual_capacity_kwh ?? defaultCapacity),
         installedPackCount: installedCount,
         maxPackCapacity: Number(rack.maxPackCapacity ?? rack.max_pack_capacity ?? rack.requiredPackCount ?? rack.required_pack_count ?? 5),
+        inspectionReport: inspectionMap.get(rack.id) || null,
         batteryIds: (rack.rackPacks || rack.rack_packs || [])
           .sort((a: any, b: any) => (a.packSlotIndex ?? a.pack_slot_index) - (b.packSlotIndex ?? b.pack_slot_index))
           .map((item: any) => item.batteryId || item.battery_id),
@@ -5564,6 +5603,19 @@ export const api = {
       batteryIds: string[];
       location?: string;
       shellTemplateId?: string;
+      inspectionData?: {
+        packSocs?: Record<string, any>;
+        packVoltages?: Record<string, any>;
+        packCurrents?: Record<string, any>;
+        cycle1ChargedKwh?: number | null;
+        cycle1DischargedKwh?: number | null;
+        cycle2ChargedKwh?: number | null;
+        cycle2DischargedKwh?: number | null;
+        solisBmsComm?: string | null;
+        pdfFileName?: string | null;
+        pdfFileSize?: string | null;
+        pdfDataUrl?: string | null;
+      };
     } | string,
     batteryIdsArg?: string[],
     locationArg?: string
@@ -5573,12 +5625,14 @@ export const api = {
     let batteryIds: string[] = [];
     let location = 'RACK_ASSEMBLY';
     let shellTemplateId: string | null = null;
+    let inspectionData: any = null;
 
     if (typeof params === 'object') {
       templateCode = params.templateCode || '';
       batteryIds = params.batteryIds || [];
       location = params.location || 'RACK_ASSEMBLY';
       shellTemplateId = params.shellTemplateId || null;
+      inspectionData = params.inspectionData || null;
     } else {
       templateCode = params;
       batteryIds = batteryIdsArg || [];
@@ -5592,7 +5646,32 @@ export const api = {
       p_shell_template_id: shellTemplateId,
     });
     if (error) throw error;
-    return toAppValue(data);
+    const assembledRack = toAppValue(data);
+
+    // Save inspection report into rack_inspection_reports table if provided
+    if (assembledRack && assembledRack.id && inspectionData) {
+      try {
+        await rawSupabase.from('rack_inspection_reports').insert([{
+          rack_id: assembledRack.id,
+          rack_serial: assembledRack.serialNumber || assembledRack.serial_number || '',
+          pack_socs: inspectionData.packSocs || {},
+          pack_voltages: inspectionData.packVoltages || {},
+          pack_currents: inspectionData.packCurrents || {},
+          cycle1_charged_kwh: inspectionData.cycle1ChargedKwh ?? null,
+          cycle1_discharged_kwh: inspectionData.cycle1DischargedKwh ?? null,
+          cycle2_charged_kwh: inspectionData.cycle2ChargedKwh ?? null,
+          cycle2_discharged_kwh: inspectionData.cycle2DischargedKwh ?? null,
+          solis_bms_comm: inspectionData.solisBmsComm || 'Stable',
+          pdf_file_name: inspectionData.pdfFileName || null,
+          pdf_file_size: inspectionData.pdfFileSize || null,
+          pdf_data_url: inspectionData.pdfDataUrl || null,
+        }]);
+      } catch (reportErr) {
+        console.warn('Could not save rack inspection report:', reportErr);
+      }
+    }
+
+    return assembledRack;
   },
 
   async getRackShellTemplates(includeInactive: boolean = false): Promise<RackShellTemplate[]> {

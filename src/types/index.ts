@@ -101,6 +101,27 @@ export interface RackShellTemplate {
   updatedAt?: string;
 }
 
+export interface RackInspectionReport {
+  id: string;
+  rackId: string;
+  rackSerial: string;
+  packSocs?: Record<string, any>;
+  packVoltages?: Record<string, any>;
+  packCurrents?: Record<string, any>;
+  batteryVoltage?: number | null;
+  peakCurrent?: number | null;
+  cycle1ChargedKwh?: number | null;
+  cycle1DischargedKwh?: number | null;
+  cycle2ChargedKwh?: number | null;
+  cycle2DischargedKwh?: number | null;
+  solisBmsComm?: string | null;
+  pdfFileName?: string | null;
+  pdfFileSize?: string | null;
+  pdfDataUrl?: string | null;
+  createdAt?: string;
+  createdBy?: string | null;
+}
+
 export interface RackUnit {
   id: string;
   serialNumber: string;
@@ -117,6 +138,7 @@ export interface RackUnit {
   actualCapacityKwh?: number;
   installedPackCount?: number;
   maxPackCapacity?: number;
+  inspectionReport?: RackInspectionReport | null;
   issuedToPerson?: string | null;
   issuedToDepartment?: string | null;
   issuedBy?: string | null;

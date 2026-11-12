@@ -13,6 +13,7 @@ import { IssueModal } from '../common/IssueModal';
 import { QRCodeModal } from '../common/QRCodeModal';
 import { ScannerModal } from '../common/ScannerModal';
 import { BatteryReportModal } from '../common/BatteryReportModal';
+import { RackInspectionModal } from '../common/RackInspectionModal';
 import { CopyToClipboardButton } from '../common/CopyToClipboardButton';
 import {
   Boxes,
@@ -31,6 +32,8 @@ import {
   Trash2,
   Download,
   UserCheck,
+  FileCheck,
+  FileText,
 } from 'lucide-react';
 
 type Tab = 'CELLS' | 'BMS' | 'BMU' | 'MODULES' | 'BATTERIES' | 'RACKS';
@@ -121,6 +124,7 @@ export const InventoryView: React.FC = () => {
   const [qrModalOpen, setQrModalOpen] = useState(false);
   const [qrData, setQrData] = useState<any | null>(null);
   const [reportBattery, setReportBattery] = useState<BatteryUnit | null>(null);
+  const [inspectionRack, setInspectionRack] = useState<any | null>(null);
   const [issueModalOpen, setIssueModalOpen] = useState(false);
   const [issueTarget, setIssueTarget] = useState<{
     entityType: IssueEntityType;
@@ -1767,6 +1771,7 @@ export const InventoryView: React.FC = () => {
                   <th className="px-5 py-3">Packs</th>
                   <th className="px-5 py-3">Location</th>
                   <th className="px-5 py-3">Status</th>
+                  <th className="px-5 py-3">Factory Inspection</th>
                   <th className="px-5 py-3">QR / Actions</th>
                 </tr>
               </thead>
@@ -1812,6 +1817,32 @@ export const InventoryView: React.FC = () => {
                       <td className="px-5 py-3.5 text-slate-600 font-medium">{installedPacks} / {maxPacks}</td>
                       <td className="px-5 py-3.5 text-slate-600">{rack.location || '-'}</td>
                       <td className="px-5 py-3.5"><span className={`rounded-md border px-2.5 py-0.5 text-[10px] font-bold uppercase ${getStatusBadge(status)}`}>{status}</span></td>
+                      <td className="px-5 py-3.5">
+                        {rack.inspectionReport ? (
+                          <button
+                            type="button"
+                            onClick={() => setInspectionRack(rack)}
+                            className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-200 text-[11px] font-bold transition-colors"
+                            title="View calibration & test measurements"
+                          >
+                            <FileCheck className="w-3.5 h-3.5" />
+                            <span>View Report</span>
+                            {rack.inspectionReport.pdfFileName && (
+                              <FileText className="w-3 h-3 text-emerald-600" />
+                            )}
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => setInspectionRack(rack)}
+                            className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-slate-50 text-slate-400 hover:bg-slate-100 text-[11px] font-medium border border-slate-200 transition-colors"
+                            title="No formal report recorded - click for details"
+                          >
+                            <FileText className="w-3.5 h-3.5" />
+                            <span>No Report</span>
+                          </button>
+                        )}
+                      </td>
                       <td className="px-5 py-3.5 text-right font-sans space-x-1">
                         <button
                           type="button"
@@ -1867,6 +1898,12 @@ export const InventoryView: React.FC = () => {
         isOpen={Boolean(reportBattery)}
         onClose={() => setReportBattery(null)}
         battery={reportBattery}
+      />
+
+      <RackInspectionModal
+        isOpen={Boolean(inspectionRack)}
+        onClose={() => setInspectionRack(null)}
+        rack={inspectionRack}
       />
 
       {/* Receive BMS Batch Modal */}
