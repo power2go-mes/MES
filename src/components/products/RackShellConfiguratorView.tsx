@@ -34,6 +34,9 @@ export const RackShellConfiguratorView: React.FC = () => {
   const [maxSlots, setMaxSlots] = useState(5);
   const [nominalCapacityKwh, setNominalCapacityKwh] = useState(25.0);
   const [description, setDescription] = useState('Standard 5-slot Low-Voltage (LV) open battery rack frame for 5 kWh packs');
+  const [initialQuantity, setInitialQuantity] = useState(0);
+  const [stockQuantities, setStockQuantities] = useState<Record<string, number>>({});
+  const [updatingStockId, setUpdatingStockId] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   useEffect(() => {
@@ -81,6 +84,7 @@ export const RackShellConfiguratorView: React.FC = () => {
         nominalCapacityKwh,
         description,
         active: true,
+        availableQuantity: initialQuantity,
       });
 
       addNotification('success', 'Shell Template Created', `Template "${name}" created successfully.`);
@@ -93,6 +97,7 @@ export const RackShellConfiguratorView: React.FC = () => {
       setMaxSlots(5);
       setNominalCapacityKwh(25.0);
       setDescription('');
+      setInitialQuantity(0);
       triggerRefresh();
       loadShells();
     } catch (err: any) {
@@ -100,6 +105,22 @@ export const RackShellConfiguratorView: React.FC = () => {
       addNotification('error', 'Creation Failed', err.message || 'Could not create shell template.');
     } finally {
       setIsSubmitting(false);
+    }
+  };
+
+  const handleSetStock = async (shell: RackShellTemplate) => {
+    const quantity = Math.max(0, Math.floor(Number(stockQuantities[shell.id] ?? shell.availableQuantity ?? 0)));
+    setUpdatingStockId(shell.id);
+    try {
+      await api.setRackShellInventoryQuantity(shell.id, quantity);
+      addNotification('success', 'Shell Stock Updated', `${shell.name} now has ${quantity} shell${quantity === 1 ? '' : 's'} available.`);
+      setStockQuantities(current => ({ ...current, [shell.id]: quantity }));
+      triggerRefresh();
+      await loadShells();
+    } catch (err: any) {
+      addNotification('error', 'Stock Update Failed', err.message || 'Could not update shell stock.');
+    } finally {
+      setUpdatingStockId(null);
     }
   };
 
@@ -258,6 +279,37 @@ export const RackShellConfiguratorView: React.FC = () => {
                     <div>
                       <p className="text-[10px] font-bold text-slate-400 uppercase">Pack Code</p>
                       <p className="text-sm font-black text-slate-800 font-mono">{packKwh} kWh</p>
+                    </div>
+                  </div>
+
+                  <div className="mb-4 rounded-xl border border-emerald-200 bg-emerald-50/60 p-3">
+                    <div className="mb-2 flex items-center justify-between">
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-800">Factory Shell Stock</span>
+                      <span className={`text-sm font-black ${(shell.availableQuantity || 0) > 0 ? 'text-emerald-800' : 'text-red-700'}`}>
+                        {shell.availableQuantity || 0} available
+                      </span>
+                    </div>
+                    <div className="flex gap-2">
+                      <input
+                        type="number"
+                        min={0}
+                        step={1}
+                        value={stockQuantities[shell.id] ?? shell.availableQuantity ?? 0}
+                        onChange={event => setStockQuantities(current => ({
+                          ...current,
+                          [shell.id]: Math.max(0, Math.floor(Number(event.target.value) || 0)),
+                        }))}
+                        className="min-w-0 flex-1 rounded-lg border border-emerald-200 bg-white px-3 py-1.5 text-sm font-bold text-slate-900 focus:outline-hidden focus:border-emerald-600"
+                        aria-label={`${shell.name} available quantity`}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => void handleSetStock(shell)}
+                        disabled={updatingStockId === shell.id}
+                        className="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-bold text-white hover:bg-emerald-700 disabled:opacity-50"
+                      >
+                        {updatingStockId === shell.id ? 'Saving…' : 'Set Quantity'}
+                      </button>
                     </div>
                   </div>
 
@@ -453,6 +505,22 @@ export const RackShellConfiguratorView: React.FC = () => {
                   If an operator loads 3 packs, capacity becomes <strong>{(3 * (voltageType === 'LV' ? 5.0 : 7.5)).toFixed(1)} kWh</strong>.
                   Full capacity ({maxSlots} packs) is <strong>{nominalCapacityKwh} kWh</strong>.
                 </p>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
+                  Initial Factory Quantity
+                </label>
+                <input
+                  type="number"
+                  min={0}
+                  step={1}
+                  required
+                  value={initialQuantity}
+                  onChange={event => setInitialQuantity(Math.max(0, Math.floor(Number(event.target.value) || 0)))}
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-hidden focus:border-emerald-600"
+                />
+                <p className="mt-1 text-[10px] text-slate-400">One shell is deducted after each successful rack or cabinet assembly.</p>
               </div>
 
               {/* Description */}

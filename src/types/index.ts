@@ -96,6 +96,7 @@ export interface RackShellTemplate {
   nominalCapacityKwh: number;
   description?: string | null;
   active: boolean;
+  availableQuantity?: number;
   createdAt?: string;
   updatedAt?: string;
 }

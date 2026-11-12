@@ -61,6 +61,7 @@ export const DEFAULT_RACK_SHELL_TEMPLATES: RackShellTemplate[] = [
     nominalCapacityKwh: 25.0,
     description: 'Standard 5-slot Low-Voltage (LV) open battery rack frame for 5 kWh packs',
     active: true,
+    availableQuantity: 0,
   },
   {
     id: 'shell-cab-25kwh-lv',
@@ -72,6 +73,7 @@ export const DEFAULT_RACK_SHELL_TEMPLATES: RackShellTemplate[] = [
     nominalCapacityKwh: 25.0,
     description: 'Enclosed 5-slot Low-Voltage (LV) battery cabinet for 5 kWh packs',
     active: true,
+    availableQuantity: 0,
   },
   {
     id: 'shell-cab-45kwh-hv',
@@ -83,6 +85,7 @@ export const DEFAULT_RACK_SHELL_TEMPLATES: RackShellTemplate[] = [
     nominalCapacityKwh: 45.0,
     description: 'Enclosed 6-slot High-Voltage (HV) battery cabinet for 7.5 kWh packs',
     active: true,
+    availableQuantity: 0,
   },
   {
     id: 'shell-cab-60kwh-hv',
@@ -94,6 +97,7 @@ export const DEFAULT_RACK_SHELL_TEMPLATES: RackShellTemplate[] = [
     nominalCapacityKwh: 60.0,
     description: 'Enclosed 8-slot High-Voltage (HV) battery cabinet for 7.5 kWh packs',
     active: true,
+    availableQuantity: 0,
   },
   {
     id: 'shell-cab-70kwh-hv',
@@ -105,6 +109,7 @@ export const DEFAULT_RACK_SHELL_TEMPLATES: RackShellTemplate[] = [
     nominalCapacityKwh: 67.5,
     description: 'Enclosed 9-slot High-Voltage (HV) battery cabinet for 7.5 kWh packs',
     active: true,
+    availableQuantity: 0,
   },
   {
     id: 'shell-cab-75kwh-hv',
@@ -116,6 +121,7 @@ export const DEFAULT_RACK_SHELL_TEMPLATES: RackShellTemplate[] = [
     nominalCapacityKwh: 75.0,
     description: 'Enclosed 10-slot High-Voltage (HV) battery cabinet for 7.5 kWh packs',
     active: true,
+    availableQuantity: 0,
   },
 ];
 
@@ -5599,10 +5605,16 @@ export const api = {
       if (!includeInactive) {
         query = query.eq('active', true);
       }
-      const { data, error } = await query;
+      const [{ data, error }, inventoryResult] = await Promise.all([
+        query,
+        rawSupabase.from('rack_shell_inventory').select('shell_template_id, quantity_on_hand'),
+      ]);
       if (error || !data || data.length === 0) {
         return DEFAULT_RACK_SHELL_TEMPLATES;
       }
+      const quantityByTemplate = new Map(
+        (inventoryResult.data || []).map((row: any) => [row.shell_template_id, Number(row.quantity_on_hand || 0)]),
+      );
       return data.map((t: any) => ({
         id: t.id,
         name: t.name,
@@ -5613,6 +5625,7 @@ export const api = {
         nominalCapacityKwh: Number(t.nominal_capacity_kwh || t.nominalCapacityKwh || 25),
         description: t.description,
         active: t.active ?? true,
+        availableQuantity: quantityByTemplate.get(t.id) || 0,
         createdAt: t.created_at || t.createdAt,
         updatedAt: t.updated_at || t.updatedAt,
       }));
@@ -5641,6 +5654,15 @@ export const api = {
         .select()
         .single();
       if (!error && data) {
+        const initialQuantity = Math.max(0, Math.floor(Number(template.availableQuantity || 0)));
+        if (initialQuantity > 0) {
+          const { error: stockError } = await rawSupabase.rpc('set_rack_shell_inventory_quantity', {
+            p_shell_template_id: data.id,
+            p_quantity: initialQuantity,
+            p_reason: 'Initial shell stock',
+          });
+          if (stockError) throw stockError;
+        }
         return {
           id: data.id,
           name: data.name,
@@ -5651,6 +5673,7 @@ export const api = {
           nominalCapacityKwh: Number(data.nominal_capacity_kwh),
           description: data.description,
           active: data.active,
+          availableQuantity: initialQuantity,
           createdAt: data.created_at,
           updatedAt: data.updated_at,
         };
@@ -5712,8 +5735,24 @@ export const api = {
       nominalCapacityKwh: updates.nominalCapacityKwh || 25,
       description: updates.description,
       active: updates.active ?? true,
+      availableQuantity: updates.availableQuantity ?? 0,
       updatedAt: new Date().toISOString(),
     };
+  },
+
+  async setRackShellInventoryQuantity(shellTemplateId: string, quantity: number, reason = 'Manual stock adjustment'): Promise<number> {
+    if (!rawSupabase) throw new Error('Supabase is not configured.');
+    const normalizedQuantity = Math.floor(Number(quantity));
+    if (!Number.isInteger(normalizedQuantity) || normalizedQuantity < 0) {
+      throw new Error('Shell quantity must be a whole number of zero or more.');
+    }
+    const { data, error } = await rawSupabase.rpc('set_rack_shell_inventory_quantity', {
+      p_shell_template_id: shellTemplateId,
+      p_quantity: normalizedQuantity,
+      p_reason: reason,
+    });
+    if (error) throw error;
+    return Number((data as any)?.quantityAvailable ?? (data as any)?.quantity_available ?? normalizedQuantity);
   },
 
   async deleteRackShellTemplate(id: string): Promise<void> {

@@ -125,6 +125,10 @@ export const RackAssemblyView: React.FC = () => {
   };
 
   const handleShellSelect = (shell: RackShellTemplate) => {
+    if ((shell.availableQuantity || 0) < 1) {
+      addNotification('warning', 'Shell Out of Stock', `${shell.name} has no factory shell stock available.`);
+      return;
+    }
     setSelectedShell(shell);
     setSelected([]);
     setPhysicalQc(false);
@@ -172,7 +176,7 @@ export const RackAssemblyView: React.FC = () => {
   };
 
   const assemble = async () => {
-    if (selected.length < 1 || selected.length > maxSlots || !physicalQc || !voltageQc || !selectedShell) return;
+    if (selected.length < 1 || selected.length > maxSlots || !physicalQc || !voltageQc || !selectedShell || (selectedShell.availableQuantity || 0) < 1) return;
     setSaving(true);
     try {
       const templateCode = `${selectedShell.shellType}_${currentActualKwh}KWH`;
@@ -422,13 +426,15 @@ export const RackAssemblyView: React.FC = () => {
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
                 {availableShells.map(shell => {
                   const isCab = shell.shellType === 'CABINET';
+                  const outOfStock = (shell.availableQuantity || 0) < 1;
 
                   return (
                     <button
                       key={shell.id}
                       type="button"
                       onClick={() => handleShellSelect(shell)}
-                      className="p-5 rounded-2xl border-2 border-slate-200 hover:border-emerald-500 bg-white hover:bg-emerald-50/20 text-left transition-all group flex flex-col justify-between shadow-xs hover:shadow-md"
+                      disabled={outOfStock}
+                      className={`p-5 rounded-2xl border-2 text-left transition-all group flex flex-col justify-between shadow-xs ${outOfStock ? 'border-slate-200 bg-slate-50 opacity-65 cursor-not-allowed' : 'border-slate-200 hover:border-emerald-500 bg-white hover:bg-emerald-50/20 hover:shadow-md'}`}
                     >
                       <div>
                         <div className="flex items-start justify-between gap-2 mb-3">
@@ -463,10 +469,13 @@ export const RackAssemblyView: React.FC = () => {
                             <p className="text-sm font-black text-emerald-700">{shell.nominalCapacityKwh} kWh</p>
                           </div>
                         </div>
+                        <div className={`mt-2 rounded-lg px-3 py-2 text-center text-xs font-black ${outOfStock ? 'bg-red-50 text-red-700' : 'bg-emerald-50 text-emerald-800'}`}>
+                          {shell.availableQuantity || 0} shell{(shell.availableQuantity || 0) === 1 ? '' : 's'} available
+                        </div>
                       </div>
 
                       <div className="mt-5 pt-3 border-t border-slate-100 flex items-center justify-between text-xs font-bold text-emerald-700">
-                        <span>Select this Shell Body</span>
+                        <span>{outOfStock ? 'Out of Stock' : 'Select this Shell Body'}</span>
                         <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
                       </div>
                     </button>
