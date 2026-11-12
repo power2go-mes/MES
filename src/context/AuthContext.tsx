@@ -90,6 +90,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     lastAppliedSession.current = sessionKey;
     setAccessToken(session.access_token);
     const mapped = await loadProfile(session.user.id, session.user);
+    if (typeof window !== 'undefined') {
+      try {
+        window.localStorage.setItem('p2g_activeView', JSON.stringify('ceo-monitoring'));
+      } catch {
+        // Ignore storage errors
+      }
+    }
     setCurrentUser(mapped);
   }, []);
 
@@ -226,6 +233,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const logout = async () => {
     try {
+      if (typeof window !== 'undefined') {
+        try {
+          window.localStorage.setItem('p2g_activeView', JSON.stringify('ceo-monitoring'));
+        } catch {
+          // Ignore storage errors
+        }
+      }
       if (supabase) await supabase.auth.signOut();
       setAccessToken(null);
       setCurrentUser(null);
@@ -233,6 +247,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setPendingEmail(null);
       return { error: null };
     } catch (err: any) {
+      if (typeof window !== 'undefined') {
+        try {
+          window.localStorage.setItem('p2g_activeView', JSON.stringify('ceo-monitoring'));
+        } catch {
+          // Ignore storage errors
+        }
+      }
       setCurrentUser(null);
       setAccessToken(null);
       return { error: err?.message || 'Logout failed' };

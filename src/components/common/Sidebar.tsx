@@ -99,7 +99,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
             <LayoutDashboard className="w-3.5 h-3.5" />
             <span>Dashboard</span>
           </button>}
-          {(hasPermission('ceo_monitoring.view') || isCeo) && <button
+          <button
             onClick={() => setActiveView('ceo-monitoring')}
             className={`w-full flex items-center space-x-2.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
               activeView === 'ceo-monitoring'
@@ -109,7 +109,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
           >
             <BarChart3 className="w-3.5 h-3.5" />
             <span>CEO Monitoring</span>
-          </button>}
+          </button>
           {hasPermission('production_flow.view') && <button
             onClick={() => setActiveView('production-flow')}
             className={`w-full flex items-center space-x-2.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
