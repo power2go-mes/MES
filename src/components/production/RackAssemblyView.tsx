@@ -645,7 +645,7 @@ export const RackAssemblyView: React.FC = () => {
               </div>
 
               {/* Slot Grid Representation */}
-              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-3 p-4 bg-slate-50 rounded-2xl border border-slate-200 mb-6">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 p-5 bg-slate-50 rounded-2xl border border-slate-200 mb-6">
                 {Array.from({ length: maxSlots }).map((_, slotIdx) => {
                   const assignedBatteryId = selected[slotIdx];
                   const assignedBattery = assignedBatteryId ? batteries.find(b => b.id === assignedBatteryId) : null;
@@ -653,7 +653,7 @@ export const RackAssemblyView: React.FC = () => {
                   return (
                     <div
                       key={slotIdx}
-                      className={`p-3 rounded-xl border text-left transition-all ${
+                      className={`p-4 rounded-xl border text-left transition-all ${
                         assignedBattery
                           ? 'bg-white border-emerald-500 shadow-xs'
                           : 'bg-slate-100/60 border-dashed border-slate-300'
@@ -674,7 +674,7 @@ export const RackAssemblyView: React.FC = () => {
 
                       {assignedBattery ? (
                         <div>
-                          <p className="font-mono text-xs font-black text-slate-900 truncate">
+                          <p className="font-mono text-xs font-black text-slate-900 break-all">
                             {assignedBattery.serialNumber}
                           </p>
                           <p className="text-[10px] text-slate-500 truncate mt-0.5">
