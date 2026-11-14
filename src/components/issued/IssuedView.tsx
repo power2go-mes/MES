@@ -152,13 +152,17 @@ export const IssuedView: React.FC = () => {
           'Hardware Not Found',
           res.message || `No component matching "${code}" found in Cells, BMS, BMU, Modules, Packs, or Racks.`
         );
+        throw new Error(res.message || `No hardware matching "${code}" was found.`);
       }
     } catch (err: any) {
-      addNotification(
-        'error',
-        'Scan Lookup Failed',
-        err?.message || 'Failed to query database for scanned barcode.'
-      );
+      if (!String(err?.message || '').startsWith('No component matching')) {
+        addNotification(
+          'error',
+          'Scan Lookup Failed',
+          err?.message || 'Failed to query database for scanned barcode.'
+        );
+      }
+      throw err;
     } finally {
       setScanProcessing(false);
     }

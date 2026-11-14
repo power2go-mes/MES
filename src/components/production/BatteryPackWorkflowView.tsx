@@ -301,6 +301,7 @@ export const BatteryPackWorkflowView: React.FC = () => {
         "Pack Scan Failed",
         err.message || "Unable to verify this component.",
       );
+      throw err;
     }
   };
 

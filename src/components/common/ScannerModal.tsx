@@ -169,9 +169,15 @@ export const ScannerModal: React.FC<ScannerModalProps> = ({
       }
 
       const BarcodeDetector = (window as any).BarcodeDetector;
-      if (BarcodeDetector && videoRef.current) {
+      const supportedFormats: string[] = BarcodeDetector?.getSupportedFormats
+        ? await BarcodeDetector.getSupportedFormats().catch(() => [])
+        : [];
+      const requestedFormats = ['qr_code', 'code_128', 'code_39', 'ean_13', 'ean_8'];
+      const nativeSupportsAllFormats = requestedFormats.every(format => supportedFormats.includes(format));
+      let nativeScannerActive = false;
+      if (BarcodeDetector && videoRef.current && nativeSupportsAllFormats) {
         try {
-          const detector = new BarcodeDetector({ formats: ['qr_code'] });
+          const detector = new BarcodeDetector({ formats: requestedFormats });
           nativeScanTimerRef.current = window.setInterval(() => {
             const video = videoRef.current;
             if (cameraStartId !== cameraStartIdRef.current || scanSession !== scanSessionRef.current || !isOpenRef.current
@@ -192,20 +198,21 @@ export const ScannerModal: React.FC<ScannerModalProps> = ({
               .finally(() => {
                 nativeScanInFlightRef.current = false;
               });
-          }, 180);
+          }, 80);
+          nativeScannerActive = true;
         } catch {
-          // Continue with ZXing when BarcodeDetector is unavailable or unsupported.
+          // Fall back to ZXing when native decoding is unavailable.
         }
       }
 
-      if (!nativeScanTimerRef.current) {
+      if (!nativeScannerActive) {
         const hints = new Map<DecodeHintType, any>([
           [DecodeHintType.POSSIBLE_FORMATS, [BarcodeFormat.QR_CODE, BarcodeFormat.CODE_128, BarcodeFormat.CODE_39, BarcodeFormat.EAN_13, BarcodeFormat.EAN_8]],
           [DecodeHintType.TRY_HARDER, true],
         ]);
         const reader = new BrowserMultiFormatReader(hints, {
-          delayBetweenScanAttempts: 120,
-          delayBetweenScanSuccess: 500,
+          delayBetweenScanAttempts: 70,
+          delayBetweenScanSuccess: 250,
         });
         readerRef.current = reader;
 

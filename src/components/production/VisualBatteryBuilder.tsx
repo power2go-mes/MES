@@ -75,6 +75,7 @@ export const VisualBatteryBuilder: React.FC = () => {
       addNotification('success', 'Battery Found', `Loaded battery ${found.serialNumber}`);
     } else {
       addNotification('error', 'BATTERY NOT FOUND', 'This battery barcode does not exist in the supplier data.');
+      throw new Error('This battery barcode does not exist in the supplier data.');
     }
   };
 
@@ -125,7 +126,7 @@ export const VisualBatteryBuilder: React.FC = () => {
   const handleComponentScan = async (code: string) => {
     const userId = currentUser?.id;
     const slotType = scannerTarget.slotType;
-    if (!data || !userId) return;
+    if (!data || !userId) throw new Error('Battery or signed-in user is unavailable.');
     setActionLoading(true);
     try {
       const normalizedCode = code.trim();
@@ -187,6 +188,7 @@ export const VisualBatteryBuilder: React.FC = () => {
       await loadBatteryDetails(data.battery.id);
     } catch (err: any) {
       addNotification('error', 'Assignment Failed', err.message);
+      throw err;
     } finally {
       setActionLoading(false);
     }

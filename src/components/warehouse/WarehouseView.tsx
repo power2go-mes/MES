@@ -68,9 +68,9 @@ export const WarehouseView: React.FC = () => {
 
   useEffect(() => { void load(); }, [refreshKey]);
 
-  const receiveIdentifiers = async (identifiers: string[]) => {
+  const receiveIdentifiers = async (identifiers: string[]): Promise<boolean> => {
     const values = Array.from(new Set(identifiers.map(value => value.trim()).filter(Boolean)));
-    if (values.length === 0 || !location.trim()) return;
+    if (values.length === 0 || !location.trim()) return false;
     setSaving(true);
     try {
       for (const identifier of values) {
@@ -81,8 +81,10 @@ export const WarehouseView: React.FC = () => {
       setSelectedEntity('');
       setSelectedBattery('');
       triggerRefresh();
+      return true;
     } catch (error: any) {
       addNotification('error', 'Receipt Failed', error.message || 'Could not receive selected item(s).');
+      return false;
     } finally {
       setSaving(false);
     }
@@ -210,7 +212,7 @@ export const WarehouseView: React.FC = () => {
           </div>
         </div>
       )}
-      <ScannerModal isOpen={scannerOpen} onClose={() => setScannerOpen(false)} onScan={value => { setScannerOpen(false); void receiveIdentifiers([value]); }} title={`Scan ${receiveType}`} subtitle={`Scan a ${receiveType.toLowerCase()} identifier for ${location} warehouse`} />
+      <ScannerModal isOpen={scannerOpen} onClose={() => setScannerOpen(false)} onScan={async value => { if (!await receiveIdentifiers([value])) throw new Error('Warehouse receipt failed. Review the notification and retry.'); setScannerOpen(false); }} title={`Scan ${receiveType}`} subtitle={`Scan a ${receiveType.toLowerCase()} identifier for ${location} warehouse`} />
       <div className="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden"><div className="p-4 border-b border-slate-100 text-xs font-bold uppercase tracking-wider text-slate-600">Movement History</div><div className="overflow-x-auto"><table className="w-full min-w-[760px] text-left text-xs"><thead className="bg-slate-50"><tr><th className="p-3">Entity</th><th className="p-3">From</th><th className="p-3">To</th><th className="p-3">Time</th><th className="p-3">Actions</th></tr></thead><tbody className="divide-y divide-slate-100">{movements.map(m => { const entityType = String(m.entityType || m.entity_type || '').toUpperCase() as 'MODULE' | 'BATTERY' | 'RACK'; const entityId = String(m.entityId || m.entity_id || ''); const serial = String(m.entitySerial || 'Serial unavailable'); const label = entityType === 'BATTERY' ? normalizeBatterySerial(serial) : entityType === 'RACK' ? normalizeRackSerial(serial) : serial; const canManage = ['MODULE', 'BATTERY', 'RACK'].includes(entityType) && Boolean(entityId); return <tr key={m.id}><td className="p-3 font-mono">{label}</td><td className="p-3">{m.fromLocation || m.from_location || '-'}</td><td className="p-3">{m.toLocation || m.to_location}</td><td className="p-3">{new Date(m.movedAt || m.moved_at).toLocaleString()}</td><td className="p-3"><div className="flex items-center gap-1">{canManage && <><button type="button" onClick={() => openEditLocation(entityType, entityId, label)} className="inline-flex items-center gap-1 rounded-md border border-slate-200 px-2 py-1 text-[10px] font-semibold text-slate-600 hover:bg-slate-50"><Pencil className="h-3 w-3" />Edit</button><button type="button" onClick={() => void removeFromWarehouse(entityType, entityId, label)} disabled={saving} className="inline-flex items-center gap-1 rounded-md border border-red-200 px-2 py-1 text-[10px] font-semibold text-red-600 hover:bg-red-50 disabled:opacity-50"><Trash2 className="h-3 w-3" />Delete</button></>}</div></td></tr>; })}</tbody></table></div></div>
     </div>
   );

@@ -58,8 +58,8 @@ export const ContainerFloorView: React.FC = () => {
     ]);
   };
 
-  const movePallet = async (palletCode: string) => {
-    if (!palletCode.trim()) return;
+  const movePallet = async (palletCode: string): Promise<boolean> => {
+    if (!palletCode.trim()) return false;
     setSaving(true);
     try {
       const result = await api.movePalletToFloor(palletCode.trim());
@@ -75,8 +75,10 @@ export const ContainerFloorView: React.FC = () => {
         skippedCount: 0,
       });
       setPallet('');
+      return true;
     } catch (error: any) {
       addNotification('error', 'Container move failed', error.message);
+      return false;
     } finally {
       setSaving(false);
     }
@@ -472,10 +474,9 @@ export const ContainerFloorView: React.FC = () => {
       <ScannerModal
         isOpen={scannerOpen}
         onClose={() => setScannerOpen(false)}
-        onScan={(value) => {
+        onScan={async (value) => {
+          if (!await movePallet(value)) throw new Error('Container move failed. Review the notification and retry.');
           setScannerOpen(false);
-          setPallet(value);
-          void movePallet(value);
         }}
         title="Scan Container / Pallet Barcode"
         subtitle="Moves every cell on the pallet to FLOOR_STOCK"

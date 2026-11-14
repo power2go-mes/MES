@@ -132,9 +132,9 @@ export const ModuleWorkflowView: React.FC = () => {
     if (!loading && hasMoreFloorCells) void loadFloorCells([], floorPage + 1);
   };
 
-  const addCellByBarcode = async (barcode: string) => {
+  const addCellByBarcode = async (barcode: string): Promise<boolean> => {
     const normalized = barcode.trim().toLowerCase();
-    if (!normalized) return;
+    if (!normalized) return false;
     
     let cell = floorCells.find(item => [item.id, item.internalSerial, item.supplierBarcode].some(value => String(value || '').toLowerCase() === normalized));
     
@@ -155,26 +155,27 @@ export const ModuleWorkflowView: React.FC = () => {
 
     if (!cell) {
       addNotification('error', 'Cell Not Available', `${barcode} is not in FLOOR_STOCK.`);
-      return;
+      return false;
     }
     if (selectedCellIds.includes(cell.id)) {
       addNotification('warning', 'Duplicate Cell', `${barcode} has already been selected.`);
-      return;
+      return false;
     }
 
     if (editingCellIndex !== null) {
       replaceCellAtIndex(editingCellIndex, cell.id);
       setEditingCellIndex(null);
       addNotification('success', 'Cell Replaced', `${cell.internalSerial || cell.id} has been assigned to this module slot.`);
-      return;
+      return true;
     }
 
     if (selectedCellIds.length >= requiredCells) {
       addNotification('warning', 'Module Full', `An ${moduleType} module accepts exactly ${requiredCells} cells.`);
-      return;
+      return false;
     }
 
     setSelectedCellIds(current => [...current, cell.id]);
+    return true;
   };
 
   const submitManualCells = async (event: React.FormEvent) => {
@@ -580,7 +581,7 @@ export const ModuleWorkflowView: React.FC = () => {
                         type="button"
                         disabled={Boolean(draftModule)}
                         onClick={() => {
-                          setEditingCellIndex(index);
+                          setEditingCellIndex(null);
                           setScannerOpen(true);
                         }}
                         className="rounded-2xl border-2 border-dashed border-slate-300 bg-slate-50/80 p-3.5 text-left min-h-[112px] flex flex-col justify-between hover:border-emerald-400 hover:bg-emerald-50/40 transition-all group disabled:cursor-default disabled:hover:border-slate-300"
@@ -861,7 +862,7 @@ export const ModuleWorkflowView: React.FC = () => {
           </section>
         )}
       </div>
-      <ScannerModal isOpen={scannerOpen} onClose={() => { setScannerOpen(false); setEditingCellIndex(null); }} onScan={barcode => { setScannerOpen(false); void addCellByBarcode(barcode); }} title={editingCellIndex !== null ? 'Replace cell in this module slot' : 'Scan floor-stock cell'} subtitle={editingCellIndex !== null ? 'Scan a different FLOOR_STOCK cell to replace the selected slot.' : 'Only cells currently in FLOOR_STOCK can be assigned to this module'} />
+      <ScannerModal isOpen={scannerOpen} onClose={() => { setScannerOpen(false); setEditingCellIndex(null); }} onScan={async barcode => { if (!await addCellByBarcode(barcode)) throw new Error('Cell was not added to the module.'); setScannerOpen(false); setEditingCellIndex(null); }} title={editingCellIndex !== null ? 'Replace cell in this module slot' : 'Scan floor-stock cell'} subtitle={editingCellIndex !== null ? 'Scan a different FLOOR_STOCK cell to replace the selected slot.' : 'Only cells currently in FLOOR_STOCK can be assigned to this module'} />
       <QRCodeModal isOpen={Boolean(qrModule)} onClose={() => setQrModule(null)} title="Module Traceability QR" qrPayload={qrModule?.qr_code || qrModule?.qrCode || `${qrModule?.serial_number}|MODULE:${qrModule?.id}` || ''} serialNumber={qrModule?.serial_number || 'MODULE'} itemType="MODULE" metadata={{ type: qrModule?.module_type || moduleType, status: qrModule?.status || 'CELLS_ASSIGNED' }} />
     </div>
   );
