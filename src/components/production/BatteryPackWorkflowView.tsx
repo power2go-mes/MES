@@ -793,11 +793,12 @@ export const BatteryPackWorkflowView: React.FC = () => {
                 <div className="flex flex-wrap gap-2 shrink-0">
                   <button
                     type="button"
+                    disabled={Boolean(battery?.bmu)}
                     onClick={() => {
                       setScanTarget("BMS");
                       setScannerOpen(true);
                     }}
-                    className={`inline-flex items-center gap-1.5 rounded-xl border px-4 py-2 text-xs font-bold transition-colors ${
+                    className={`inline-flex items-center gap-1.5 rounded-xl border px-4 py-2 text-xs font-bold transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
                       scannedControllerType === "BMS"
                         ? "border-emerald-500 bg-emerald-600 text-white"
                         : "border-slate-200 bg-white text-slate-700 hover:border-emerald-400 hover:bg-emerald-50"
@@ -808,11 +809,12 @@ export const BatteryPackWorkflowView: React.FC = () => {
                   </button>
                   <button
                     type="button"
+                    disabled={Boolean(battery?.bms)}
                     onClick={() => {
                       setScanTarget("BMU");
                       setScannerOpen(true);
                     }}
-                    className={`inline-flex items-center gap-1.5 rounded-xl border px-4 py-2 text-xs font-bold transition-colors ${
+                    className={`inline-flex items-center gap-1.5 rounded-xl border px-4 py-2 text-xs font-bold transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
                       scannedControllerType === "BMU"
                         ? "border-emerald-500 bg-emerald-600 text-white"
                         : "border-slate-200 bg-white text-slate-700 hover:border-emerald-400 hover:bg-emerald-50"

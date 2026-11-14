@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useApp } from '../../context/AppContext';
 import { api } from '../../services/api';
 import { BatteryUnit, RackUnit, RackShellTemplate } from '../../types';
@@ -53,6 +53,8 @@ export const RackAssemblyView: React.FC = () => {
   const [voltageQc, setVoltageQc] = useState(false);
   const [scannerOpen, setScannerOpen] = useState(false);
   const [batterySearch, setBatterySearch] = useState('');
+  const batteryPageRequestRef = useRef(false);
+  const batterySearchInitializedRef = useRef(false);
 
   // QC Test & Report Questions State
   const [testReportPdf, setTestReportPdf] = useState<{ name: string; size: string; dataUrl?: string } | null>(null);
@@ -73,22 +75,35 @@ export const RackAssemblyView: React.FC = () => {
   const isCabinet = selectedShell?.shellType === 'CABINET';
 
   const loadData = async (page = 0) => {
+    if (batteryPageRequestRef.current) return;
+    batteryPageRequestRef.current = true;
     setLoading(true);
     try {
       const pageSize = 50;
       const [allBatteries, allRacks, shells] = await Promise.all([
-        api.getBatterySummaries({ limit: pageSize, offset: page * pageSize, statuses: ['RELEASED', 'FINISHED', 'WAREHOUSE'] }),
+        api.getBatterySummaries({ limit: pageSize, offset: page * pageSize, statuses: ['RELEASED', 'FINISHED', 'WAREHOUSE'], search: batterySearch }),
         api.getRacks(),
         api.getRackShellTemplates(false),
       ]);
 
       const assignedBatteryIds = new Set(allRacks.flatMap(rack => rack.batteryIds || []));
       const availableBatteries = allBatteries.filter(item => (
-        ['RELEASED', 'FINISHED', 'WAREHOUSE'].includes(item.status)
+        (['RELEASED', 'FINISHED', 'WAREHOUSE'].includes(String(item.status || '').toUpperCase())
+          || ['RELEASED', 'FINISHED', 'WAREHOUSE'].includes(String(item.lifecycleStatus || '').toUpperCase()))
         && !assignedBatteryIds.has(item.id)
       )) as BatteryUnit[];
 
-      setBatteries(current => page > 0 ? [...current, ...availableBatteries] : availableBatteries);
+      setBatteries(current => {
+        if (page === 0) {
+          const selectedIds = new Set(selected);
+          const selectedRows = current.filter(item => selectedIds.has(item.id));
+          const rowsById = new Map(selectedRows.map(item => [item.id, item]));
+          availableBatteries.forEach(item => rowsById.set(item.id, item));
+          return Array.from(rowsById.values());
+        }
+        const seenIds = new Set(current.map(item => item.id));
+        return [...current, ...availableBatteries.filter(item => !seenIds.has(item.id))];
+      });
       setBatteryPage(page);
       setHasMoreBatteries(allBatteries.length === pageSize);
       setRacks(allRacks);
@@ -98,11 +113,21 @@ export const RackAssemblyView: React.FC = () => {
     } catch (error: any) {
       addNotification('error', 'Rack Load Failed', error.message || 'Could not load rack data.');
     } finally {
+      batteryPageRequestRef.current = false;
       setLoading(false);
     }
   };
 
   useEffect(() => { void loadData(); }, [refreshKey]);
+
+  useEffect(() => {
+    if (!batterySearchInitializedRef.current) {
+      batterySearchInitializedRef.current = true;
+      return;
+    }
+    const timer = window.setTimeout(() => { void loadData(0); }, 300);
+    return () => window.clearTimeout(timer);
+  }, [batterySearch]);
 
   // Filter shells by voltage tier
   const availableShells = shellTemplates.filter(s => s.voltageType === selectedVoltage);

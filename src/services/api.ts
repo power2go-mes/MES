@@ -2998,12 +2998,20 @@ export const api = {
     });
   },
 
-  async getBatterySummaries(params?: { limit?: number; offset?: number; statuses?: string[] }): Promise<Array<Pick<BatteryUnit, 'id' | 'serialNumber' | 'productName' | 'productionOrderId' | 'currentStep' | 'progressPercent' | 'status' | 'lifecycleStatus'> & { bmsId?: string; bmuId?: string; capacityKwh?: number }>> {
+  async getBatterySummaries(params?: { limit?: number; offset?: number; statuses?: string[]; search?: string }): Promise<Array<Pick<BatteryUnit, 'id' | 'serialNumber' | 'productName' | 'productionOrderId' | 'currentStep' | 'progressPercent' | 'status' | 'lifecycleStatus'> & { bmsId?: string; bmuId?: string; capacityKwh?: number }>> {
     let query = supabase
       .from('batteries')
       .select('id,serial_number,production_order_id,current_step,progress_percent,status,lifecycle_status,bms_id,bmu_id,product_templates(name,capacity_kwh)')
       .order('created_at', { ascending: false });
-    if (params?.statuses?.length) query = query.in('status', params.statuses);
+    if (params?.statuses?.length) {
+      const statuses = params.statuses.map(status => String(status).toUpperCase());
+      const statusFilter = statuses.join(',');
+      query = query.or(`status.in.(${statusFilter}),lifecycle_status.in.(${statusFilter})`);
+    }
+    if (params?.search?.trim()) {
+      const value = params.search.trim().replace(/[%(),]/g, ' ');
+      query = query.ilike('serial_number', `%${value}%`);
+    }
     if (params?.limit) {
       const offset = Math.max(0, params.offset || 0);
       query = query.range(offset, offset + params.limit - 1);
@@ -3488,6 +3496,9 @@ export const api = {
     const prod = battery.product;
 
     if (data.slotType === 'BMS') {
+      if (battery.bmu_id || battery.bmuId) {
+        throw new Error('This battery already has a BMU assigned. A battery can contain either a BMS or a BMU, not both.');
+      }
       if (!rawSupabase) throw new Error('Supabase is not configured.');
       const lookupValue = data.barcode.trim();
       const { data: bmsById, error: bmsIdLookupError } = await supabase
@@ -3584,6 +3595,9 @@ export const api = {
     }
 
     if (data.slotType === 'BMU') {
+      if (battery.bms_id || battery.bmsId) {
+        throw new Error('This battery already has a BMS assigned. A battery can contain either a BMS or a BMU, not both.');
+      }
       if (!rawSupabase) throw new Error('Supabase is not configured.');
       const lookupValue = data.barcode.trim();
       const { data: bmuById, error: bmuIdLookupError } = await supabase

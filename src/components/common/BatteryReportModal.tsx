@@ -1870,7 +1870,7 @@ export const BatteryReportModal: React.FC<BatteryReportModalProps> = ({
                   </div>
 
                   <div className="meta-item">
-                    <strong>BMU Serial</strong>
+                    <strong>{controllerType} Serial</strong>
 
                     {safeString(controller?.serialNumber || '—')}
                   </div>
