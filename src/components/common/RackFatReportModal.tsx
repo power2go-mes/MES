@@ -32,7 +32,7 @@ export const RackFatReportModal: React.FC<RackFatReportModalProps> = ({
   const [logoDataUrl, setLogoDataUrl] = useState<string>('');
   const [downloading, setDownloading] = useState(false);
 
-  // Pre-load logo image as Data URL for jsPDF
+  // Pre-load and downscale logo image as Data URL for jsPDF to keep PDF size small (< 100 KB)
   useEffect(() => {
     let cancelled = false;
     const img = new Image();
@@ -40,12 +40,17 @@ export const RackFatReportModal: React.FC<RackFatReportModalProps> = ({
     img.onload = () => {
       try {
         const canvas = document.createElement('canvas');
-        canvas.width = img.naturalWidth || img.width;
-        canvas.height = img.naturalHeight || img.height;
+        // Scale logo to high-DPI compact target (~500px wide, ~100px high)
+        const targetWidth = 500;
+        const targetHeight = Math.round((img.height / img.width) * targetWidth) || 80;
+        canvas.width = targetWidth;
+        canvas.height = targetHeight;
         const ctx = canvas.getContext('2d');
         if (ctx) {
-          ctx.drawImage(img, 0, 0);
-          if (!cancelled) setLogoDataUrl(canvas.toDataURL('image/png'));
+          ctx.imageSmoothingEnabled = true;
+          ctx.imageSmoothingQuality = 'high';
+          ctx.drawImage(img, 0, 0, targetWidth, targetHeight);
+          if (!cancelled) setLogoDataUrl(canvas.toDataURL('image/png', 0.85));
         }
       } catch (e) {
         console.warn('Failed to convert logo to dataUrl', e);
@@ -147,7 +152,7 @@ export const RackFatReportModal: React.FC<RackFatReportModalProps> = ({
 
       // Top Header: Logo on left, "QUALITY ASSURANCE" on right
       if (logoDataUrl) {
-        doc.addImage(logoDataUrl, 'PNG', 5, 2.5, 22, 5.5);
+        doc.addImage(logoDataUrl, 'PNG', 5, 2.5, 22, 5.5, undefined, 'FAST');
       } else {
         doc.setFont('helvetica', 'bold');
         doc.setFontSize(6.5);
