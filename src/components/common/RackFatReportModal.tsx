@@ -56,7 +56,7 @@ export const RackFatReportModal: React.FC<RackFatReportModalProps> = ({
 
   // Customer / Destination
   const customer = (rack as any)?.destination || (rack as any)?.client_name || (rack as any)?.issuedToPerson || 'Power2Go Customer';
-  const projectSite = rack?.location ? rack.location.replace(/_/g, ' ') : 'Production Floor';
+  const projectSite = 'Karachi Warehouse';
 
   const testDateFormatted = useMemo(() => {
     const rawDate = report?.createdAt || rack?.createdAt;
@@ -68,7 +68,7 @@ export const RackFatReportModal: React.FC<RackFatReportModalProps> = ({
     });
   }, [report, rack]);
 
-  const approvedBy = report?.createdBy || 'QA Dept.';
+  const approvedBy = 'QA Department';
   const verificationUrl = `https://mes.power2go.com/fat/${fatReportNo}`;
 
   // Generate QR code for bottom card verification
@@ -157,20 +157,20 @@ export const RackFatReportModal: React.FC<RackFatReportModalProps> = ({
 
       // 2-Column Specs Grid
       const startY = 44;
-      const rowGap = 6.2;
+      const rowGap = 6.4;
       const col1X = 5;
       const col2X = 37;
 
       const drawGridField = (x: number, y: number, label: string, value: string) => {
         doc.setFont('helvetica', 'bold');
-        doc.setFontSize(4.3);
+        doc.setFontSize(4.5);
         doc.setTextColor(148, 163, 184); // slate-400
         doc.text(label.toUpperCase(), x, y);
 
         doc.setFont('helvetica', 'bold');
-        doc.setFontSize(6.5);
+        doc.setFontSize(5.0);
         doc.setTextColor(15, 23, 42); // slate-900
-        doc.text(value, x, y + 2.8);
+        doc.text(value, x, y + 2.5);
       };
 
       // Row 1
@@ -192,39 +192,27 @@ export const RackFatReportModal: React.FC<RackFatReportModalProps> = ({
       // Divider line before QR
       doc.setDrawColor(226, 232, 240); // slate-200
       doc.setLineWidth(0.2);
-      doc.line(5, 71, 65, 71);
+      doc.line(5, 73, 65, 73);
 
       // Bottom QR code & Verification Details
       if (qrDataUrl) {
-        doc.addImage(qrDataUrl, 'PNG', 5, 74, 16, 16);
+        doc.addImage(qrDataUrl, 'PNG', 5, 76, 18, 18);
       } else {
         doc.setFillColor(241, 245, 249);
-        doc.rect(5, 74, 16, 16, 'F');
+        doc.rect(5, 76, 18, 18, 'F');
       }
 
       // QR Text details
       doc.setFont('helvetica', 'bold');
       doc.setFontSize(6.5);
       doc.setTextColor(15, 23, 42);
-      doc.text('Scan for the full report', 24, 78);
+      doc.text('Scan for the full report', 26, 82);
 
       doc.setFont('helvetica', 'normal');
       doc.setFontSize(4.8);
       doc.setTextColor(100, 116, 139);
-      doc.text('Complete FAT record with every test result,', 24, 82);
-      doc.text('held in the Power2Go production system.', 24, 85);
-
-      // Verification URL link
-      doc.setFont('helvetica', 'bold');
-      doc.setFontSize(4.8);
-      doc.setTextColor(2, 132, 199); // sky-600
-      doc.text(verificationUrl.replace('https://', ''), 24, 89.5);
-
-      // Card print footer tagline
-      doc.setFont('helvetica', 'normal');
-      doc.setFontSize(3.8);
-      doc.setTextColor(148, 163, 184);
-      doc.text(`P2G FAT card  |  FRONT  |  ${fatReportNo}  |  70x100 mm  |  bleed 3 mm`, 35, 96.5, { align: 'center' });
+      doc.text('Complete FAT record with every test result,', 26, 86.5);
+      doc.text('held in the Power2Go production system.', 26, 90);
 
       doc.save(`${serial}-FAT-Completion-Card-70x100mm.pdf`);
     } catch (err) {
@@ -311,79 +299,79 @@ export const RackFatReportModal: React.FC<RackFatReportModalProps> = ({
             </div>
 
             {/* 2-Column Specs Grid */}
-            <div className="grid grid-cols-2 gap-x-2 gap-y-2 mt-2">
+            <div className="grid grid-cols-2 gap-x-3 gap-y-2.5 mt-2">
               <div>
-                <span className="text-[7px] font-black uppercase text-slate-400 block tracking-wider">
+                <span className="text-[7.5px] font-black uppercase text-slate-400 block tracking-wider">
                   {shellType === 'CABINET' ? 'BATTERY CABINET' : 'BATTERY RACK'}
                 </span>
-                <span className="text-[9px] font-bold text-slate-900 truncate block">
+                <span className="text-[7.5px] font-bold text-slate-800 truncate block mt-0.5">
                   {cabinetModelName}
                 </span>
               </div>
               <div>
-                <span className="text-[7px] font-black uppercase text-slate-400 block tracking-wider">
+                <span className="text-[7.5px] font-black uppercase text-slate-400 block tracking-wider">
                   CAPACITY
                 </span>
-                <span className="text-[9px] font-bold text-slate-900 truncate block">
+                <span className="text-[7.5px] font-bold text-slate-800 truncate block mt-0.5">
                   {capacityFormatted}
                 </span>
               </div>
 
               <div>
-                <span className="text-[7px] font-black uppercase text-slate-400 block tracking-wider">
+                <span className="text-[7.5px] font-black uppercase text-slate-400 block tracking-wider">
                   {shellType === 'CABINET' ? 'CABINET SERIAL NO.' : 'RACK SERIAL NO.'}
                 </span>
-                <span className="font-mono text-[9px] font-black text-slate-900 truncate block">
+                <span className="font-mono text-[7.5px] font-black text-slate-900 truncate block mt-0.5">
                   {serial}
                 </span>
               </div>
               <div>
-                <span className="text-[7px] font-black uppercase text-slate-400 block tracking-wider">
+                <span className="text-[7.5px] font-black uppercase text-slate-400 block tracking-wider">
                   FAT REPORT NO.
                 </span>
-                <span className="font-mono text-[9px] font-bold text-slate-900 truncate block">
+                <span className="font-mono text-[7.5px] font-bold text-slate-900 truncate block mt-0.5">
                   {fatReportNo}
                 </span>
               </div>
 
               <div>
-                <span className="text-[7px] font-black uppercase text-slate-400 block tracking-wider">
+                <span className="text-[7.5px] font-black uppercase text-slate-400 block tracking-wider">
                   CUSTOMER
                 </span>
-                <span className="text-[9px] font-bold text-slate-900 truncate block">
+                <span className="text-[7.5px] font-bold text-slate-800 truncate block mt-0.5">
                   {customer}
                 </span>
               </div>
               <div>
-                <span className="text-[7px] font-black uppercase text-slate-400 block tracking-wider">
+                <span className="text-[7.5px] font-black uppercase text-slate-400 block tracking-wider">
                   TEST DATE
                 </span>
-                <span className="text-[9px] font-bold text-slate-900 truncate block">
+                <span className="text-[7.5px] font-bold text-slate-800 truncate block mt-0.5">
                   {testDateFormatted}
                 </span>
               </div>
 
               <div>
-                <span className="text-[7px] font-black uppercase text-slate-400 block tracking-wider">
+                <span className="text-[7.5px] font-black uppercase text-slate-400 block tracking-wider">
                   PROJECT / SITE
                 </span>
-                <span className="text-[9px] font-bold text-slate-900 truncate block">
+                <span className="text-[7.5px] font-bold text-slate-800 truncate block mt-0.5">
                   {projectSite}
                 </span>
               </div>
               <div>
-                <span className="text-[7px] font-black uppercase text-slate-400 block tracking-wider">
+                <span className="text-[7.5px] font-black uppercase text-slate-400 block tracking-wider">
                   APPROVED BY
                 </span>
-                <span className="text-[9px] font-bold text-slate-900 truncate block">
+                <span className="text-[7.5px] font-bold text-slate-800 truncate block mt-0.5">
                   {approvedBy}
                 </span>
               </div>
             </div>
 
             {/* Bottom Verification & QR Section */}
-            <div className="border-t border-slate-200/80 pt-2 flex items-center gap-2.5">
-              <div className="w-[58px] h-[58px] bg-slate-50 border border-slate-200 rounded p-1 shrink-0 flex items-center justify-center">
+            <div className="border-t border-slate-200/80 pt-3 pb-1 flex items-center gap-3">
+              <div className="w-[62px] h-[62px] bg-slate-50 border border-slate-200 rounded p-1 shrink-0 flex items-center justify-center">
                 {qrDataUrl ? (
                   <img src={qrDataUrl} alt="FAT QR Code" className="w-full h-full object-contain" />
                 ) : (
@@ -391,21 +379,13 @@ export const RackFatReportModal: React.FC<RackFatReportModalProps> = ({
                 )}
               </div>
               <div className="min-w-0 flex-1">
-                <span className="text-[9px] font-black text-slate-900 block truncate">
+                <span className="text-[9.5px] font-black text-slate-900 block truncate">
                   Scan for the full report
                 </span>
-                <span className="text-[7px] text-slate-500 leading-tight block mt-0.5">
+                <span className="text-[7.5px] text-slate-500 leading-normal block mt-1">
                   Complete FAT record with every test result, held in the Power2Go production system.
                 </span>
-                <span className="text-[7px] font-bold text-sky-600 truncate block mt-0.5">
-                  {verificationUrl.replace('https://', '')}
-                </span>
               </div>
-            </div>
-
-            {/* Card print footer metadata */}
-            <div className="text-[5.5px] font-mono text-slate-400 text-center border-t border-slate-100 pt-1">
-              P2G FAT card | FRONT | {fatReportNo} | 70x100 mm | bleed 3 mm
             </div>
           </div>
         </div>
