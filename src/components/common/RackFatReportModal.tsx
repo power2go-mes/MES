@@ -117,7 +117,7 @@ export const RackFatReportModal: React.FC<RackFatReportModalProps> = ({
       margin: 1,
       errorCorrectionLevel: 'M',
       color: {
-        dark: '#0f172a',
+        dark: '#0b1f19',
         light: '#ffffff',
       },
     })
@@ -165,21 +165,30 @@ export const RackFatReportModal: React.FC<RackFatReportModalProps> = ({
       doc.setTextColor(100, 116, 139); // slate-500
       doc.text('QUALITY ASSURANCE', 70 - 5, 6, { align: 'right' });
 
-      // Navy Banner (10mm to 32mm)
-      doc.setFillColor(15, 23, 42); // #0f172a slate-900
+      // Deep green FAT banner
+      doc.setFillColor(11, 31, 25); // #0b1f19
       doc.rect(0, 9, 70, 23, 'F');
 
       // Concentric circles geometric watermark in banner (subtle, 50% opacity style)
-      doc.setDrawColor(40, 53, 72);
+      doc.setDrawColor(36, 58, 49);
       doc.setLineWidth(0.18);
       for (let r = 5; r <= 30; r += 4) {
         doc.circle(70, 20.5, r, 'S');
       }
 
+      // Green completion seal and check mark
+      doc.setDrawColor(46, 185, 67);
+      doc.setLineWidth(0.3);
+      doc.circle(56, 20.5, 4.7, 'S');
+      doc.setDrawColor(238, 248, 241);
+      doc.setLineWidth(0.45);
+      doc.line(53.8, 20.5, 55.3, 22.1);
+      doc.line(55.3, 22.1, 58.4, 18.7);
+
       // Banner text: "FACTORY ACCEPTANCE TEST"
       doc.setFont('helvetica', 'bold');
       doc.setFontSize(5.5);
-      doc.setTextColor(56, 189, 248); // sky-400 (#38bdf8)
+      doc.setTextColor(46, 185, 67); // #2eb943
       doc.text('FACTORY ACCEPTANCE TEST', 5, 15);
 
       // Banner title: "Testing Completed"
@@ -192,7 +201,7 @@ export const RackFatReportModal: React.FC<RackFatReportModalProps> = ({
       doc.setFont('helvetica', 'normal');
       doc.setFontSize(5.5);
       doc.setTextColor(71, 85, 105); // slate-600
-      const intro = 'This battery cabinet has successfully completed factory acceptance testing and quality inspection prior to dispatch.';
+      const intro = `This battery ${shellType === 'CABINET' ? 'cabinet' : 'rack'} has successfully completed factory acceptance testing and quality inspection prior to dispatch.`;
       const introLines = doc.splitTextToSize(intro, 60);
       doc.text(introLines, 5, 36);
 
@@ -205,13 +214,14 @@ export const RackFatReportModal: React.FC<RackFatReportModalProps> = ({
       const drawGridField = (x: number, y: number, label: string, value: string) => {
         doc.setFont('helvetica', 'bold');
         doc.setFontSize(4.5);
-        doc.setTextColor(148, 163, 184); // slate-400
+        doc.setTextColor(116, 135, 153); // muted blue-gray
         doc.text(label.toUpperCase(), x, y);
 
         doc.setFont('helvetica', 'bold');
         doc.setFontSize(5.0);
         doc.setTextColor(15, 23, 42); // slate-900
-        doc.text(value, x, y + 2.5);
+        doc.setFontSize(value.length > 21 ? 4.1 : 5.0);
+        doc.text(value, x, y + 2.5, { maxWidth: 28 });
       };
 
       // Row 1
@@ -230,31 +240,44 @@ export const RackFatReportModal: React.FC<RackFatReportModalProps> = ({
       drawGridField(col1X, startY + rowGap * 3, 'PROJECT / SITE', projectSite);
       drawGridField(col2X, startY + rowGap * 3, 'APPROVED BY', approvedBy);
 
+      doc.setDrawColor(218, 226, 222);
+      doc.setLineWidth(0.12);
+      for (let row = 0; row < 3; row += 1) {
+        const dividerY = startY + rowGap * (row + 1) - 1.0;
+        doc.line(5, dividerY, 65, dividerY);
+      }
+
       // Divider line before QR
-      doc.setDrawColor(226, 232, 240); // slate-200
+      doc.setDrawColor(183, 201, 190); // muted green-gray
       doc.setLineWidth(0.2);
       doc.line(5, 73, 65, 73);
 
-      // Bottom QR code & Verification Details
+      // Mint verification panel with QR code and report link
+      doc.setFillColor(242, 249, 242);
+      doc.roundedRect(5, 75, 60, 20, 1.5, 1.5, 'F');
       if (qrDataUrl) {
-        doc.addImage(qrDataUrl, 'PNG', 5, 76, 18, 18);
+        doc.addImage(qrDataUrl, 'PNG', 7, 77, 16, 16);
       } else {
         doc.setFillColor(241, 245, 249);
-        doc.rect(5, 76, 18, 18, 'F');
+        doc.rect(7, 77, 16, 16, 'F');
       }
 
       // QR Text details
       doc.setFont('helvetica', 'bold');
       doc.setFontSize(6.5);
       doc.setTextColor(15, 23, 42);
-      doc.text('Scan for the full report', 26, 80);
+      doc.text('Scan for the full report', 25, 80);
 
       doc.setFont('helvetica', 'normal');
       doc.setFontSize(4.3);
       doc.setTextColor(100, 116, 139);
-      const downloadNotice = 'Download Complete Factory Assisment Report (FAT) held in Power2go production system.';
-      const noticeLines = doc.splitTextToSize(downloadNotice, 39);
-      doc.text(noticeLines, 26, 84);
+      const downloadNotice = 'View the complete FAT record with every test result in the Power2Go production system.';
+      const noticeLines = doc.splitTextToSize(downloadNotice, 37);
+      doc.text(noticeLines, 25, 84);
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(4.1);
+      doc.setTextColor(34, 153, 62);
+      doc.text(verificationUrl, 25, 92.5, { maxWidth: 37 });
 
       doc.save(`${serial}-FAT-Completion-Card-70x100mm.pdf`);
     } catch (err) {
@@ -323,17 +346,20 @@ export const RackFatReportModal: React.FC<RackFatReportModalProps> = ({
               </div>
             </div>
 
-            {/* Dark Navy Hero Banner */}
-            <div className="absolute top-8 left-0 right-0 bg-[#0f172a] px-4 py-2.5 text-white overflow-hidden">
+            {/* Deep green hero banner */}
+            <div className="absolute top-8 left-0 right-0 bg-[#0b1f19] px-4 py-2.5 text-white overflow-hidden">
               {/* Decorative Concentric Rings - clipped inside banner with 50% opacity */}
               <div
-                className="absolute -right-6 -top-6 w-32 h-32 rounded-full border border-slate-600/50 opacity-50 pointer-events-none"
+                className="absolute -right-6 -top-6 w-32 h-32 rounded-full border border-emerald-100/20 opacity-60 pointer-events-none"
                 style={{
-                  boxShadow: '0 0 0 8px rgba(71, 85, 105, 0.4), 0 0 0 16px rgba(71, 85, 105, 0.3), 0 0 0 24px rgba(71, 85, 105, 0.2)',
+                  boxShadow: '0 0 0 8px rgba(46, 185, 67, 0.10), 0 0 0 16px rgba(226, 245, 231, 0.08), 0 0 0 24px rgba(226, 245, 231, 0.05)',
                 }}
               />
+              <div className="absolute right-5 top-2.5 z-10 flex h-10 w-10 items-center justify-center rounded-full border-2 border-[#2eb943] text-white">
+                <CheckCircle2 className="h-7 w-7 stroke-[1.5]" />
+              </div>
               <div className="relative z-10">
-                <span className="text-[8.5px] font-black tracking-widest text-[#38bdf8] uppercase block">
+                <span className="text-[8.5px] font-black tracking-widest text-[#39c653] uppercase block">
                   FACTORY ACCEPTANCE TEST
                 </span>
                 <span className="text-[15px] font-black tracking-tight text-white block mt-0.5">
@@ -344,7 +370,7 @@ export const RackFatReportModal: React.FC<RackFatReportModalProps> = ({
 
             {/* Subheading Intro */}
             <div className="mt-16 text-[8.5px] text-slate-600 leading-tight">
-              This battery cabinet has successfully completed factory acceptance testing and quality inspection prior to dispatch.
+              This battery {shellType === 'CABINET' ? 'cabinet' : 'rack'} has successfully completed factory acceptance testing and quality inspection prior to dispatch.
             </div>
 
             {/* 2-Column Specs Grid */}
@@ -418,9 +444,9 @@ export const RackFatReportModal: React.FC<RackFatReportModalProps> = ({
               </div>
             </div>
 
-            {/* Bottom Verification & QR Section */}
-            <div className="border-t border-slate-200/80 pt-3 pb-1 flex items-center gap-3">
-              <div className="w-[62px] h-[62px] bg-slate-50 border border-slate-200 rounded p-1 shrink-0 flex items-center justify-center">
+            {/* Mint verification panel and QR section */}
+            <div className="border-t border-[#b7c9be] pt-3 pb-1 flex items-center gap-3 rounded-lg bg-[#f2f9f2] px-2">
+              <div className="w-[62px] h-[62px] bg-white border border-emerald-100 rounded p-1 shrink-0 flex items-center justify-center">
                 {qrDataUrl ? (
                   <img src={qrDataUrl} alt="FAT QR Code" className="w-full h-full object-contain" />
                 ) : (
@@ -432,7 +458,10 @@ export const RackFatReportModal: React.FC<RackFatReportModalProps> = ({
                   Scan for the full report
                 </span>
                 <span className="text-[7.5px] text-slate-500 leading-normal block mt-1">
-                  Download Complete Factory Assisment Report (FAT) held in Power2go production system.
+                  View the complete FAT record with every test result in the Power2Go production system.
+                </span>
+                <span className="text-[7px] font-bold text-emerald-700 leading-normal block mt-1 truncate">
+                  {verificationUrl}
                 </span>
               </div>
             </div>
