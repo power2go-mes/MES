@@ -13,6 +13,7 @@ import {
   Zap,
   Printer,
 } from 'lucide-react';
+import logoImg from '../../assets/power2go-logo.png';
 import type { RackUnit, RackInspectionReport } from '../../types';
 import { normalizeRackSerial } from '../../lib/rackNaming';
 
@@ -28,7 +29,33 @@ export const RackFatReportModal: React.FC<RackFatReportModalProps> = ({
   rack,
 }) => {
   const [qrDataUrl, setQrDataUrl] = useState<string>('');
+  const [logoDataUrl, setLogoDataUrl] = useState<string>('');
   const [downloading, setDownloading] = useState(false);
+
+  // Pre-load logo image as Data URL for jsPDF
+  useEffect(() => {
+    let cancelled = false;
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = () => {
+      try {
+        const canvas = document.createElement('canvas');
+        canvas.width = img.naturalWidth || img.width;
+        canvas.height = img.naturalHeight || img.height;
+        const ctx = canvas.getContext('2d');
+        if (ctx) {
+          ctx.drawImage(img, 0, 0);
+          if (!cancelled) setLogoDataUrl(canvas.toDataURL('image/png'));
+        }
+      } catch (e) {
+        console.warn('Failed to convert logo to dataUrl', e);
+      }
+    };
+    img.src = logoImg;
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const report: RackInspectionReport | null = rack?.inspectionReport || null;
   const rawSerial = rack?.serialNumber || rack?.id || 'P2G-RACK';
@@ -118,7 +145,16 @@ export const RackFatReportModal: React.FC<RackFatReportModalProps> = ({
       doc.setFillColor(255, 255, 255);
       doc.rect(0, 0, 70, 100, 'F');
 
-      // Top Header "QUALITY ASSURANCE"
+      // Top Header: Logo on left, "QUALITY ASSURANCE" on right
+      if (logoDataUrl) {
+        doc.addImage(logoDataUrl, 'PNG', 5, 2.5, 22, 5.5);
+      } else {
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(6.5);
+        doc.setTextColor(15, 23, 42);
+        doc.text('POWER2GO', 5, 6.5);
+      }
+
       doc.setFont('helvetica', 'bold');
       doc.setFontSize(5);
       doc.setTextColor(100, 116, 139); // slate-500
@@ -128,9 +164,9 @@ export const RackFatReportModal: React.FC<RackFatReportModalProps> = ({
       doc.setFillColor(15, 23, 42); // #0f172a slate-900
       doc.rect(0, 9, 70, 23, 'F');
 
-      // Concentric circles geometric watermark in banner
-      doc.setDrawColor(30, 41, 59);
-      doc.setLineWidth(0.2);
+      // Concentric circles geometric watermark in banner (subtle, 50% opacity style)
+      doc.setDrawColor(40, 53, 72);
+      doc.setLineWidth(0.18);
       for (let r = 5; r <= 30; r += 4) {
         doc.circle(70, 20.5, r, 'S');
       }
@@ -206,13 +242,14 @@ export const RackFatReportModal: React.FC<RackFatReportModalProps> = ({
       doc.setFont('helvetica', 'bold');
       doc.setFontSize(6.5);
       doc.setTextColor(15, 23, 42);
-      doc.text('Scan for the full report', 26, 82);
+      doc.text('Scan for the full report', 26, 80);
 
       doc.setFont('helvetica', 'normal');
-      doc.setFontSize(4.8);
+      doc.setFontSize(4.3);
       doc.setTextColor(100, 116, 139);
-      doc.text('Complete FAT record with every test result,', 26, 86.5);
-      doc.text('held in the Power2Go production system.', 26, 90);
+      const downloadNotice = 'Download Complete Factory Assisment Report (FAT) held in Power2go production system.';
+      const noticeLines = doc.splitTextToSize(downloadNotice, 39);
+      doc.text(noticeLines, 26, 84);
 
       doc.save(`${serial}-FAT-Completion-Card-70x100mm.pdf`);
     } catch (err) {
@@ -269,18 +306,25 @@ export const RackFatReportModal: React.FC<RackFatReportModalProps> = ({
               boxShadow: '0 12px 30px -4px rgba(15, 23, 42, 0.25)',
             }}
           >
-            {/* Top Quality Assurance label */}
-            <div className="text-[8px] font-black uppercase tracking-wider text-slate-400 text-right">
-              QUALITY ASSURANCE
+            {/* Top Quality Assurance label & Logo */}
+            <div className="flex items-center justify-between pb-1">
+              <img
+                src={logoImg}
+                alt="Power2Go"
+                className="h-4 w-auto object-contain"
+              />
+              <div className="text-[8px] font-black uppercase tracking-wider text-slate-400 text-right">
+                QUALITY ASSURANCE
+              </div>
             </div>
 
             {/* Dark Navy Hero Banner */}
-            <div className="absolute top-7 left-0 right-0 bg-[#0f172a] px-4 py-2.5 text-white overflow-hidden">
-              {/* Decorative Concentric Rings */}
+            <div className="absolute top-8 left-0 right-0 bg-[#0f172a] px-4 py-2.5 text-white overflow-hidden">
+              {/* Decorative Concentric Rings - clipped inside banner with 50% opacity */}
               <div
-                className="absolute -right-6 -top-6 w-32 h-32 rounded-full border border-slate-700/50 pointer-events-none"
+                className="absolute -right-6 -top-6 w-32 h-32 rounded-full border border-slate-600/50 opacity-50 pointer-events-none"
                 style={{
-                  boxShadow: '0 0 0 8px rgba(51, 65, 85, 0.15), 0 0 0 16px rgba(51, 65, 85, 0.1), 0 0 0 24px rgba(51, 65, 85, 0.05)',
+                  boxShadow: '0 0 0 8px rgba(71, 85, 105, 0.4), 0 0 0 16px rgba(71, 85, 105, 0.3), 0 0 0 24px rgba(71, 85, 105, 0.2)',
                 }}
               />
               <div className="relative z-10">
@@ -383,7 +427,7 @@ export const RackFatReportModal: React.FC<RackFatReportModalProps> = ({
                   Scan for the full report
                 </span>
                 <span className="text-[7.5px] text-slate-500 leading-normal block mt-1">
-                  Complete FAT record with every test result, held in the Power2Go production system.
+                  Download Complete Factory Assisment Report (FAT) held in Power2go production system.
                 </span>
               </div>
             </div>
