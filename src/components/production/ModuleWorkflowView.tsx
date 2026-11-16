@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useApp } from '../../context/AppContext';
 import { api } from '../../services/api';
 import { CellItem } from '../../types';
@@ -46,6 +46,8 @@ export const ModuleWorkflowView: React.FC = () => {
   const [testRows, setTestRows] = useState<ModuleTestRow[]>([]);
   const [draggedCellId, setDraggedCellId] = useState<string | null>(null);
   const [editingCellIndex, setEditingCellIndex] = useState<number | null>(null);
+  const creatingModuleRef = useRef(false);
+  const navigateAfterModuleQrRef = useRef(false);
   const requiredCells = moduleType === '8S' ? 8 : 12;
 
   const replaceCellAtIndex = (index: number, replacementCellId: string) => {
@@ -94,11 +96,11 @@ export const ModuleWorkflowView: React.FC = () => {
   useEffect(() => { setSelectedCellIds([]); setManualBarcodes(''); }, [moduleType]);
 
   useEffect(() => {
-    if (!activeModuleId) return;
+    if (!activeModuleId || draftModule?.id === activeModuleId) return;
     let cancelled = false;
     const loadModuleForEdit = async () => {
       try {
-        const module = (await api.getModules()).find(item => item.id === activeModuleId);
+        const module = (await api.getModules({ ids: [activeModuleId] }))[0];
         if (!module || cancelled) return;
         const moduleCells = module.cells || [];
         const inferredModuleType = module.moduleType === '12S' || moduleCells.length === 12 ? '12S' : '8S';
@@ -122,7 +124,7 @@ export const ModuleWorkflowView: React.FC = () => {
     };
     void loadModuleForEdit();
     return () => { cancelled = true; };
-  }, [activeModuleId, addNotification]);
+  }, [activeModuleId, addNotification, draftModule?.id]);
 
   const selectedCells = useMemo(() => selectedCellIds
     .map(id => floorCells.find(cell => cell.id === id))
@@ -188,11 +190,13 @@ export const ModuleWorkflowView: React.FC = () => {
   };
 
   const createModule = async () => {
-    if (selectedCells.length !== requiredCells) return;
+    if (creatingModuleRef.current || selectedCells.length !== requiredCells) return;
+    creatingModuleRef.current = true;
     setSaving(true);
     try {
       const result = await api.createStandaloneModule(moduleType, selectedCells.map(cell => cell.internalSerial || cell.id));
       setDraftModule(result.module);
+      setActiveModuleId(result.module.id);
       setWeldingStatus('PASSED');
       setAcknowledged(false);
       setTestRows(selectedCells.map(cell => ({
@@ -207,6 +211,7 @@ export const ModuleWorkflowView: React.FC = () => {
     } catch (error: any) {
       addNotification('error', 'Module Creation Failed', error.message || 'Could not create the module.');
     } finally {
+      creatingModuleRef.current = false;
       setSaving(false);
     }
   };
@@ -244,7 +249,7 @@ export const ModuleWorkflowView: React.FC = () => {
       if (draftModule?.id) {
         await api.replaceModuleCells(draftModule.id, selectedCells.map(cell => cell.internalSerial || cell.id));
       }
-      const result = await api.completeStandaloneModule(draftModule.id, acknowledged, testRows.map(row => ({
+      const completion = await api.completeStandaloneModule(draftModule.id, acknowledged, testRows.map(row => ({
         cellId: row.cellId,
         ocvV: Number(row.ocvV),
         irMilliOhm: Number(row.irMilliOhm),
@@ -253,7 +258,13 @@ export const ModuleWorkflowView: React.FC = () => {
         damageRemarks: row.damageRemarks,
       })));
       await api.updateModuleWeldingStatus(draftModule.id, weldingStatus);
-      setQrModule(null);
+      setQrModule({
+        ...draftModule,
+        serial_number: draftModule.serial_number || draftModule.serialNumber,
+        module_type: draftModule.module_type || draftModule.moduleType || moduleType,
+        status: completion?.module?.status || 'PASSED',
+      });
+      navigateAfterModuleQrRef.current = true;
       setDraftModule(null);
       setSelectedCellIds([]);
       setTestRows([]);
@@ -261,7 +272,6 @@ export const ModuleWorkflowView: React.FC = () => {
       triggerRefresh();
       await loadFloorCells();
       addNotification('success', 'Module Complete', `${moduleType} module completed with laser welding ${weldingStatus === 'PASSED' ? 'passed' : 'failed'}.`);
-      setActiveView('production-flow');
     } catch (error: any) {
       addNotification('error', 'Module Completion Failed', error.message || 'Complete every required module test.');
     } finally {
@@ -863,7 +873,13 @@ export const ModuleWorkflowView: React.FC = () => {
         )}
       </div>
       <ScannerModal isOpen={scannerOpen} onClose={() => { setScannerOpen(false); setEditingCellIndex(null); }} onScan={async barcode => { if (!await addCellByBarcode(barcode)) throw new Error('Cell was not added to the module.'); setScannerOpen(false); setEditingCellIndex(null); }} title={editingCellIndex !== null ? 'Replace cell in this module slot' : 'Scan floor-stock cell'} subtitle={editingCellIndex !== null ? 'Scan a different FLOOR_STOCK cell to replace the selected slot.' : 'Only cells currently in FLOOR_STOCK can be assigned to this module'} />
-      <QRCodeModal isOpen={Boolean(qrModule)} onClose={() => setQrModule(null)} title="Module Traceability QR" qrPayload={qrModule?.qr_code || qrModule?.qrCode || `${qrModule?.serial_number}|MODULE:${qrModule?.id}` || ''} serialNumber={qrModule?.serial_number || 'MODULE'} itemType="MODULE" metadata={{ type: qrModule?.module_type || moduleType, status: qrModule?.status || 'CELLS_ASSIGNED' }} />
+      <QRCodeModal isOpen={Boolean(qrModule)} onClose={() => {
+        setQrModule(null);
+        if (navigateAfterModuleQrRef.current) {
+          navigateAfterModuleQrRef.current = false;
+          setActiveView('production-flow');
+        }
+      }} title="Module Traceability QR" qrPayload={qrModule?.qr_code || qrModule?.qrCode || `${qrModule?.serial_number}|MODULE:${qrModule?.id}` || ''} serialNumber={qrModule?.serial_number || 'MODULE'} itemType="MODULE" metadata={{ type: qrModule?.module_type || moduleType, status: qrModule?.status || 'CELLS_ASSIGNED' }} />
     </div>
   );
 };

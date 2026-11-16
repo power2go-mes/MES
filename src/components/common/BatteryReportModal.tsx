@@ -212,10 +212,7 @@ export const BatteryReportModal: React.FC<BatteryReportModalProps> = ({
   const qrPayload = useMemo(() => {
     if (!battery) return '';
 
-    return (
-      battery.qrCode ||
-      `POWER2GO|BATTERY:${battery.id}|SERIAL:${normalizeBatterySerial(battery.serialNumber)}`
-    );
+    return normalizeBatterySerial(battery.serialNumber);
   }, [battery]);
 
   useEffect(() => {

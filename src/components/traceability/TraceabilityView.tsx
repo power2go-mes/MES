@@ -21,9 +21,11 @@ import {
   Package,
   Factory,
   ScanLine,
+  Camera,
   Download,
 } from 'lucide-react';
 import { CopyToClipboardButton } from '../common/CopyToClipboardButton';
+import { ScannerModal } from '../common/ScannerModal';
 import { preferredLifecycleStatus } from '../../services/api';
 import { normalizeBatterySerial } from '../../lib/batteryNaming';
 import { normalizeRackSerial } from '../../lib/rackNaming';
@@ -477,6 +479,7 @@ export const TraceabilityView: React.FC = () => {
   const { quickSearchQuery, refreshKey } = useApp();
   const [query, setQuery] = useState(quickSearchQuery || '');
   const [loading, setLoading] = useState(false);
+  const [scannerOpen, setScannerOpen] = useState(false);
   const [trace, setTrace] = useState<any | null>(null);
   const [error, setError] = useState<{ message: string } | null>(null);
   const [recentSerials, setRecentSerials] = useState<{ label: string; serial: string }[]>([]);
@@ -592,9 +595,9 @@ export const TraceabilityView: React.FC = () => {
             e.preventDefault();
             handleSearch();
           }}
-          className="flex gap-2.5"
+          className="flex flex-wrap gap-2.5"
         >
-          <div className="relative flex-1">
+          <div className="relative min-w-[220px] flex-1">
             <ScanLine className="w-4 h-4 text-slate-400 absolute left-3.5 top-3" />
             <input
               type="text"
@@ -604,6 +607,16 @@ export const TraceabilityView: React.FC = () => {
               className="w-full pl-10 pr-4 py-2.5 text-xs font-mono bg-slate-50/70 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500 font-semibold text-slate-900"
             />
           </div>
+          <button
+            type="button"
+            onClick={() => setScannerOpen(true)}
+            disabled={loading}
+            className="px-4 py-2.5 bg-white hover:bg-emerald-50 disabled:bg-slate-100 text-emerald-700 text-xs font-bold rounded-xl border border-emerald-200 flex items-center justify-center gap-1.5 transition-colors"
+            aria-label="Scan identifier"
+          >
+            <Camera className="w-4 h-4" />
+            <span>Scan</span>
+          </button>
           <button
             type="submit"
             disabled={loading}
@@ -722,6 +735,18 @@ export const TraceabilityView: React.FC = () => {
           Enter any traceable identifier above to explore its complete genealogy.
         </div>
       )}
+
+      <ScannerModal
+        isOpen={scannerOpen}
+        onClose={() => setScannerOpen(false)}
+        onScan={async barcode => {
+          setQuery(barcode);
+          await handleSearch(barcode);
+          setScannerOpen(false);
+        }}
+        title="Scan Traceability Identifier"
+        subtitle="Scan a cell, module, battery, BMS/BMU, rack, supplier, or production barcode"
+      />
     </div>
   );
 };

@@ -55,6 +55,7 @@ export const RackAssemblyView: React.FC = () => {
   const [batterySearch, setBatterySearch] = useState('');
   const batteryPageRequestRef = useRef(false);
   const batterySearchInitializedRef = useRef(false);
+  const assemblyInFlightRef = useRef(false);
 
   // QC Test & Report Questions State
   const [testReportPdf, setTestReportPdf] = useState<{ name: string; size: string; dataUrl?: string } | null>(null);
@@ -217,7 +218,8 @@ export const RackAssemblyView: React.FC = () => {
   };
 
   const assemble = async () => {
-    if (selected.length < 1 || selected.length > maxSlots || !physicalQc || !voltageQc || !selectedShell || (selectedShell.availableQuantity || 0) < 1) return;
+    if (assemblyInFlightRef.current || selected.length < 1 || selected.length > maxSlots || !physicalQc || !voltageQc || !selectedShell || (selectedShell.availableQuantity || 0) < 1) return;
+    assemblyInFlightRef.current = true;
     setSaving(true);
     try {
       const templateCode = `${selectedShell.shellType}_${currentActualKwh}KWH`;
@@ -246,6 +248,8 @@ export const RackAssemblyView: React.FC = () => {
         },
       });
 
+      setQrRack(result);
+
       addNotification(
         'success',
         'Rack/Cabinet Assembled',
@@ -266,10 +270,10 @@ export const RackAssemblyView: React.FC = () => {
       setSolisBmsComm('Stable');
       setStep(1);
       triggerRefresh();
-      setActiveView('production-flow');
     } catch (error: any) {
       addNotification('error', 'Assembly Failed', error.message || 'Could not assemble rack.');
     } finally {
+      assemblyInFlightRef.current = false;
       setSaving(false);
     }
   };

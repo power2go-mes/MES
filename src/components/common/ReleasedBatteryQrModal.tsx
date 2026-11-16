@@ -36,7 +36,7 @@ const QrLabel: React.FC<{
   };
 
   return (
-    <div className="bg-white border border-slate-200 rounded-xl p-4 flex flex-col items-center text-center">
+    <div data-qr-label="true" className="bg-white border border-slate-200 rounded-xl p-4 flex flex-col items-center text-center">
       <div className="w-full flex items-center justify-between mb-3">
         <span className="text-xs font-black uppercase text-slate-700">{title}</span>
         <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded px-2 py-0.5">{itemType}</span>
@@ -66,6 +66,40 @@ export const ReleasedBatteryQrModal: React.FC<ReleasedBatteryQrModalProps> = ({ 
   const controller = bmu || bms;
   const controllerType = bmu ? 'BMU' : 'BMS';
 
+  const printLabels = () => {
+    const printWindow = window.open('', '_blank');
+    if (!printWindow) return;
+    const document = printWindow.document;
+    document.title = `${battery.serialNumber} QR Labels`;
+    const style = document.createElement('style');
+    style.textContent = '@page { margin: 8mm; } body { font-family: Arial, sans-serif; } .labels { display: flex; flex-wrap: wrap; gap: 8mm; } [data-qr-label] { width: 62mm; border: 1px solid #ddd; padding: 4mm; text-align: center; break-inside: avoid; } canvas, img { width: 45mm; height: 45mm; }';
+    const labels = document.createElement('main');
+    labels.className = 'labels';
+    window.document.querySelectorAll<HTMLElement>('[data-qr-label="true"]').forEach((source) => {
+      const clone = source.cloneNode(true) as HTMLElement;
+      const canvas = source.querySelector('canvas');
+      const clonedCanvas = clone.querySelector('canvas');
+      if (canvas && clonedCanvas) {
+        const image = document.createElement('img');
+        image.src = canvas.toDataURL('image/png');
+        clonedCanvas.replaceWith(image);
+      }
+      clone.querySelectorAll('button').forEach(button => button.remove());
+      labels.append(clone);
+    });
+    document.head.append(style);
+    document.body.append(labels);
+    const images = Array.from(document.images);
+    Promise.all(images.map(image => image.complete ? Promise.resolve() : new Promise<void>(resolve => {
+      image.onload = () => resolve();
+      image.onerror = () => resolve();
+    }))).then(() => {
+      printWindow.focus();
+      printWindow.print();
+      printWindow.onafterprint = () => printWindow.close();
+    });
+  };
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-4">
       <div className="bg-slate-50 rounded-2xl shadow-2xl max-w-5xl w-full max-h-[90vh] overflow-hidden border border-slate-200">
@@ -73,9 +107,9 @@ export const ReleasedBatteryQrModal: React.FC<ReleasedBatteryQrModalProps> = ({ 
           <div>
             <h3 className="text-sm font-black tracking-tight flex items-center gap-2">
               <QrCode className="w-4 h-4 text-emerald-400" />
-              Released Battery QR Passport
+              Battery QR Labels
             </h3>
-            <p className="text-[11px] text-slate-400">Battery and module traceability labels</p>
+            <p className="text-[11px] text-slate-400">Battery and installed component traceability labels</p>
           </div>
           <button type="button" onClick={onClose} className="text-slate-400 hover:text-white p-1">
             <X className="w-5 h-5" />
@@ -113,7 +147,7 @@ export const ReleasedBatteryQrModal: React.FC<ReleasedBatteryQrModalProps> = ({ 
         <div className="px-6 py-4 bg-white border-t border-slate-200 flex justify-end">
           <button
             type="button"
-            onClick={() => window.print()}
+            onClick={printLabels}
             className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold flex items-center gap-1.5"
           >
             <Printer className="w-4 h-4" />

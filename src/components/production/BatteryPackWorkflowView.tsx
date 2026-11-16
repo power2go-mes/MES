@@ -27,6 +27,11 @@ import {
   RotateCcw,
 } from "lucide-react";
 
+type InProgressPackSummary = Pick<
+  BatteryUnit,
+  "id" | "serialNumber" | "productName" | "currentStep" | "progressPercent" | "status" | "lifecycleStatus"
+> & { assignedModuleCount: number; requiredModuleCount?: number };
+
 export const BatteryPackWorkflowView: React.FC = () => {
   const {
     activeBatteryId,
@@ -43,11 +48,10 @@ export const BatteryPackWorkflowView: React.FC = () => {
   const [battery, setBattery] = useState<BatteryUnit | null>(null);
   const [product, setProduct] = useState<ProductTemplate | null>(null);
   const [products, setProducts] = useState<ProductTemplate[]>([]);
-  const [availableBatteries, setAvailableBatteries] = useState<
-    Array<Pick<BatteryUnit, "id" | "serialNumber" | "productName" | "status">>
-  >([]);
+  const [availableBatteries, setAvailableBatteries] = useState<InProgressPackSummary[]>([]);
   const [selectedExistingBatteryId, setSelectedExistingBatteryId] =
     useState("");
+  const [resumePromptOpen, setResumePromptOpen] = useState(false);
   const [selectedProductId, setSelectedProductId] = useState("");
   const [builderOpen, setBuilderOpen] = useState(false);
   const [builderEditMode, setBuilderEditMode] = useState(false);
@@ -55,6 +59,10 @@ export const BatteryPackWorkflowView: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [qrPassportOpen, setQrPassportOpen] = useState(false);
+  const navigateAfterReleaseQrRef = useRef(false);
+  const creatingBatteryRef = useRef(false);
+  const packScansInFlightRef = useRef(new Set<string>());
+  const packEntryPromptShownRef = useRef(false);
 
   // Form values for Pack IR and Final Testing
   const [packIrMohm, setPackIrMohm] = useState("0");
@@ -65,7 +73,6 @@ export const BatteryPackWorkflowView: React.FC = () => {
     "BMS" | "BMU" | null
   >(null);
   const [scannedModuleIds, setScannedModuleIds] = useState<string[]>([]);
-  const freshEntryRef = useRef(true);
 
   useEffect(() => {
     void api
@@ -81,23 +88,18 @@ export const BatteryPackWorkflowView: React.FC = () => {
         ),
       );
     void api
-      .getBatteries()
+      .getInProgressPackSummaries()
       .then((batteryRows) => {
-        const completedStatuses = new Set([
-          "RELEASED",
-          "FINISHED",
-          "WAREHOUSE",
-          "DISPATCHED",
-          "SOLD",
-        ]);
-        setAvailableBatteries(
-          batteryRows.filter(
-            (row) =>
-              !completedStatuses.has(String(row.status || "").toUpperCase()),
-          ) as Array<
-            Pick<BatteryUnit, "id" | "serialNumber" | "productName" | "status">
-          >,
-        );
+        setAvailableBatteries(batteryRows);
+        if (batteryRows.length > 0) {
+          setSelectedExistingBatteryId(current =>
+            batteryRows.some(row => row.id === current) ? current : batteryRows[0].id,
+          );
+          if (!activeBatteryId && !packEntryPromptShownRef.current) {
+            packEntryPromptShownRef.current = true;
+            setResumePromptOpen(true);
+          }
+        }
       })
       .catch((err: any) =>
         addNotification(
@@ -106,16 +108,6 @@ export const BatteryPackWorkflowView: React.FC = () => {
           err.message || "Could not load battery packs.",
         ),
       );
-    if (
-      freshEntryRef.current &&
-      activeBatteryId &&
-      !batteryBuilderEditRequested
-    ) {
-      freshEntryRef.current = false;
-      setActiveBatteryId(null);
-      return;
-    }
-    freshEntryRef.current = false;
     if (activeBatteryId) {
       if (batteryBuilderEditRequested) {
         setBuilderEditMode(true);
@@ -147,7 +139,6 @@ export const BatteryPackWorkflowView: React.FC = () => {
           .filter((module) => module.cells?.length > 0)
           .map((module) => module.id),
       );
-
       if (finalQcResult) {
         setPackIrMohm(
           String(finalQcResult.internalResistanceMilliOhm ?? finalQcResult.batteryIrMohm ?? "0"),
@@ -232,10 +223,9 @@ export const BatteryPackWorkflowView: React.FC = () => {
           "BATTERY RELEASED",
           `Battery ${battery.serialNumber} passed final QC and is released for dispatch!`,
         );
-        setQrPassportOpen(false);
-        setActiveBatteryId(null);
+        navigateAfterReleaseQrRef.current = true;
+        setQrPassportOpen(true);
         setBatteryBuilderEditRequested(false);
-        setActiveView("production-flow");
       } else {
         addNotification(
           "error",
@@ -253,6 +243,9 @@ export const BatteryPackWorkflowView: React.FC = () => {
 
   const handlePackScan = async (barcode: string) => {
     if (!battery || !barcode.trim()) return;
+    const scanKey = `${battery.id}:${scanTarget}:${barcode.trim().toLowerCase().replace(/\s+/g, '')}`;
+    if (packScansInFlightRef.current.has(scanKey)) return;
+    packScansInFlightRef.current.add(scanKey);
     try {
       if (scanTarget === "MODULE") {
         const normalizeScanValue = (value: string) =>
@@ -302,6 +295,8 @@ export const BatteryPackWorkflowView: React.FC = () => {
         err.message || "Unable to verify this component.",
       );
       throw err;
+    } finally {
+      packScansInFlightRef.current.delete(scanKey);
     }
   };
 
@@ -316,6 +311,8 @@ export const BatteryPackWorkflowView: React.FC = () => {
   };
 
   const createBatteryFromTemplateFor = async (productId: string) => {
+    if (creatingBatteryRef.current) return;
+    creatingBatteryRef.current = true;
     setCreatingBattery(true);
     try {
       const result = await api.createPackBatteryShell(
@@ -341,6 +338,7 @@ export const BatteryPackWorkflowView: React.FC = () => {
         error.message || "Could not create the battery from this template.",
       );
     } finally {
+      creatingBatteryRef.current = false;
       setCreatingBattery(false);
     }
   };
@@ -432,6 +430,8 @@ export const BatteryPackWorkflowView: React.FC = () => {
 
   const handleResetToStep1 = () => {
     setActiveBatteryId(null);
+    setBattery(null);
+    setProduct(null);
     setBuilderOpen(false);
     setBuilderEditMode(false);
     setScannedControllerType(null);
@@ -701,7 +701,7 @@ export const BatteryPackWorkflowView: React.FC = () => {
                       {availableBatteries.map((item) => (
                         <option key={item.id} value={item.id}>
                           {item.serialNumber} ·{" "}
-                          {item.productName || "Unknown product"} · {item.status}
+                          {item.productName || "Unknown product"} · {item.assignedModuleCount}/{item.requiredModuleCount || "?"} modules · {Number(item.progressPercent || 0)}% · {item.status}
                         </option>
                       ))}
                     </select>
@@ -727,12 +727,17 @@ export const BatteryPackWorkflowView: React.FC = () => {
                                 {item.serialNumber}
                               </p>
                               <p className="text-[10px] text-slate-500 truncate">
-                                {item.productName || "Pack Unit"}
+                                {item.productName || "Pack Unit"} · {String(item.currentStep || "NOT STARTED").replace(/_/g, " ")} · {item.assignedModuleCount}/{item.requiredModuleCount || "?"} modules
                               </p>
                             </div>
-                            <span className="px-2 py-0.5 rounded bg-slate-100 text-[10px] font-bold text-slate-600 shrink-0">
-                              {item.status}
-                            </span>
+                            <div className="shrink-0 text-right">
+                              <span className="block px-2 py-0.5 rounded bg-slate-100 text-[10px] font-bold text-slate-600">
+                                {item.status}
+                              </span>
+                              <span className="mt-1 block text-[10px] font-bold text-emerald-700">
+                                {Number(item.progressPercent || 0)}% complete
+                              </span>
+                            </div>
                           </button>
                         );
                       })}
@@ -1318,9 +1323,95 @@ export const BatteryPackWorkflowView: React.FC = () => {
         )}
       </div>
 
+      {resumePromptOpen && !activeBatteryId && availableBatteries.length > 0 && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-950/55 p-3 sm:p-6">
+          <section
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="resume-pack-title"
+            className="w-full max-w-xl overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl"
+          >
+            <header className="border-b border-slate-100 bg-slate-50 px-5 py-4 sm:px-6">
+              <p className="text-[10px] font-black uppercase tracking-widest text-emerald-700">
+                Resume In-Progress Pack
+              </p>
+              <h2 id="resume-pack-title" className="mt-1 text-lg font-black text-slate-900">
+                Continue an existing pack or start a new one?
+              </h2>
+              <p className="mt-1 text-xs text-slate-500">
+                Existing module assignments stay with their current pack. Starting a new pack does not change unfinished packs.
+              </p>
+            </header>
+
+            <div className="max-h-[55vh] space-y-2 overflow-y-auto p-4 sm:p-5">
+              {availableBatteries.map((item) => {
+                const selected = selectedExistingBatteryId === item.id;
+                return (
+                  <button
+                    key={item.id}
+                    type="button"
+                    aria-pressed={selected}
+                    onClick={() => setSelectedExistingBatteryId(item.id)}
+                    className={`w-full rounded-xl border p-3 text-left transition-colors sm:p-4 ${selected ? "border-emerald-500 bg-emerald-50" : "border-slate-200 hover:border-slate-300"}`}
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="truncate font-mono text-sm font-black text-slate-900">{item.serialNumber}</p>
+                        <p className="mt-1 truncate text-xs text-slate-600">{item.productName || "Battery pack"}</p>
+                        <p className="mt-1 truncate text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+                          {String(item.currentStep || "NOT STARTED").replace(/_/g, " ")} · {item.status} · {item.assignedModuleCount}/{item.requiredModuleCount || "?"} modules
+                        </p>
+                      </div>
+                      <span className="shrink-0 rounded-lg bg-white px-2.5 py-1 text-xs font-black text-emerald-700 shadow-sm">
+                        {Number(item.progressPercent || 0)}%
+                      </span>
+                    </div>
+                    <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-slate-200">
+                      <div className="h-full rounded-full bg-emerald-500" style={{ width: `${Math.max(0, Math.min(100, Number(item.progressPercent) || 0))}%` }} />
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+
+            <footer className="flex flex-col-reverse gap-2 border-t border-slate-100 bg-white p-4 sm:flex-row sm:justify-end sm:px-5">
+              <button
+                type="button"
+                onClick={() => {
+                  handleResetToStep1();
+                  setResumePromptOpen(false);
+                }}
+                className="rounded-xl border border-slate-200 px-4 py-2.5 text-xs font-bold text-slate-700 hover:bg-slate-50"
+              >
+                Start a new pack
+              </button>
+              <button
+                type="button"
+                disabled={!selectedExistingBatteryId}
+                onClick={() => {
+                  setBuilderEditMode(true);
+                  setActiveBatteryId(selectedExistingBatteryId);
+                  setResumePromptOpen(false);
+                }}
+                className="rounded-xl bg-emerald-600 px-4 py-2.5 text-xs font-bold text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:bg-slate-300"
+              >
+                Resume selected pack
+              </button>
+            </footer>
+          </section>
+        </div>
+      )}
+
       <ReleasedBatteryQrModal
         isOpen={qrPassportOpen}
-        onClose={() => setQrPassportOpen(false)}
+        onClose={() => {
+          setQrPassportOpen(false);
+          if (navigateAfterReleaseQrRef.current) {
+            navigateAfterReleaseQrRef.current = false;
+            setActiveBatteryId(null);
+            setActiveView("production-flow");
+          }
+        }}
         battery={battery}
       />
       <ScannerModal

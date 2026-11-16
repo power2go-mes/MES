@@ -1,7 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { useApp } from '../../context/AppContext';
-import { Search, Bell, ChevronDown, LogOut, Menu, ArrowLeft, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
+import { Search, Camera, Bell, ChevronDown, LogOut, ArrowLeft, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
+import { ScannerModal } from './ScannerModal';
 
 type HeaderProps = {
   onOpenNavigation: () => void;
@@ -38,6 +39,7 @@ export const Header: React.FC<HeaderProps> = ({ onOpenNavigation, onToggleSideba
 
   const [showRoleMenu, setShowRoleMenu] = useState(false);
   const [showNotifMenu, setShowNotifMenu] = useState(false);
+  const [scannerOpen, setScannerOpen] = useState(false);
   const currentProfile = profile ?? currentUser;
 
   useEffect(() => {
@@ -69,7 +71,7 @@ export const Header: React.FC<HeaderProps> = ({ onOpenNavigation, onToggleSideba
 
   return (
     <header className="app-header min-h-16 bg-white border-b border-slate-200 sticky top-0 z-40 shadow-xs px-4 sm:px-6">
-      <div className="mx-auto flex min-h-16 w-full max-w-[1600px] flex-wrap items-center gap-6">
+      <div className="mx-auto flex min-h-16 w-full max-w-[1600px] flex-wrap items-center gap-2 sm:gap-4 lg:gap-6">
         <button
           type="button"
           onClick={isSidebarOpen ? onToggleSidebar : onOpenNavigation}
@@ -89,16 +91,25 @@ export const Header: React.FC<HeaderProps> = ({ onOpenNavigation, onToggleSideba
           <ArrowLeft className="h-4 w-4" />
           <span className="text-xs font-semibold">Back</span>
         </button>
-        <div className="order-last flex w-full min-w-0 flex-1 md:order-none md:max-w-xl">
+        <div className="order-last flex w-full min-w-0 flex-1 md:order-none md:max-w-2xl lg:max-w-3xl">
           <form onSubmit={handleSearch} className="relative w-full">
           <input
             type="text"
             value={quickSearchQuery}
             onChange={e => setQuickSearchQuery(e.target.value)}
             placeholder="Scan / Search Cell, Module, Battery Serial..."
-            className="h-10 w-full pl-9 pr-20 text-xs bg-slate-50 border border-slate-200 rounded-lg focus:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 transition-all text-slate-800 placeholder-slate-400 font-sans"
+            className="h-10 w-full min-w-0 pl-9 pr-[7.25rem] text-xs bg-slate-50 border border-slate-200 rounded-lg focus:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 transition-all text-slate-800 placeholder-slate-400 font-sans"
           />
           <Search className="w-4 h-4 text-slate-400 absolute left-2.5 top-3" />
+          <button
+            type="button"
+            onClick={() => setScannerOpen(true)}
+            title="Scan for Genealogy"
+            aria-label="Scan a genealogy identifier"
+            className="absolute right-[4.75rem] top-1.5 flex h-7 w-7 items-center justify-center rounded border border-emerald-200 bg-white text-emerald-700 hover:bg-emerald-50 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+          >
+            <Camera className="h-4 w-4" />
+          </button>
           <button
             type="submit"
             className="absolute right-1.5 top-1.5 h-7 px-2.5 text-[10px] font-bold uppercase tracking-wider bg-emerald-50 text-emerald-700 hover:bg-emerald-100 rounded transition-colors"
@@ -201,6 +212,17 @@ export const Header: React.FC<HeaderProps> = ({ onOpenNavigation, onToggleSideba
           </div>
         </div>
       </div>
+      <ScannerModal
+        isOpen={scannerOpen}
+        onClose={() => setScannerOpen(false)}
+        onScan={barcode => {
+          setQuickSearchQuery(barcode);
+          setActiveView('traceability');
+          setScannerOpen(false);
+        }}
+        title="Scan Genealogy Identifier"
+        subtitle="Scan a cell, module, battery, BMS/BMU, rack, supplier, or production barcode"
+      />
     </header>
   );
 };

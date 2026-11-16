@@ -23,10 +23,12 @@ export const QRCodeModal: React.FC<QRCodeModalProps> = ({
 }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [dataUrl, setDataUrl] = useState<string>('');
+  const serialOnlyQr = ['MODULE', 'BATTERY', 'RACK'].includes(itemType);
+  const encodedValue = serialOnlyQr ? serialNumber : qrPayload;
 
   useEffect(() => {
     if (isOpen && canvasRef.current) {
-      QRCode.toCanvas(canvasRef.current, qrPayload, {
+      QRCode.toCanvas(canvasRef.current, encodedValue, {
         width: 220,
         margin: 2,
         color: {
@@ -39,12 +41,43 @@ export const QRCodeModal: React.FC<QRCodeModalProps> = ({
         }
       });
     }
-  }, [isOpen, qrPayload]);
+  }, [isOpen, encodedValue]);
 
   if (!isOpen) return null;
 
   const handlePrint = () => {
-    window.print();
+    if (!dataUrl) return;
+    const printWindow = window.open('', '_blank');
+    if (!printWindow) return;
+
+    const document = printWindow.document;
+    document.title = `${serialNumber} QR Label`;
+    const style = document.createElement('style');
+    style.textContent = '@page { margin: 8mm; } body { margin: 0; font-family: Arial, sans-serif; } .label { width: 70mm; padding: 4mm; text-align: center; border: 1px solid #ddd; } img { width: 45mm; height: 45mm; } .serial { margin-top: 3mm; font-size: 12pt; font-weight: bold; overflow-wrap: anywhere; } .type { margin-top: 2mm; font-size: 9pt; color: #334155; }';
+    const label = document.createElement('main');
+    label.className = 'label';
+    const image = document.createElement('img');
+    image.src = dataUrl;
+    image.alt = `${itemType} QR code`;
+    const serial = document.createElement('div');
+    serial.className = 'serial';
+    serial.textContent = serialNumber;
+    const type = document.createElement('div');
+    type.className = 'type';
+    type.textContent = itemType;
+    label.append(image, serial, type);
+    document.head.append(style);
+    document.body.append(label);
+    let printStarted = false;
+    const startPrint = () => {
+      if (printStarted) return;
+      printStarted = true;
+      printWindow.focus();
+      printWindow.print();
+      printWindow.onafterprint = () => printWindow.close();
+    };
+    image.onload = startPrint;
+    if (image.complete) startPrint();
   };
 
   const handleDownload = () => {
@@ -101,9 +134,11 @@ export const QRCodeModal: React.FC<QRCodeModalProps> = ({
               <p className="text-xs font-mono font-bold text-slate-900 tracking-wider">
                 {serialNumber}
               </p>
-              <p className="text-[10px] font-mono text-slate-500 break-all px-2 mt-1">
-                {qrPayload}
-              </p>
+              {!serialOnlyQr && (
+                <p className="text-[10px] font-mono text-slate-500 break-all px-2 mt-1">
+                  {qrPayload}
+                </p>
+              )}
             </div>
 
             {/* Key Specs Box */}

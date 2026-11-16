@@ -85,14 +85,39 @@ const useLocalStorage = <T,>(key: string, initialValue: T): [T, React.Dispatch<R
   return [storedValue, setValue];
 };
 
+const useSessionStorage = <T,>(key: string, initialValue: T): [T, React.Dispatch<React.SetStateAction<T>>] => {
+  const [storedValue, setStoredValue] = useState<T>(() => {
+    try {
+      if (typeof window === 'undefined') return initialValue;
+      const item = window.sessionStorage.getItem(key);
+      return item ? JSON.parse(item) : initialValue;
+    } catch (error) {
+      console.warn('Error reading session storage', error);
+      return initialValue;
+    }
+  });
+
+  const setValue: React.Dispatch<React.SetStateAction<T>> = (value) => {
+    try {
+      const valueToStore = value instanceof Function ? value(storedValue) : value;
+      setStoredValue(valueToStore);
+      if (typeof window !== 'undefined') window.sessionStorage.setItem(key, JSON.stringify(valueToStore));
+    } catch (error) {
+      console.warn('Error setting session storage', error);
+    }
+  };
+
+  return [storedValue, setValue];
+};
+
 export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [activeView, setActiveView] = useLocalStorage<NavView>('p2g_activeView', 'ceo-monitoring');
   const [sidebarOpen, setSidebarOpen] = useLocalStorage<boolean>('p2g_sidebarOpen', true);
   const [viewHistory, setViewHistory] = useState<NavView[]>([]);
-  const [activeBatteryId, setActiveBatteryId] = useLocalStorage<string | null>('p2g_activeBatteryId', null);
+  const [activeBatteryId, setActiveBatteryId] = useSessionStorage<string | null>('p2g_activeBatteryId', null);
   const [batteryBuilderEditRequested, setBatteryBuilderEditRequested] = useState(false);
   const [activeOrderId, setActiveOrderId] = useLocalStorage<string | null>('p2g_activeOrderId', null);
-  const [activeModuleId, setActiveModuleId] = useState<string | null>(null);
+  const [activeModuleId, setActiveModuleId] = useLocalStorage<string | null>('p2g_activeModuleId', null);
   const [inventoryTab, setInventoryTab] = useState<'CELLS' | 'BMS' | 'BMU' | 'MODULES' | 'BATTERIES' | 'RACKS'>('CELLS');
 
   const [notifications, setNotifications] = useState<AppNotification[]>([]);

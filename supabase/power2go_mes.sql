@@ -847,7 +847,7 @@ begin
     select coalesce(max((substring(serial_number from '([0-9]+)$'))::integer), 0) + 1
       into v_next_module_number
       from public.modules
-     where serial_number like v_module_prefix || '-%';
+     where serial_number ~ '^P2G-MOD-[0-9]{4}-[0-9]+$';
     v_serial := v_module_prefix || '-' || lpad(v_next_module_number::text, 5, '0');
     if upper(p_module_type) not in ('8S', '12S') then
         raise exception 'Module type must be 8S or 12S';
@@ -1357,7 +1357,7 @@ begin
     select coalesce(max((substring(serial_number from '([0-9]+)$'))::integer), 0) + 1
     into v_next_module_number
     from public.modules
-    where serial_number like 'P2G-MOD-' || to_char(current_date, 'DDMM') || '-%';
+    where serial_number ~ '^P2G-MOD-[0-9]{4}-[0-9]+$';
 
     v_required_cells := v_total_cells_per_battery * p_quantity;
 

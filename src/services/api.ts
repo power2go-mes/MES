@@ -764,6 +764,60 @@ function mapSupabaseProfile(raw: any): User {
   };
 }
 
+async function loadInProgressPackSummaries(): Promise<Array<Pick<BatteryUnit, 'id' | 'serialNumber' | 'productName' | 'currentStep' | 'progressPercent' | 'status' | 'lifecycleStatus'> & { assignedModuleCount: number; requiredModuleCount?: number }>> {
+  const pageSize = 1000;
+  const activeStatuses = ['CREATED', 'ASSEMBLY', 'TESTING', 'QC', 'IN_PROCESS'];
+  const terminalStatuses = new Set(['RELEASED', 'FINISHED', 'WAREHOUSE', 'DISPATCHED', 'SOLD', 'QUARANTINED', 'SCRAP']);
+  const candidates: Array<Pick<BatteryUnit, 'id' | 'serialNumber' | 'productName' | 'currentStep' | 'progressPercent' | 'status' | 'lifecycleStatus'> & { assignedModuleCount: number; requiredModuleCount?: number }> = [];
+
+  for (let offset = 0; ; offset += pageSize) {
+    let query = supabase
+      .from('batteries')
+      .select('id,serial_number,status,lifecycle_status,current_step,progress_percent,product_templates(name,num_modules)')
+      .order('created_at', { ascending: false });
+    const statusList = activeStatuses.join(',');
+    query = query.or(`status.in.(${statusList}),lifecycle_status.in.(${statusList})`);
+    const { data, error } = await query.range(offset, offset + pageSize - 1);
+    if (error) throw error;
+    const activeRows = (data || []).filter((battery: any) =>
+      !terminalStatuses.has(String(battery.status || '').toUpperCase())
+      && !terminalStatuses.has(String(battery.lifecycle_status || '').toUpperCase())
+    );
+    const batteryIds = activeRows.map((battery: any) => battery.id).filter(Boolean);
+    const { data: moduleRows, error: moduleError } = batteryIds.length
+      ? await supabase.from('modules').select('id,battery_id').in('battery_id', batteryIds)
+      : { data: [], error: null };
+    if (moduleError) throw moduleError;
+    const moduleIds = (moduleRows || []).map((module: any) => module.id).filter(Boolean);
+    const { data: moduleAssignments, error: assignmentError } = moduleIds.length
+      ? await supabase.from('module_cells').select('module_id').in('module_id', moduleIds)
+      : { data: [], error: null };
+    if (assignmentError) throw assignmentError;
+    const modulesWithCells = new Set((moduleAssignments || []).map((assignment: any) => String(assignment.module_id || '')));
+    const moduleCounts = new Map<string, number>();
+    (moduleRows || []).forEach((module: any) => {
+      if (!modulesWithCells.has(String(module.id || ''))) return;
+      const batteryId = String(module.battery_id || '');
+      if (batteryId) moduleCounts.set(batteryId, (moduleCounts.get(batteryId) || 0) + 1);
+    });
+
+    candidates.push(...activeRows.map((battery: any) => ({
+      id: battery.id,
+      serialNumber: normalizeBatterySerial(battery.serial_number || battery.id),
+      productName: normalizeBatteryName(battery.product_templates?.name || ''),
+      currentStep: battery.current_step || 'UNKNOWN',
+      progressPercent: Number(battery.progress_percent || 0),
+      status: battery.status,
+      lifecycleStatus: battery.lifecycle_status,
+      assignedModuleCount: moduleCounts.get(String(battery.id)) || 0,
+      requiredModuleCount: Number(battery.product_templates?.num_modules || 0) || undefined,
+    })));
+    if (!data || data.length < pageSize) break;
+  }
+
+  return candidates;
+}
+
 export const api = {
   // Users & Roles
 
@@ -3033,6 +3087,10 @@ export const api = {
       bmsId: battery.bmsId || battery.bms_id,
       bmuId: battery.bmuId || battery.bmu_id,
     }));
+  },
+
+  async getInProgressPackSummaries(): Promise<Array<Pick<BatteryUnit, 'id' | 'serialNumber' | 'productName' | 'currentStep' | 'progressPercent' | 'status' | 'lifecycleStatus'> & { assignedModuleCount: number; requiredModuleCount?: number }>> {
+    return loadInProgressPackSummaries();
   },
 
   async updateBattery(id: string, update: { serialNumber?: string; status?: string; currentStep?: string; progressPercent?: number }): Promise<BatteryUnit> {
