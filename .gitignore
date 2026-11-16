@@ -10,3 +10,4 @@ coverage/
 memory/otp-dev.log
 memory/*.tmp
 supabase/.temp/
+solidworks-mcp-local/

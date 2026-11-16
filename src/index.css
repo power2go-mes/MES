@@ -1,4 +1,5 @@
 @import "tailwindcss";
+@source not "../solidworks-mcp-local";
 
 /* ── Montserrat font (loaded via index.html Google Fonts) ── */
 *, *::before, *::after {

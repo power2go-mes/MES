@@ -152,7 +152,10 @@ export const RackFatReportModal: React.FC<RackFatReportModalProps> = ({
 
       // Top Header: Logo on left, "QUALITY ASSURANCE" on right
       if (logoDataUrl) {
-        doc.addImage(logoDataUrl, 'PNG', 5, 2.5, 22, 5.5, undefined, 'FAST');
+        const logoProperties = doc.getImageProperties(logoDataUrl);
+        const logoWidth = 22;
+        const logoHeight = Math.min(6.5, logoWidth * (logoProperties.height / logoProperties.width));
+        doc.addImage(logoDataUrl, 'PNG', 5, (9 - logoHeight) / 2, logoWidth, logoHeight, undefined, 'FAST');
       } else {
         doc.setFont('helvetica', 'bold');
         doc.setFontSize(6.5);
@@ -170,9 +173,10 @@ export const RackFatReportModal: React.FC<RackFatReportModalProps> = ({
       doc.rect(0, 9, 70, 23, 'F');
 
       // Concentric circles geometric watermark in banner (subtle, 50% opacity style)
-      doc.setDrawColor(36, 58, 49);
+      // Reduce ring contrast by roughly 50% against the banner background.
+      doc.setDrawColor(18, 45, 37);
       doc.setLineWidth(0.18);
-      for (let r = 5; r <= 30; r += 4) {
+      for (const r of [4.5, 8, 11.5]) {
         doc.circle(70, 20.5, r, 'S');
       }
 
@@ -224,28 +228,36 @@ export const RackFatReportModal: React.FC<RackFatReportModalProps> = ({
         doc.text(value, x, y + 2.5, { maxWidth: 28 });
       };
 
-      // Row 1
-      drawGridField(col1X, startY, shellType === 'CABINET' ? 'BATTERY CABINET' : 'BATTERY RACK', cabinetModelName);
-      drawGridField(col2X, startY, 'CAPACITY', capacityFormatted);
+      const fieldRows = [
+        [
+          [shellType === 'CABINET' ? 'BATTERY CABINET' : 'BATTERY RACK', cabinetModelName],
+          ['CAPACITY', capacityFormatted],
+        ],
+        [
+          [shellType === 'CABINET' ? 'CABINET SERIAL NO.' : 'RACK SERIAL NO.', serial],
+          ['FAT REPORT NO.', fatReportNo],
+        ],
+        [
+          ['CUSTOMER', customer],
+          ['TEST DATE', testDateFormatted],
+        ],
+        [
+          ['PROJECT / SITE', projectSite],
+          ['APPROVED BY', approvedBy],
+        ],
+      ] as const;
 
-      // Row 2
-      drawGridField(col1X, startY + rowGap, shellType === 'CABINET' ? 'CABINET SERIAL NO.' : 'RACK SERIAL NO.', serial);
-      drawGridField(col2X, startY + rowGap, 'FAT REPORT NO.', fatReportNo);
+      fieldRows.forEach((row, rowIndex) => {
+        const rowY = startY + rowGap * rowIndex;
+        drawGridField(col1X, rowY, row[0][0], row[0][1]);
+        drawGridField(col2X, rowY, row[1][0], row[1][1]);
 
-      // Row 3
-      drawGridField(col1X, startY + rowGap * 2, 'CUSTOMER', customer);
-      drawGridField(col2X, startY + rowGap * 2, 'TEST DATE', testDateFormatted);
-
-      // Row 4
-      drawGridField(col1X, startY + rowGap * 3, 'PROJECT / SITE', projectSite);
-      drawGridField(col2X, startY + rowGap * 3, 'APPROVED BY', approvedBy);
-
-      doc.setDrawColor(218, 226, 222);
-      doc.setLineWidth(0.12);
-      for (let row = 0; row < 3; row += 1) {
-        const dividerY = startY + rowGap * (row + 1) - 1.0;
-        doc.line(5, dividerY, 65, dividerY);
-      }
+        if (rowIndex < fieldRows.length - 1) {
+          doc.setDrawColor(218, 226, 222);
+          doc.setLineWidth(0.12);
+          doc.line(5, rowY + 5.4, 65, rowY + 5.4);
+        }
+      });
 
       // Divider line before QR
       doc.setDrawColor(183, 201, 190); // muted green-gray
@@ -274,10 +286,6 @@ export const RackFatReportModal: React.FC<RackFatReportModalProps> = ({
       const downloadNotice = 'View the complete FAT record with every test result in the Power2Go production system.';
       const noticeLines = doc.splitTextToSize(downloadNotice, 37);
       doc.text(noticeLines, 25, 84);
-      doc.setFont('helvetica', 'bold');
-      doc.setFontSize(4.1);
-      doc.setTextColor(34, 153, 62);
-      doc.text(verificationUrl, 25, 92.5, { maxWidth: 37 });
 
       doc.save(`${serial}-FAT-Completion-Card-70x100mm.pdf`);
     } catch (err) {
@@ -350,9 +358,9 @@ export const RackFatReportModal: React.FC<RackFatReportModalProps> = ({
             <div className="absolute top-8 left-0 right-0 bg-[#0b1f19] px-4 py-2.5 text-white overflow-hidden">
               {/* Decorative Concentric Rings - clipped inside banner with 50% opacity */}
               <div
-                className="absolute -right-6 -top-6 w-32 h-32 rounded-full border border-emerald-100/20 opacity-60 pointer-events-none"
+                className="absolute -right-6 -top-6 w-32 h-32 rounded-full border border-emerald-100/10 opacity-30 pointer-events-none"
                 style={{
-                  boxShadow: '0 0 0 8px rgba(46, 185, 67, 0.10), 0 0 0 16px rgba(226, 245, 231, 0.08), 0 0 0 24px rgba(226, 245, 231, 0.05)',
+                  boxShadow: '0 0 0 8px rgba(46, 185, 67, 0.05), 0 0 0 16px rgba(226, 245, 231, 0.04), 0 0 0 24px rgba(226, 245, 231, 0.025)',
                 }}
               />
               <div className="absolute right-5 top-2.5 z-10 flex h-10 w-10 items-center justify-center rounded-full border-2 border-[#2eb943] text-white">
@@ -459,9 +467,6 @@ export const RackFatReportModal: React.FC<RackFatReportModalProps> = ({
                 </span>
                 <span className="text-[7.5px] text-slate-500 leading-normal block mt-1">
                   View the complete FAT record with every test result in the Power2Go production system.
-                </span>
-                <span className="text-[7px] font-bold text-emerald-700 leading-normal block mt-1 truncate">
-                  {verificationUrl}
                 </span>
               </div>
             </div>
