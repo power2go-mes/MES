@@ -14,6 +14,7 @@ import { QRCodeModal } from '../common/QRCodeModal';
 import { ScannerModal } from '../common/ScannerModal';
 import { BatteryReportModal } from '../common/BatteryReportModal';
 import { RackInspectionModal } from '../common/RackInspectionModal';
+import { RackFatReportModal } from '../common/RackFatReportModal';
 import { CopyToClipboardButton } from '../common/CopyToClipboardButton';
 import {
   Boxes,
@@ -124,6 +125,7 @@ export const InventoryView: React.FC = () => {
   const [qrModalOpen, setQrModalOpen] = useState(false);
   const [qrData, setQrData] = useState<any | null>(null);
   const [reportBattery, setReportBattery] = useState<BatteryUnit | null>(null);
+  const [fatReportRack, setFatReportRack] = useState<any | null>(null);
   const [inspectionRack, setInspectionRack] = useState<any | null>(null);
   const [issueModalOpen, setIssueModalOpen] = useState(false);
   const [issueTarget, setIssueTarget] = useState<{
@@ -1858,6 +1860,14 @@ export const InventoryView: React.FC = () => {
                         </button>
                         <button onClick={editRackSerial} className="p-1.5 text-slate-500 hover:text-amber-600 hover:bg-amber-50 rounded-lg transition-colors" title="Edit rack serial"><Pencil className="w-4 h-4" /></button>
                         <button onClick={() => { setQuickSearchQuery(serial); setActiveView('traceability'); }} className="p-1.5 text-slate-500 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors" title="View rack traceability"><Eye className="w-4 h-4" /></button>
+                        <button
+                          type="button"
+                          onClick={() => setFatReportRack(rack)}
+                          className="p-1.5 text-slate-500 hover:text-sky-600 hover:bg-sky-50 rounded-lg transition-colors"
+                          title="Export FAT Completion Card (70x100mm)"
+                        >
+                          <Download className="w-4 h-4" />
+                        </button>
                         <button onClick={() => { setQrData({ title: `Rack QR: ${displaySerial}`, qrPayload: rack.qrCode || rack.qr_code || `${serial}|RACK:${rack.id}`, serial: displaySerial, itemType: 'RACK', metadata: { TEMPLATE: displayTemplate, LOCATION: rack.location || '-', STATUS: status } }); setQrModalOpen(true); }} className="p-1.5 text-slate-500 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors" title="Print QR"><QrCode className="w-4 h-4" /></button>
                         <button onClick={() => { setActiveView('rack-assembly'); addNotification('info', 'Rack Assembly Opened', `Open the rack builder to edit ${displaySerial}.`); }} className="p-1.5 text-slate-500 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors" title="Edit rack"><Pencil className="w-4 h-4" /></button>
                         <button onClick={async () => { if (!window.confirm(`Delete rack ${displaySerial}? Its connected packs will be returned to inventory.`)) return; try { await api.deleteRack(rack.id); triggerRefresh(); } catch (err: any) { addNotification('error', 'Delete Failed', err.message); } }} className="p-1.5 text-slate-500 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors" title="Delete rack"><Trash2 className="w-4 h-4" /></button>
@@ -1904,6 +1914,12 @@ export const InventoryView: React.FC = () => {
         isOpen={Boolean(inspectionRack)}
         onClose={() => setInspectionRack(null)}
         rack={inspectionRack}
+      />
+
+      <RackFatReportModal
+        isOpen={Boolean(fatReportRack)}
+        onClose={() => setFatReportRack(null)}
+        rack={fatReportRack}
       />
 
       {/* Receive BMS Batch Modal */}
