@@ -4,6 +4,7 @@ import {
   Boxes,
   CheckCircle2,
   ClipboardList,
+  Copy,
   Layers,
   PackageCheck,
   QrCode,
@@ -29,8 +30,11 @@ export const ContainerFloorView: React.FC = () => {
   const [pallet, setPallet] = useState('');
   const [box, setBox] = useState('');
   const [barcodes, setBarcodes] = useState('');
-  const [mode, setMode] = useState<'container' | 'cells'>('container');
+  const [mode, setMode] = useState<'container' | 'cells' | 'lookup'>('container');
   const [scannerOpen, setScannerOpen] = useState(false);
+  const [cellLookupScannerOpen, setCellLookupScannerOpen] = useState(false);
+  const [cellLookup, setCellLookup] = useState<Awaited<ReturnType<typeof api.getCellLocationByBarcode>> | null>(null);
+  const [cellLookupLoading, setCellLookupLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [sessionLogs, setSessionLogs] = useState<TransferLogEntry[]>([]);
 
@@ -79,6 +83,94 @@ export const ContainerFloorView: React.FC = () => {
     } catch (error: any) {
       addNotification('error', 'Container move failed', error.message);
       return false;
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const lookupScannedCell = async (barcode: string) => {
+    setCellLookupLoading(true);
+    setCellLookup(null);
+    try {
+      const result = await api.getCellLocationByBarcode(barcode);
+      setCellLookup(result);
+      setCellLookupScannerOpen(false);
+    } finally {
+      setCellLookupLoading(false);
+    }
+  };
+
+  const copyLookupValue = async (label: string, value: string | null) => {
+    if (!value) return;
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(value);
+      } else {
+        const input = document.createElement('textarea');
+        input.value = value;
+        input.style.position = 'fixed';
+        input.style.opacity = '0';
+        document.body.appendChild(input);
+        input.select();
+        const copied = document.execCommand('copy');
+        input.remove();
+        if (!copied) throw new Error('Clipboard access is unavailable.');
+      }
+      addNotification('success', `${label} copied`, value);
+    } catch (error: any) {
+      addNotification('error', `Could not copy ${label.toLowerCase()}`, error.message || 'Clipboard access is unavailable.');
+    }
+  };
+
+  const moveScannedPalletToFloor = async () => {
+    if (!cellLookup?.cell.palletNumber || !cellLookup.pallet || saving) return;
+
+    setSaving(true);
+    try {
+      const latestLookup = await api.getCellLocationByBarcode(cellLookup.cell.internalSerial);
+      setCellLookup(latestLookup);
+      const latestPallet = latestLookup.pallet;
+      if (!latestPallet) throw new Error('No pallet record was found for this cell.');
+      if (latestPallet.status.toUpperCase() !== 'IN_STOCK') {
+        throw new Error(`This pallet is ${latestPallet.status} and cannot be moved from warehouse stock.`);
+      }
+      if (latestPallet.totalCellCount !== latestPallet.expectedCellCount) {
+        throw new Error(`This pallet has ${latestPallet.totalCellCount} cells, but ${latestPallet.expectedCellCount} are expected. Resolve the count before moving it.`);
+      }
+      if (latestPallet.inStockCellCount !== latestPallet.totalCellCount) {
+        throw new Error(`${latestPallet.totalCellCount - latestPallet.inStockCellCount} pallet cell(s) are not in IN_STOCK. Resolve their status before moving the pallet.`);
+      }
+
+      const confirmed = window.confirm(
+        `Move the entire pallet ${latestPallet.palletNumber} (${latestPallet.totalCellCount} cells across all boxes) to FLOOR_STOCK?\n\nThis will not move only the scanned cell or box.`,
+      );
+      if (!confirmed) return;
+
+      const result = await api.movePalletToFloor(latestPallet.palletNumber);
+      addNotification(
+        'success',
+        'Pallet moved to floor stock',
+        `${result.palletNumber || latestPallet.palletNumber}: ${result.cellCount ?? latestPallet.totalCellCount} cells are now in FLOOR_STOCK.`,
+      );
+      appendLog({
+        mode: 'PALLET',
+        reference: result.palletNumber || latestPallet.palletNumber,
+        movedCount: result.cellCount ?? latestPallet.totalCellCount,
+        skippedCount: 0,
+      });
+      setCellLookup({
+        ...latestLookup,
+        cell: { ...latestLookup.cell, status: 'AVAILABLE', lifecycleStatus: 'FLOOR_STOCK' },
+        pallet: {
+          ...latestPallet,
+          status: 'FLOOR_STOCK',
+          location: 'PRODUCTION_FLOOR',
+          actualCellCount: latestPallet.totalCellCount,
+          inStockCellCount: 0,
+        },
+      });
+    } catch (error: any) {
+      addNotification('error', 'Pallet transfer failed', error.message || 'Could not move this pallet to floor stock.');
     } finally {
       setSaving(false);
     }
@@ -199,6 +291,24 @@ export const ContainerFloorView: React.FC = () => {
           </span>
           Box / Selective Cell Transfer
         </button>
+        <button
+          type="button"
+          onClick={() => setMode('lookup')}
+          className={`flex-1 min-w-[200px] py-2.5 px-4 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-2 ${
+            mode === 'lookup'
+              ? 'bg-emerald-600 text-white shadow-xs'
+              : 'text-slate-600 hover:bg-slate-50'
+          }`}
+        >
+          <span
+            className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-black ${
+              mode === 'lookup' ? 'bg-white text-emerald-700' : 'bg-slate-200 text-slate-600'
+            }`}
+          >
+            3
+          </span>
+          Cell Pallet / Box Lookup
+        </button>
       </div>
 
       {/* Main Studio Grid */}
@@ -296,7 +406,7 @@ export const ContainerFloorView: React.FC = () => {
                 </button>
               </div>
             </form>
-          ) : (
+          ) : mode === 'cells' ? (
             <form
               onSubmit={submitCells}
               className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden"
@@ -384,6 +494,170 @@ export const ContainerFloorView: React.FC = () => {
                 </button>
               </div>
             </form>
+          ) : (
+            <section className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+              <div className="p-5 border-b border-slate-100 flex items-center justify-between gap-4">
+                <div>
+                  <span className="text-[10px] font-black uppercase tracking-widest text-emerald-700">
+                    Cell Location Lookup
+                  </span>
+                  <h2 className="text-base font-black text-slate-900 mt-0.5">
+                    Find a Cell’s Pallet and Box
+                  </h2>
+                  <p className="text-xs text-slate-500 mt-1">
+                    Scan one cell barcode to view pallet-wide details and explicitly confirm before moving the full pallet.
+                  </p>
+                </div>
+                <div className="p-2 rounded-xl bg-emerald-50 text-emerald-700 border border-emerald-100 shrink-0">
+                  <ScanLine className="w-5 h-5" />
+                </div>
+              </div>
+
+              <div className="p-5 space-y-4">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setCellLookup(null);
+                    setCellLookupScannerOpen(true);
+                  }}
+                  disabled={cellLookupLoading}
+                  className="w-full rounded-2xl border-2 border-dashed border-emerald-300 bg-emerald-50/50 p-5 text-left hover:bg-emerald-50 hover:border-emerald-500 transition-all group flex items-center justify-between gap-4 disabled:opacity-60"
+                >
+                  <div className="flex items-center gap-3.5">
+                    <div className="p-3 rounded-xl bg-emerald-600 text-white shadow-xs group-hover:scale-105 transition-transform">
+                      <QrCode className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <div className="text-sm font-black text-slate-900">
+                        {cellLookupLoading ? 'Looking up cell...' : 'Scan Cell Barcode'}
+                      </div>
+                      <div className="text-xs text-slate-600 mt-0.5">
+                        Use the camera or manual entry to identify the cell’s pallet and box.
+                      </div>
+                    </div>
+                  </div>
+                  <ArrowRight className="w-5 h-5 text-emerald-600 shrink-0 group-hover:translate-x-1 transition-transform" />
+                </button>
+
+                {cellLookup && (
+                  <div className="rounded-2xl border border-emerald-200 bg-emerald-50/40 p-4 sm:p-5 space-y-4">
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div>
+                        <span className="text-[10px] font-black uppercase tracking-widest text-emerald-700">Cell identified</span>
+                        <div className="mt-1 font-mono text-sm font-black text-slate-900 break-all">
+                          {cellLookup.cell.internalSerial}
+                        </div>
+                      </div>
+                      <span className="inline-flex rounded-full border border-slate-200 bg-white px-3 py-1 text-[10px] font-black uppercase text-slate-700">
+                        {cellLookup.cell.lifecycleStatus || cellLookup.cell.status}
+                      </span>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div className="rounded-xl border border-slate-200 bg-white p-3">
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="text-[10px] font-black uppercase tracking-wider text-slate-500">Pallet Number</div>
+                          <button
+                            type="button"
+                            onClick={() => void copyLookupValue('Pallet number', cellLookup.cell.palletNumber)}
+                            disabled={!cellLookup.cell.palletNumber}
+                            className="inline-flex items-center gap-1 rounded-lg border border-slate-200 px-2 py-1 text-[10px] font-bold text-slate-600 hover:border-emerald-300 hover:text-emerald-700 disabled:cursor-not-allowed disabled:opacity-40"
+                            title="Copy pallet number"
+                          >
+                            <Copy className="h-3 w-3" /> Copy
+                          </button>
+                        </div>
+                        <div className="mt-1 font-mono text-sm font-bold text-slate-900 break-all">
+                          {cellLookup.cell.palletNumber || 'Not assigned'}
+                        </div>
+                        {cellLookup.pallet && <div className="mt-1 text-[11px] text-slate-500">{cellLookup.pallet.status}{cellLookup.pallet.location ? ` · ${cellLookup.pallet.location}` : ''}</div>}
+                      </div>
+                      <div className="rounded-xl border border-slate-200 bg-white p-3">
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="text-[10px] font-black uppercase tracking-wider text-slate-500">Box Number</div>
+                          <button
+                            type="button"
+                            onClick={() => void copyLookupValue('Box number', cellLookup.cell.boxNumber)}
+                            disabled={!cellLookup.cell.boxNumber}
+                            className="inline-flex items-center gap-1 rounded-lg border border-slate-200 px-2 py-1 text-[10px] font-bold text-slate-600 hover:border-emerald-300 hover:text-emerald-700 disabled:cursor-not-allowed disabled:opacity-40"
+                            title="Copy box number"
+                          >
+                            <Copy className="h-3 w-3" /> Copy
+                          </button>
+                        </div>
+                        <div className="mt-1 font-mono text-sm font-bold text-slate-900 break-all">
+                          {cellLookup.cell.boxNumber || 'Not assigned'}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                      {cellLookup.pallet && (
+                        <div className="rounded-xl border border-slate-200 bg-white p-3">
+                          <div className="text-[10px] font-black uppercase tracking-wider text-slate-500">Cells in pallet · all boxes</div>
+                          <div className="mt-1 text-lg font-black text-slate-900">{cellLookup.pallet.totalCellCount.toLocaleString()}</div>
+                          <div className="mt-1 text-[11px] text-slate-500">Expected: {cellLookup.pallet.expectedCellCount.toLocaleString()}</div>
+                          <div className="mt-1 text-[11px] text-slate-500">IN_STOCK: {cellLookup.pallet.inStockCellCount.toLocaleString()}</div>
+                        </div>
+                      )}
+                      <div className="rounded-xl border border-slate-200 bg-white p-3">
+                        <div className="text-[10px] font-black uppercase tracking-wider text-slate-500">Manufacturer / Supplier</div>
+                        <div className="mt-1 text-sm font-bold text-slate-900 break-words">
+                          {cellLookup.pallet?.supplierName || cellLookup.cell.supplierName || 'Not recorded'}
+                        </div>
+                      </div>
+                      <div className="rounded-xl border border-slate-200 bg-white p-3">
+                        <div className="text-[10px] font-black uppercase tracking-wider text-slate-500">Import Date</div>
+                        <div className="mt-1 text-sm font-bold text-slate-900">
+                          {(cellLookup.pallet?.importedAt || cellLookup.cell.importedAt)
+                            ? new Date(cellLookup.pallet?.importedAt || cellLookup.cell.importedAt || '').toLocaleDateString()
+                            : 'Not recorded'}
+                        </div>
+                        <div className="mt-1 text-[10px] text-slate-500">Manufacturing date is not stored in the current MES schema.</div>
+                      </div>
+                    </div>
+
+                    {cellLookup.cell.palletNumber && !cellLookup.pallet && (
+                      <p className="text-xs font-semibold text-amber-700">
+                        The cell has a pallet number, but no matching pallet record was found.
+                      </p>
+                    )}
+
+                    {cellLookup.pallet && (
+                      <div className="border-t border-emerald-200 pt-4 space-y-3">
+                        <p className="text-xs text-slate-600">
+                          Moving this pallet transfers all cells assigned to it across every box.
+                        </p>
+                        {cellLookup.pallet.status.toUpperCase() === 'IN_STOCK'
+                          && cellLookup.pallet.totalCellCount === cellLookup.pallet.expectedCellCount
+                          && cellLookup.pallet.inStockCellCount !== cellLookup.pallet.totalCellCount && (
+                            <p className="text-xs font-semibold text-amber-700">
+                              {cellLookup.pallet.totalCellCount - cellLookup.pallet.inStockCellCount} cell(s) are not in IN_STOCK. Resolve their status before moving the pallet.
+                            </p>
+                          )}
+                        {cellLookup.pallet.totalCellCount !== cellLookup.pallet.expectedCellCount && (
+                          <p className="text-xs font-semibold text-amber-700">
+                            Pallet count mismatch: {cellLookup.pallet.totalCellCount} cell(s) found, {cellLookup.pallet.expectedCellCount} expected.
+                          </p>
+                        )}
+                        {cellLookup.pallet.status.toUpperCase() !== 'IN_STOCK' && (
+                          <p className="text-xs font-semibold text-amber-700">This pallet is {cellLookup.pallet.status} and is not available to move from warehouse stock.</p>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => void moveScannedPalletToFloor()}
+                          disabled={saving || cellLookup.pallet.status.toUpperCase() !== 'IN_STOCK' || cellLookup.pallet.totalCellCount === 0 || cellLookup.pallet.totalCellCount !== cellLookup.pallet.expectedCellCount || cellLookup.pallet.inStockCellCount !== cellLookup.pallet.totalCellCount}
+                          className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-emerald-600 px-5 py-3 text-sm font-bold text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:bg-slate-300"
+                        >
+                          {saving ? 'Moving pallet to floor stock...' : 'Move Pallet to Floor Stock'}
+                          <ArrowRight className="h-4 w-4" />
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            </section>
           )}
         </div>
 
@@ -480,6 +754,13 @@ export const ContainerFloorView: React.FC = () => {
         }}
         title="Scan Container / Pallet Barcode"
         subtitle="Moves every cell on the pallet to FLOOR_STOCK"
+      />
+      <ScannerModal
+        isOpen={cellLookupScannerOpen}
+        onClose={() => setCellLookupScannerOpen(false)}
+        onScan={lookupScannedCell}
+        title="Scan Cell Barcode"
+        subtitle="Identifies the cell’s pallet and box without moving inventory"
       />
     </div>
   );

@@ -101,18 +101,20 @@ export const RackFatReportModal: React.FC<RackFatReportModalProps> = ({
   }, [report, rack]);
 
   const approvedBy = 'QA Department';
-  const verificationUrl = `https://mes.power2go.com/fat/${fatReportNo}`;
+  const hasDownloadableReport = Boolean(rack?.id && report?.pdfFileName && report?.pdfDataUrl);
+  const reportDownloadUrl = rack?.id
+    ? `https://mes-p2g.vercel.app/api/public/rack-reports/${encodeURIComponent(rack.id)}/pdf`
+    : '';
 
   // Generate QR code for bottom card verification
   useEffect(() => {
     let cancelled = false;
-    if (!isOpen || !rack) {
+    if (!isOpen || !rack || !hasDownloadableReport || !reportDownloadUrl) {
       setQrDataUrl('');
       return;
     }
 
-    const payload = `${verificationUrl}|${serial}|CAP:${totalCapacityKwh}KWH`;
-    QRCode.toDataURL(payload, {
+    QRCode.toDataURL(reportDownloadUrl, {
       width: 256,
       margin: 1,
       errorCorrectionLevel: 'M',
@@ -131,7 +133,7 @@ export const RackFatReportModal: React.FC<RackFatReportModalProps> = ({
     return () => {
       cancelled = true;
     };
-  }, [isOpen, rack, serial, fatReportNo, totalCapacityKwh, verificationUrl]);
+  }, [isOpen, rack, hasDownloadableReport, reportDownloadUrl]);
 
   // Generate exact 70 x 100 mm vector PDF using jsPDF
   const exportPdf = () => {
@@ -172,13 +174,24 @@ export const RackFatReportModal: React.FC<RackFatReportModalProps> = ({
       doc.setFillColor(11, 31, 25); // #0b1f19
       doc.rect(0, 9, 70, 23, 'F');
 
-      // Concentric circles geometric watermark in banner (subtle, 50% opacity style)
-      // Reduce ring contrast by roughly 50% against the banner background.
-      doc.setDrawColor(18, 45, 37);
+      // Concentric watermark rings, clipped to the banner and drawn at 50% opacity.
+      doc.setDrawColor(51, 75, 65);
       doc.setLineWidth(0.18);
-      for (const r of [4.5, 8, 11.5]) {
-        doc.circle(70, 20.5, r, 'S');
+      doc.setGState(new doc.GState({ 'stroke-opacity': 0.5 }));
+      for (const radius of [5, 9, 13, 17, 21, 25, 29]) {
+        let previousPoint: [number, number] | null = null;
+        for (let step = 0; step <= 360; step += 1) {
+          const angle = (step * Math.PI) / 180;
+          const x = 70 + radius * Math.cos(angle);
+          const y = 20.5 + radius * Math.sin(angle);
+          const insideBanner = x >= 0 && x <= 70 && y >= 9 && y <= 32;
+          if (insideBanner && previousPoint) {
+            doc.line(previousPoint[0], previousPoint[1], x, y);
+          }
+          previousPoint = insideBanner ? [x, y] : null;
+        }
       }
+      doc.setGState(new doc.GState({ 'stroke-opacity': 1 }));
 
       // Green completion seal and check mark
       doc.setDrawColor(46, 185, 67);
@@ -211,7 +224,7 @@ export const RackFatReportModal: React.FC<RackFatReportModalProps> = ({
 
       // 2-Column Specs Grid
       const startY = 44;
-      const rowGap = 6.4;
+      const rowGap = 7.2;
       const col1X = 5;
       const col2X = 37;
 
@@ -255,7 +268,7 @@ export const RackFatReportModal: React.FC<RackFatReportModalProps> = ({
         if (rowIndex < fieldRows.length - 1) {
           doc.setDrawColor(218, 226, 222);
           doc.setLineWidth(0.12);
-          doc.line(5, rowY + 5.4, 65, rowY + 5.4);
+          doc.line(5, rowY + 4.7, 65, rowY + 4.7);
         }
       });
 
@@ -283,7 +296,9 @@ export const RackFatReportModal: React.FC<RackFatReportModalProps> = ({
       doc.setFont('helvetica', 'normal');
       doc.setFontSize(4.3);
       doc.setTextColor(100, 116, 139);
-      const downloadNotice = 'View the complete FAT record with every test result in the Power2Go production system.';
+      const downloadNotice = hasDownloadableReport
+        ? 'Scan to download the attached factory inspection PDF.'
+        : 'No inspection PDF was attached during assembly.';
       const noticeLines = doc.splitTextToSize(downloadNotice, 37);
       doc.text(noticeLines, 25, 84);
 
@@ -357,12 +372,21 @@ export const RackFatReportModal: React.FC<RackFatReportModalProps> = ({
             {/* Deep green hero banner */}
             <div className="absolute top-8 left-0 right-0 bg-[#0b1f19] px-4 py-2.5 text-white overflow-hidden">
               {/* Decorative Concentric Rings - clipped inside banner with 50% opacity */}
-              <div
-                className="absolute -right-6 -top-6 w-32 h-32 rounded-full border border-emerald-100/10 opacity-30 pointer-events-none"
-                style={{
-                  boxShadow: '0 0 0 8px rgba(46, 185, 67, 0.05), 0 0 0 16px rgba(226, 245, 231, 0.04), 0 0 0 24px rgba(226, 245, 231, 0.025)',
-                }}
-              />
+              <div className="absolute inset-0 z-0 overflow-hidden opacity-50 pointer-events-none" aria-hidden="true">
+                {[38, 56, 74, 92, 110, 128, 146].map((diameter) => (
+                  <span
+                    key={diameter}
+                    className="absolute rounded-full border border-emerald-100/50"
+                    style={{
+                      width: diameter,
+                      height: diameter,
+                      right: -(diameter / 2),
+                      top: '50%',
+                      transform: 'translateY(-50%)',
+                    }}
+                  />
+                ))}
+              </div>
               <div className="absolute right-5 top-2.5 z-10 flex h-10 w-10 items-center justify-center rounded-full border-2 border-[#2eb943] text-white">
                 <CheckCircle2 className="h-7 w-7 stroke-[1.5]" />
               </div>
@@ -455,10 +479,10 @@ export const RackFatReportModal: React.FC<RackFatReportModalProps> = ({
             {/* Mint verification panel and QR section */}
             <div className="border-t border-[#b7c9be] pt-3 pb-1 flex items-center gap-3 rounded-lg bg-[#f2f9f2] px-2">
               <div className="w-[62px] h-[62px] bg-white border border-emerald-100 rounded p-1 shrink-0 flex items-center justify-center">
-                {qrDataUrl ? (
+        {qrDataUrl ? (
                   <img src={qrDataUrl} alt="FAT QR Code" className="w-full h-full object-contain" />
                 ) : (
-                  <div className="text-[7px] font-mono text-slate-400">QR Code</div>
+                  <div className="text-[7px] font-mono text-slate-400 text-center">No report PDF</div>
                 )}
               </div>
               <div className="min-w-0 flex-1">
@@ -466,7 +490,9 @@ export const RackFatReportModal: React.FC<RackFatReportModalProps> = ({
                   Scan for the full report
                 </span>
                 <span className="text-[7.5px] text-slate-500 leading-normal block mt-1">
-                  View the complete FAT record with every test result in the Power2Go production system.
+                  {hasDownloadableReport
+                    ? 'Scan to download the attached factory inspection PDF.'
+                    : 'No inspection PDF was attached during assembly.'}
                 </span>
               </div>
             </div>
@@ -489,7 +515,7 @@ export const RackFatReportModal: React.FC<RackFatReportModalProps> = ({
             <button
               type="button"
               onClick={exportPdf}
-              disabled={downloading}
+              disabled={downloading || (hasDownloadableReport && !qrDataUrl)}
               className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-sky-600 hover:bg-sky-700 text-white text-xs font-black transition-colors shadow-md shadow-sky-600/20 disabled:opacity-50"
             >
               <Download className="w-4 h-4" />

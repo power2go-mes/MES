@@ -329,6 +329,41 @@ apiRouter.post('/auth/logout', (req: any, res: any) => {
   return res.json({ message: 'Logged out successfully' });
 });
 
+// Public bearer link embedded in the client FAT card QR. The rack id is an
+// opaque UUID-backed identifier; only the uploaded PDF is returned here.
+apiRouter.get('/public/rack-reports/:rackId/pdf', asyncHandler(async (req: any, res: any) => {
+  const rackId = String(req.params.rackId || '').trim();
+  if (!rackId || rackId.length > 100) return res.status(404).send('Report not found');
+
+  const service = getServiceClient();
+  if (!service) return res.status(503).send('Report download is unavailable');
+
+  const { data, error } = await service
+    .from('rack_inspection_reports')
+    .select('pdf_file_name, pdf_data_url')
+    .eq('rack_id', rackId)
+    .maybeSingle();
+  if (error) throw error;
+  if (!data?.pdf_data_url) return res.status(404).send('Report PDF not found');
+
+  const match = String(data.pdf_data_url).match(/^data:application\/pdf;base64,([A-Za-z0-9+/=\r\n]+)$/i);
+  if (!match) return res.status(404).send('Report PDF not found');
+
+  const pdfBytes = Buffer.from(match[1].replace(/\s/g, ''), 'base64');
+  if (!pdfBytes.length) return res.status(404).send('Report PDF not found');
+  const safeName = String(data.pdf_file_name || `rack-${rackId}-report.pdf`)
+    .replace(/[\\/:*?"<>|\r\n]/g, '_');
+
+  res.set({
+    'Content-Type': 'application/pdf',
+    'Content-Disposition': `attachment; filename="report.pdf"; filename*=UTF-8''${encodeURIComponent(safeName)}`,
+    'Content-Length': String(pdfBytes.length),
+    'Cache-Control': 'private, no-store',
+    'X-Content-Type-Options': 'nosniff',
+  });
+  return res.status(200).send(pdfBytes);
+}));
+
 // --- GLOBAL AUTHENTICATION GUARD ---
 // Every /api route requires a valid session cookie, except the auth endpoints
 // themselves (login / verify-otp / resend-otp / logout / me) and the health check.

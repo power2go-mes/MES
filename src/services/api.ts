@@ -2543,6 +2543,115 @@ export const api = {
     return resultCells;
   },
 
+  async getCellLocationByBarcode(barcode: string): Promise<{
+    cell: {
+      id: string;
+      internalSerial: string;
+      supplierBarcode: string;
+      qrCode: string;
+      palletNumber: string | null;
+      boxNumber: string | null;
+      status: string;
+      lifecycleStatus: string | null;
+      supplierName: string | null;
+      importedAt: string | null;
+    };
+    pallet: {
+      palletNumber: string;
+      status: string;
+      location: string;
+      expectedCellCount: number;
+      actualCellCount: number;
+      totalCellCount: number;
+      inStockCellCount: number;
+      supplierName: string | null;
+      importedAt: string | null;
+    } | null;
+  }> {
+    if (!rawSupabase) throw new Error('Supabase is not configured.');
+    const normalizedBarcode = String(barcode || '').trim();
+    if (!normalizedBarcode) throw new Error('Scan or enter a cell barcode.');
+
+    const cellColumns = ['internal_serial', 'supplier_barcode', 'qr_code', 'id'] as const;
+    const lookupResults = await Promise.all(cellColumns.map(column =>
+      rawSupabase
+        .from('cells')
+        .select('id,internal_serial,supplier_barcode,qr_code,pallet_number,box_number,status,lifecycle_status,supplier:suppliers(name),supplier_import:supplier_imports(imported_at)')
+        .eq(column, normalizedBarcode)
+        .limit(2),
+    ));
+    const lookupError = lookupResults.find(result => result.error)?.error;
+    if (lookupError) throw lookupError;
+
+    const matchedCells = new Map<string, any>();
+    lookupResults.forEach(result => (result.data || []).forEach((cell: any) => matchedCells.set(cell.id, cell)));
+    if (matchedCells.size === 0) throw new Error(`No cell was found for "${normalizedBarcode}".`);
+    if (matchedCells.size > 1) throw new Error('This barcode matches more than one cell. Ask an administrator to review the duplicate barcode.');
+
+    const row = Array.from(matchedCells.values())[0];
+    const palletNumber = row.pallet_number ? String(row.pallet_number) : null;
+    let pallet: {
+      palletNumber: string;
+      status: string;
+      location: string;
+      expectedCellCount: number;
+      actualCellCount: number;
+      totalCellCount: number;
+      inStockCellCount: number;
+      supplierName: string | null;
+      importedAt: string | null;
+    } | null = null;
+
+    if (palletNumber) {
+      const { data, error } = await rawSupabase
+        .from('pallets')
+        .select('pallet_number,status,location,expected_cell_count,actual_cell_count,import_id,supplier:suppliers(name),supplier_import:supplier_imports(imported_at)')
+        .eq('pallet_number', palletNumber)
+        .maybeSingle();
+      if (error) throw error;
+      if (data) {
+        const [{ count: totalCellCount, error: totalCountError }, { count: inStockCellCount, error: inStockCountError }] = await Promise.all([
+          rawSupabase.from('cells').select('id', { count: 'exact', head: true }).eq('pallet_number', palletNumber),
+          rawSupabase.from('cells').select('id', { count: 'exact', head: true }).eq('pallet_number', palletNumber).eq('lifecycle_status', 'IN_STOCK'),
+        ]);
+        if (totalCountError) throw totalCountError;
+        if (inStockCountError) throw inStockCountError;
+        const palletSupplier = Array.isArray(data.supplier) ? data.supplier[0] : data.supplier;
+        const palletImport = Array.isArray(data.supplier_import) ? data.supplier_import[0] : data.supplier_import;
+        pallet = {
+          palletNumber: String(data.pallet_number),
+          status: String(data.status || 'UNKNOWN'),
+          location: String(data.location || ''),
+          expectedCellCount: Number(data.expected_cell_count || 0),
+          actualCellCount: Number(data.actual_cell_count || 0),
+          totalCellCount: Number(totalCellCount || 0),
+          inStockCellCount: Number(inStockCellCount || 0),
+          supplierName: palletSupplier?.name ? String(palletSupplier.name) : null,
+          importedAt: palletImport?.imported_at ? String(palletImport.imported_at) : null,
+        };
+      }
+    }
+
+    const cellSupplier = Array.isArray(row.supplier) ? row.supplier[0] : row.supplier;
+    const cellImport = Array.isArray(row.supplier_import) ? row.supplier_import[0] : row.supplier_import;
+
+    return {
+      cell: {
+        id: String(row.id),
+        internalSerial: String(row.internal_serial || row.id),
+        supplierBarcode: String(row.supplier_barcode || ''),
+        qrCode: String(row.qr_code || ''),
+        palletNumber,
+        boxNumber: row.box_number ? String(row.box_number) : null,
+        status: String(row.status || 'UNKNOWN'),
+        lifecycleStatus: row.lifecycle_status ? String(row.lifecycle_status) : null,
+        supplierName: cellSupplier?.name ? String(cellSupplier.name) : null,
+        importedAt: cellImport?.imported_at ? String(cellImport.imported_at) : null,
+      },
+      pallet,
+    };
+  },
+
   async createStandaloneModule(moduleType: '8S' | '12S', cellBarcodes: string[]): Promise<any> {
     if (!rawSupabase) throw new Error('Supabase is not configured.');
     const normalizedBarcodes = Array.from(new Set(cellBarcodes.map(value => value.trim()).filter(Boolean)));
