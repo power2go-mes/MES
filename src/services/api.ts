@@ -6211,6 +6211,9 @@ export const api = {
     department?: string;
     issuedBy: string;
     notes?: string;
+    handoverStatus?: 'PENDING_SIGNATURE' | 'COMPLETED';
+    signedSlipUrl?: string | null;
+    signedSlipFileName?: string | null;
   }): Promise<void> {
     const { data: sessionData } = (await rawSupabase?.auth.getSession().catch(() => ({ data: { session: null } }))) || { data: { session: null } };
     try {
@@ -6227,6 +6230,17 @@ export const api = {
         dashboardStatsCache = null;
         if (typeof window !== 'undefined') {
           try { window.localStorage.removeItem('p2g_dashboard_stats_cache'); } catch {}
+      try { window.localStorage.removeItem(`p2g_handover_${params.entityType}_${params.entityId}`); } catch {}
+          try {
+            const handoverState = {
+              handoverStatus: params.handoverStatus || 'PENDING_SIGNATURE',
+              signedSlipUrl: params.signedSlipUrl || null,
+              signedSlipFileName: params.signedSlipFileName || null,
+              signedSlipUploadedAt: params.signedSlipUrl ? new Date().toISOString() : null,
+              notes: params.notes || null,
+            };
+            window.localStorage.setItem(`p2g_handover_${params.entityType}_${params.entityId}`, JSON.stringify(handoverState));
+          } catch {}
         }
         return;
       }
@@ -6258,6 +6272,17 @@ export const api = {
     dashboardStatsCache = null;
     if (typeof window !== 'undefined') {
       try { window.localStorage.removeItem('p2g_dashboard_stats_cache'); } catch {}
+      try { window.localStorage.removeItem(`p2g_handover_${params.entityType}_${params.entityId}`); } catch {}
+      try {
+        const handoverState = {
+          handoverStatus: params.handoverStatus || 'PENDING_SIGNATURE',
+          signedSlipUrl: params.signedSlipUrl || null,
+          signedSlipFileName: params.signedSlipFileName || null,
+          signedSlipUploadedAt: params.signedSlipUrl ? new Date().toISOString() : null,
+          notes: params.notes || null,
+        };
+        window.localStorage.setItem(`p2g_handover_${params.entityType}_${params.entityId}`, JSON.stringify(handoverState));
+      } catch {}
     }
 
     const deptLabel = params.department?.trim() ? ` (${params.department.trim()})` : '';
@@ -6274,6 +6299,50 @@ export const api = {
       });
     } catch (e) {
       console.warn('Failed to record issue audit log', e);
+    }
+  },
+
+  async completeHandoverSlip(params: {
+    entityType: 'CELL' | 'BMS' | 'BMU' | 'MODULE' | 'BATTERY' | 'RACK';
+    entityId: string;
+    serialNumber: string;
+    signedSlipUrl: string;
+    signedSlipFileName?: string;
+    actor?: string;
+  }): Promise<void> {
+    const uploadedAt = new Date().toISOString();
+    if (typeof window !== 'undefined') {
+      try {
+        const key = `p2g_handover_${params.entityType}_${params.entityId}`;
+        const existing = JSON.parse(window.localStorage.getItem(key) || '{}');
+        window.localStorage.setItem(key, JSON.stringify({
+          ...existing,
+          handoverStatus: 'COMPLETED',
+          signedSlipUrl: params.signedSlipUrl,
+          signedSlipFileName: params.signedSlipFileName || 'signed_handover_slip.pdf',
+          signedSlipUploadedAt: uploadedAt,
+        }));
+      } catch {}
+    }
+
+    const client = rawSupabase || supabase;
+    try {
+      await client.from('audit_logs').insert({
+        id: `log-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
+        entity_type: params.entityType,
+        entity_id: params.entityId,
+        action: `HANDOVER_COMPLETED: Signed slip uploaded for ${params.entityType} ${params.serialNumber}`,
+        actor: params.actor || 'Operator',
+        result: 'SUCCESS',
+        after_state: {
+          handover_status: 'COMPLETED',
+          signed_slip_filename: params.signedSlipFileName,
+          signed_slip_uploaded_at: uploadedAt,
+        },
+        details: `Signed slip verified & uploaded. Custody complete.`,
+      });
+    } catch (e) {
+      console.warn('Failed to record handover completion audit log', e);
     }
   },
 
@@ -6298,6 +6367,7 @@ export const api = {
         dashboardStatsCache = null;
         if (typeof window !== 'undefined') {
           try { window.localStorage.removeItem('p2g_dashboard_stats_cache'); } catch {}
+      try { window.localStorage.removeItem(`p2g_handover_${params.entityType}_${params.entityId}`); } catch {}
         }
         return;
       }
@@ -6328,6 +6398,7 @@ export const api = {
     dashboardStatsCache = null;
     if (typeof window !== 'undefined') {
       try { window.localStorage.removeItem('p2g_dashboard_stats_cache'); } catch {}
+      try { window.localStorage.removeItem(`p2g_handover_${params.entityType}_${params.entityId}`); } catch {}
     }
 
     const actor = params.returnedBy || 'SYSTEM';
@@ -6544,72 +6615,150 @@ export const api = {
     ]);
 
     const items = [
-      ...(cells.data || []).map((c: any) => ({
-        id: c.id,
-        entityType: 'CELL' as const,
-        serialNumber: c.internalSerial || c.internal_serial || c.id,
-        barcode: c.supplierBarcode || c.supplier_barcode || c.qr_code || null,
-        issuedToPerson: c.issuedToPerson || c.issued_to_person,
-        issuedToDepartment: c.issuedToDepartment || c.issued_to_department,
-        issuedBy: c.issuedBy || c.issued_by,
-        issuedAt: c.issuedAt || c.issued_at,
-        status: c.status || c.lifecycleStatus || c.lifecycle_status,
-      })),
-      ...(bms.data || []).map((b: any) => ({
-        id: b.id,
-        entityType: 'BMS' as const,
-        serialNumber: b.serialNumber || b.serial_number || b.id,
-        barcode: b.serialNumber || b.serial_number || null,
-        issuedToPerson: b.issuedToPerson || b.issued_to_person,
-        issuedToDepartment: b.issuedToDepartment || b.issued_to_department,
-        issuedBy: b.issuedBy || b.issued_by,
-        issuedAt: b.issuedAt || b.issued_at,
-        status: b.status,
-      })),
-      ...(bmu.data || []).map((b: any) => ({
-        id: b.id,
-        entityType: 'BMU' as const,
-        serialNumber: b.serialNumber || b.serial_number || b.id,
-        barcode: b.serialNumber || b.serial_number || null,
-        issuedToPerson: b.issuedToPerson || b.issued_to_person,
-        issuedToDepartment: b.issuedToDepartment || b.issued_to_department,
-        issuedBy: b.issuedBy || b.issued_by,
-        issuedAt: b.issuedAt || b.issued_at,
-        status: b.status,
-      })),
-      ...(modules.data || []).map((m: any) => ({
-        id: m.id,
-        entityType: 'MODULE' as const,
-        serialNumber: m.serialNumber || m.serial_number || m.id,
-        barcode: m.qrCode || m.qr_code || m.serialNumber || m.serial_number || null,
-        issuedToPerson: m.issuedToPerson || m.issued_to_person,
-        issuedToDepartment: m.issuedToDepartment || m.issued_to_department,
-        issuedBy: m.issuedBy || m.issued_by,
-        issuedAt: m.issuedAt || m.issued_at,
-        status: m.status || m.lifecycleStatus || m.lifecycle_status,
-      })),
-      ...(batteries.data || []).map((b: any) => ({
-        id: b.id,
-        entityType: 'BATTERY' as const,
-        serialNumber: b.serialNumber || b.serial_number || b.id,
-        barcode: b.qrCode || b.qr_code || b.serialNumber || b.serial_number || null,
-        issuedToPerson: b.issuedToPerson || b.issued_to_person,
-        issuedToDepartment: b.issuedToDepartment || b.issued_to_department,
-        issuedBy: b.issuedBy || b.issued_by,
-        issuedAt: b.issuedAt || b.issued_at,
-        status: b.status || b.lifecycleStatus || b.lifecycle_status,
-      })),
-      ...(racks.data || []).map((r: any) => ({
-        id: r.id,
-        entityType: 'RACK' as const,
-        serialNumber: r.serialNumber || r.serial_number || r.id,
-        barcode: r.qrCode || r.qr_code || r.serialNumber || r.serial_number || null,
-        issuedToPerson: r.issuedToPerson || r.issued_to_person,
-        issuedToDepartment: r.issuedToDepartment || r.issued_to_department,
-        issuedBy: r.issuedBy || r.issued_by,
-        issuedAt: r.issuedAt || r.issued_at,
-        status: r.status,
-      })),
+      ...(cells.data || []).map((c: any) => {
+        let handoverInfo: any = null;
+        if (typeof window !== 'undefined') {
+          try {
+            const raw = window.localStorage.getItem(`p2g_handover_CELL_${c.id}`);
+            if (raw) handoverInfo = JSON.parse(raw);
+          } catch {}
+        }
+        return {
+          id: c.id,
+          entityType: 'CELL' as const,
+          serialNumber: c.internalSerial || c.internal_serial || c.id,
+          barcode: c.supplierBarcode || c.supplier_barcode || c.qr_code || null,
+          issuedToPerson: c.issuedToPerson || c.issued_to_person,
+          issuedToDepartment: c.issuedToDepartment || c.issued_to_department,
+          issuedBy: c.issuedBy || c.issued_by,
+          issuedAt: c.issuedAt || c.issued_at,
+          status: c.status || c.lifecycleStatus || c.lifecycle_status,
+          handoverStatus: handoverInfo?.handoverStatus || (c.issued_to_person ? 'COMPLETED' : null),
+          signedSlipUrl: handoverInfo?.signedSlipUrl || null,
+          signedSlipFileName: handoverInfo?.signedSlipFileName || null,
+          signedSlipUploadedAt: handoverInfo?.signedSlipUploadedAt || null,
+        };
+      }),
+      ...(bms.data || []).map((b: any) => {
+        let handoverInfo: any = null;
+        if (typeof window !== 'undefined') {
+          try {
+            const raw = window.localStorage.getItem(`p2g_handover_BMS_${b.id}`);
+            if (raw) handoverInfo = JSON.parse(raw);
+          } catch {}
+        }
+        return {
+          id: b.id,
+          entityType: 'BMS' as const,
+          serialNumber: b.serialNumber || b.serial_number || b.id,
+          barcode: b.serialNumber || b.serial_number || null,
+          issuedToPerson: b.issuedToPerson || b.issued_to_person,
+          issuedToDepartment: b.issuedToDepartment || b.issued_to_department,
+          issuedBy: b.issuedBy || b.issued_by,
+          issuedAt: b.issuedAt || b.issued_at,
+          status: b.status,
+          handoverStatus: handoverInfo?.handoverStatus || (b.issued_to_person ? 'COMPLETED' : null),
+          signedSlipUrl: handoverInfo?.signedSlipUrl || null,
+          signedSlipFileName: handoverInfo?.signedSlipFileName || null,
+          signedSlipUploadedAt: handoverInfo?.signedSlipUploadedAt || null,
+        };
+      }),
+      ...(bmu.data || []).map((b: any) => {
+        let handoverInfo: any = null;
+        if (typeof window !== 'undefined') {
+          try {
+            const raw = window.localStorage.getItem(`p2g_handover_BMU_${b.id}`);
+            if (raw) handoverInfo = JSON.parse(raw);
+          } catch {}
+        }
+        return {
+          id: b.id,
+          entityType: 'BMU' as const,
+          serialNumber: b.serialNumber || b.serial_number || b.id,
+          barcode: b.serialNumber || b.serial_number || null,
+          issuedToPerson: b.issuedToPerson || b.issued_to_person,
+          issuedToDepartment: b.issuedToDepartment || b.issued_to_department,
+          issuedBy: b.issuedBy || b.issued_by,
+          issuedAt: b.issuedAt || b.issued_at,
+          status: b.status,
+          handoverStatus: handoverInfo?.handoverStatus || (b.issued_to_person ? 'COMPLETED' : null),
+          signedSlipUrl: handoverInfo?.signedSlipUrl || null,
+          signedSlipFileName: handoverInfo?.signedSlipFileName || null,
+          signedSlipUploadedAt: handoverInfo?.signedSlipUploadedAt || null,
+        };
+      }),
+      ...(modules.data || []).map((m: any) => {
+        let handoverInfo: any = null;
+        if (typeof window !== 'undefined') {
+          try {
+            const raw = window.localStorage.getItem(`p2g_handover_MODULE_${m.id}`);
+            if (raw) handoverInfo = JSON.parse(raw);
+          } catch {}
+        }
+        return {
+          id: m.id,
+          entityType: 'MODULE' as const,
+          serialNumber: m.serialNumber || m.serial_number || m.id,
+          barcode: m.qrCode || m.qr_code || m.serialNumber || m.serial_number || null,
+          issuedToPerson: m.issuedToPerson || m.issued_to_person,
+          issuedToDepartment: m.issuedToDepartment || m.issued_to_department,
+          issuedBy: m.issuedBy || m.issued_by,
+          issuedAt: m.issuedAt || m.issued_at,
+          status: m.status || m.lifecycleStatus || m.lifecycle_status,
+          handoverStatus: handoverInfo?.handoverStatus || (m.issued_to_person ? 'COMPLETED' : null),
+          signedSlipUrl: handoverInfo?.signedSlipUrl || null,
+          signedSlipFileName: handoverInfo?.signedSlipFileName || null,
+          signedSlipUploadedAt: handoverInfo?.signedSlipUploadedAt || null,
+        };
+      }),
+      ...(batteries.data || []).map((b: any) => {
+        let handoverInfo: any = null;
+        if (typeof window !== 'undefined') {
+          try {
+            const raw = window.localStorage.getItem(`p2g_handover_BATTERY_${b.id}`);
+            if (raw) handoverInfo = JSON.parse(raw);
+          } catch {}
+        }
+        return {
+          id: b.id,
+          entityType: 'BATTERY' as const,
+          serialNumber: b.serialNumber || b.serial_number || b.id,
+          barcode: b.qrCode || b.qr_code || b.serialNumber || b.serial_number || null,
+          issuedToPerson: b.issuedToPerson || b.issued_to_person,
+          issuedToDepartment: b.issuedToDepartment || b.issued_to_department,
+          issuedBy: b.issuedBy || b.issued_by,
+          issuedAt: b.issuedAt || b.issued_at,
+          status: b.status || b.lifecycleStatus || b.lifecycle_status,
+          handoverStatus: handoverInfo?.handoverStatus || (b.issued_to_person ? 'COMPLETED' : null),
+          signedSlipUrl: handoverInfo?.signedSlipUrl || null,
+          signedSlipFileName: handoverInfo?.signedSlipFileName || null,
+          signedSlipUploadedAt: handoverInfo?.signedSlipUploadedAt || null,
+        };
+      }),
+      ...(racks.data || []).map((r: any) => {
+        let handoverInfo: any = null;
+        if (typeof window !== 'undefined') {
+          try {
+            const raw = window.localStorage.getItem(`p2g_handover_RACK_${r.id}`);
+            if (raw) handoverInfo = JSON.parse(raw);
+          } catch {}
+        }
+        return {
+          id: r.id,
+          entityType: 'RACK' as const,
+          serialNumber: r.serialNumber || r.serial_number || r.id,
+          barcode: r.qrCode || r.qr_code || r.serialNumber || r.serial_number || null,
+          issuedToPerson: r.issuedToPerson || r.issued_to_person,
+          issuedToDepartment: r.issuedToDepartment || r.issued_to_department,
+          issuedBy: r.issuedBy || r.issued_by,
+          issuedAt: r.issuedAt || r.issued_at,
+          status: r.status,
+          handoverStatus: handoverInfo?.handoverStatus || (r.issued_to_person ? 'COMPLETED' : null),
+          signedSlipUrl: handoverInfo?.signedSlipUrl || null,
+          signedSlipFileName: handoverInfo?.signedSlipFileName || null,
+          signedSlipUploadedAt: handoverInfo?.signedSlipUploadedAt || null,
+        };
+      }),
     ].sort((a, b) => new Date(b.issuedAt || 0).getTime() - new Date(a.issuedAt || 0).getTime());
 
     return items;

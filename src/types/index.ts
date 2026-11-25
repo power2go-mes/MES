@@ -84,6 +84,10 @@ export interface IssuanceDetails {
   issuedToDepartment?: string | null;
   issuedBy?: string | null;
   issuedAt?: string | null;
+  handoverStatus?: 'PENDING_SIGNATURE' | 'COMPLETED' | null;
+  signedSlipUrl?: string | null;
+  signedSlipFileName?: string | null;
+  signedSlipUploadedAt?: string | null;
 }
 
 export interface RackShellTemplate {

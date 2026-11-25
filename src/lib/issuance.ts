@@ -11,16 +11,23 @@ export interface IssuanceData {
   issued_to_department?: string | null;
   issued_by?: string | null;
   issued_at?: string | null;
+  handoverStatus?: 'PENDING_SIGNATURE' | 'COMPLETED' | null;
+  signedSlipUrl?: string | null;
 }
 
 /**
- * Returns formatted status string like "ISSUED (R&D)" or "ISSUED (Person Name)"
+ * Returns formatted status string like "PENDING SIGNATURE" or "ISSUED (R&D)" / "ISSUED (Person Name)"
  * if the item is currently issued, otherwise returns null.
  */
 export function getIssuedDisplayStatus(item?: IssuanceData | null): string | null {
   if (!item) return null;
   const person = (item.issuedToPerson ?? item.issued_to_person)?.trim();
   if (!person) return null;
+
+  if (item.handoverStatus === 'PENDING_SIGNATURE') {
+    return 'PENDING SIGNATURE';
+  }
+
   const dept = (item.issuedToDepartment ?? item.issued_to_department)?.trim();
   return dept ? `ISSUED (${dept})` : `ISSUED (${person})`;
 }

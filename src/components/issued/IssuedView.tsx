@@ -27,7 +27,11 @@ import {
   Calendar,
   Clock,
   CheckCircle2,
+  FileDown,
+  FileText,
+  Upload,
 } from 'lucide-react';
+import { downloadHandoverSlipPdf } from '../../lib/handoverSlipExport';
 
 interface IssuedItem {
   id: string;
@@ -39,6 +43,10 @@ interface IssuedItem {
   issuedBy: string;
   issuedAt: string;
   status: string;
+  handoverStatus?: 'PENDING_SIGNATURE' | 'COMPLETED' | null;
+  signedSlipUrl?: string | null;
+  signedSlipFileName?: string | null;
+  signedSlipUploadedAt?: string | null;
 }
 
 const TYPE_CONFIG: Record<
@@ -469,9 +477,17 @@ export const IssuedView: React.FC = () => {
                       {item.issuedAt ? new Date(item.issuedAt).toLocaleDateString() : '—'}
                     </td>
                     <td className="px-5 py-3.5 font-sans">
-                      <span className="px-2.5 py-0.5 rounded-md text-[10px] font-bold uppercase tracking-wider bg-emerald-50 text-emerald-800 border border-emerald-200">
-                        {displayStatus}
-                      </span>
+                      {item.handoverStatus === 'PENDING_SIGNATURE' ? (
+                        <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-md text-[10px] font-bold uppercase tracking-wider bg-amber-100 text-amber-900 border border-amber-300">
+                          <Clock className="w-3 h-3 text-amber-600 shrink-0" />
+                          Pending Signature
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-md text-[10px] font-bold uppercase tracking-wider bg-emerald-50 text-emerald-800 border border-emerald-200">
+                          <CheckCircle2 className="w-3 h-3 text-emerald-600 shrink-0" />
+                          {displayStatus}
+                        </span>
+                      )}
                     </td>
                     <td className="px-5 py-3.5 text-right space-x-1 font-sans">
                       <button
@@ -487,15 +503,33 @@ export const IssuedView: React.FC = () => {
                               issuedToDepartment: item.issuedToDepartment || undefined,
                               issuedBy: item.issuedBy,
                               issuedAt: item.issuedAt,
+                              handoverStatus: item.handoverStatus,
+                              signedSlipUrl: item.signedSlipUrl,
+                              signedSlipFileName: item.signedSlipFileName,
+                              signedSlipUploadedAt: item.signedSlipUploadedAt,
                             },
                           });
                           setIssueModalOpen(true);
                         }}
-                        className="p-1.5 text-slate-500 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors"
-                        title="Edit / reassign issuance"
+                        className={`p-1.5 rounded-lg transition-colors ${
+                          item.handoverStatus === 'PENDING_SIGNATURE'
+                            ? 'text-amber-700 bg-amber-50 hover:bg-amber-100 ring-1 ring-amber-300'
+                            : 'text-slate-500 hover:text-emerald-600 hover:bg-emerald-50'
+                        }`}
+                        title={item.handoverStatus === 'PENDING_SIGNATURE' ? 'Upload Signed Slip / Handover' : 'Edit / reassign issuance'}
                       >
                         <UserCheck className="w-4 h-4" />
                       </button>
+                      {item.signedSlipUrl && (
+                        <a
+                          href={item.signedSlipUrl}
+                          download={item.signedSlipFileName || 'signed_handover_slip.pdf'}
+                          className="inline-block p-1.5 text-emerald-600 hover:text-emerald-800 hover:bg-emerald-50 rounded-lg transition-colors align-middle"
+                          title="Download Signed Slip Photo/Doc"
+                        >
+                          <Download className="w-4 h-4" />
+                        </a>
+                      )}
                       <button
                         type="button"
                         onClick={() => void handleReturnItem(item)}
