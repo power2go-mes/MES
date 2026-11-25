@@ -29,7 +29,7 @@ import { normalizeRackSerial } from '../../lib/rackNaming';
 const displayRackSerial = normalizeRackSerial;
 
 export const RackAssemblyView: React.FC = () => {
-  const { addNotification, setActiveView, refreshKey, triggerRefresh } = useApp();
+  const { addNotification, setActiveView, refreshKey, triggerRefresh, rackAssemblyEditId, setRackAssemblyEditId } = useApp();
 
   // Step state: 1 = Choose Voltage, 2 = Choose Shell, 3 = Flexible 2D Pack Builder
   const [step, setStep] = useState<1 | 2 | 3>(1);
@@ -43,6 +43,10 @@ export const RackAssemblyView: React.FC = () => {
   const [hasMoreBatteries, setHasMoreBatteries] = useState(false);
   const [selected, setSelected] = useState<string[]>([]);
   const [racks, setRacks] = useState<RackUnit[]>([]);
+  const [editingRack, setEditingRack] = useState<RackUnit | null>(null);
+  const [existingRackPackIds, setExistingRackPackIds] = useState<string[]>([]);
+  const [replacementSlotIndex, setReplacementSlotIndex] = useState<number | null>(null);
+  const [replacementBatteryId, setReplacementBatteryId] = useState<string | null>(null);
   const [location, setLocation] = useState('RACK_ASSEMBLY');
   const [destination, setDestination] = useState('');
   const [reference, setReference] = useState('');
@@ -58,6 +62,7 @@ export const RackAssemblyView: React.FC = () => {
   const assemblyInFlightRef = useRef(false);
 
   // QC Test & Report Questions State
+  const [includeFatReport, setIncludeFatReport] = useState(false);
   const [testReportPdf, setTestReportPdf] = useState<{ name: string; size: string; dataUrl?: string } | null>(null);
   const [packSocs, setPackSocs] = useState<Record<number, string>>({});
   const [packVoltages, setPackVoltages] = useState<Record<number, string>>({});
@@ -74,6 +79,9 @@ export const RackAssemblyView: React.FC = () => {
   const maxSlots = selectedShell?.maxSlots || 5;
   const currentActualKwh = Number((selected.length * packKwh).toFixed(1));
   const isCabinet = selectedShell?.shellType === 'CABINET';
+  const newPacksSelected = editingRack
+    ? selected.filter(id => !existingRackPackIds.includes(id))
+    : selected;
 
   const loadData = async (page = 0) => {
     if (batteryPageRequestRef.current) return;
@@ -84,33 +92,88 @@ export const RackAssemblyView: React.FC = () => {
       const [allBatteries, allRacks, shells] = await Promise.all([
         api.getBatterySummaries({ limit: pageSize, offset: page * pageSize, statuses: ['RELEASED', 'FINISHED', 'WAREHOUSE'], search: batterySearch }),
         api.getRacks(),
-        api.getRackShellTemplates(false),
+        api.getRackShellTemplates(Boolean(rackAssemblyEditId)),
       ]);
 
-      const assignedBatteryIds = new Set(allRacks.flatMap(rack => rack.batteryIds || []));
+      const targetRack = rackAssemblyEditId ? allRacks.find(rack => rack.id === rackAssemblyEditId) || null : null;
+      if (rackAssemblyEditId && !targetRack) {
+        setRackAssemblyEditId(null);
+        setEditingRack(null);
+        addNotification('error', 'Rack Not Found', 'The selected rack could not be loaded for editing.');
+      }
+      const existingPackRows = targetRack?.batteryIds?.length
+        ? await api.getBatterySummariesByIds(targetRack.batteryIds)
+        : [];
+      const assignedBatteryIds = new Set(allRacks
+        .filter(rack => rack.id !== targetRack?.id)
+        .flatMap(rack => rack.batteryIds || []));
       const availableBatteries = allBatteries.filter(item => (
         (['RELEASED', 'FINISHED', 'WAREHOUSE'].includes(String(item.status || '').toUpperCase())
           || ['RELEASED', 'FINISHED', 'WAREHOUSE'].includes(String(item.lifecycleStatus || '').toUpperCase()))
         && !assignedBatteryIds.has(item.id)
       )) as BatteryUnit[];
 
-      setBatteries(current => {
-        if (page === 0) {
-          const selectedIds = new Set(selected);
-          const selectedRows = current.filter(item => selectedIds.has(item.id));
-          const rowsById = new Map(selectedRows.map(item => [item.id, item]));
-          availableBatteries.forEach(item => rowsById.set(item.id, item));
-          return Array.from(rowsById.values());
+      if (page === 0 && targetRack) {
+        const continuingEdit = editingRack?.id === targetRack.id;
+        if (!continuingEdit) {
+          setPhysicalQc(false);
+          setVoltageQc(false);
+          setReplacementSlotIndex(null);
+          setReplacementBatteryId(null);
         }
-        const seenIds = new Set(current.map(item => item.id));
-        return [...current, ...availableBatteries.filter(item => !seenIds.has(item.id))];
-      });
+        const additions = continuingEdit ? selected.filter(id => !existingRackPackIds.includes(id)) : [];
+        const selectedIds = Array.from(new Set([...(targetRack.batteryIds || []), ...additions]));
+        const selectedRows = batteries.filter(item => selectedIds.includes(item.id));
+        const rowsById = new Map<string, any>();
+        existingPackRows.forEach(item => rowsById.set(item.id, item));
+        selectedRows.forEach(item => rowsById.set(item.id, item));
+        availableBatteries.forEach(item => rowsById.set(item.id, item));
+        setBatteries(Array.from(rowsById.values()));
+        setSelected(selectedIds);
+        setExistingRackPackIds(targetRack.batteryIds || []);
+        setEditingRack(targetRack);
+        setSelectedVoltage(targetRack.voltageType || 'LV');
+        const matchingShell = shells.find(shell => shell.id === targetRack.shellTemplateId)
+          || shells.find(shell => shell.shellType === targetRack.shellType && shell.voltageType === targetRack.voltageType && shell.maxSlots === targetRack.maxPackCapacity);
+        setSelectedShell(matchingShell || {
+          id: targetRack.shellTemplateId || `edit-${targetRack.id}`,
+          name: `${targetRack.maxPackCapacity || 5}-slot ${targetRack.voltageType || 'LV'} ${targetRack.shellType || 'RACK'}`,
+          shellCode: targetRack.rackTemplateCode,
+          shellType: targetRack.shellType || 'RACK',
+          voltageType: targetRack.voltageType || 'LV',
+          maxSlots: targetRack.maxPackCapacity || 5,
+          nominalCapacityKwh: targetRack.actualCapacityKwh || 25,
+          active: false,
+          availableQuantity: 0,
+        });
+        setLocation(targetRack.location || 'RACK_ASSEMBLY');
+        setStep(3);
+      } else {
+        setBatteries(current => {
+          if (page === 0) {
+            const selectedIds = new Set(selected);
+            const selectedRows = current.filter(item => selectedIds.has(item.id));
+            const rowsById = new Map(selectedRows.map(item => [item.id, item]));
+            availableBatteries.forEach(item => rowsById.set(item.id, item));
+            return Array.from(rowsById.values());
+          }
+          const seenIds = new Set(current.map(item => item.id));
+          return [...current, ...availableBatteries.filter(item => !seenIds.has(item.id))];
+        });
+        if (page === 0) {
+          setEditingRack(null);
+          setExistingRackPackIds([]);
+          setReplacementSlotIndex(null);
+          setReplacementBatteryId(null);
+          setStep(1);
+          setSelectedShell(null);
+          setSelected(current => current.filter(id => !assignedBatteryIds.has(id)));
+        }
+      }
       setBatteryPage(page);
       setHasMoreBatteries(allBatteries.length === pageSize);
       setRacks(allRacks);
       setShellTemplates(shells);
-
-      if (page === 0) setSelected(current => current.filter(id => !assignedBatteryIds.has(id)));
     } catch (error: any) {
       addNotification('error', 'Rack Load Failed', error.message || 'Could not load rack data.');
     } finally {
@@ -119,7 +182,7 @@ export const RackAssemblyView: React.FC = () => {
     }
   };
 
-  useEffect(() => { void loadData(); }, [refreshKey]);
+  useEffect(() => { void loadData(); }, [refreshKey, rackAssemblyEditId]);
 
   useEffect(() => {
     if (!batterySearchInitializedRef.current) {
@@ -153,6 +216,8 @@ export const RackAssemblyView: React.FC = () => {
   });
 
   const filteredBatteries = compatibleBatteries.filter(item => {
+    if (editingRack && existingRackPackIds.includes(item.id)) return false;
+    if (editingRack && replacementSlotIndex !== null && selected.includes(item.id)) return false;
     const query = batterySearch.trim().toLowerCase();
     if (!query) return true;
     const serial = String(item.serialNumber || '').toLowerCase();
@@ -179,6 +244,12 @@ export const RackAssemblyView: React.FC = () => {
   };
 
   const toggleBattery = (id: string) => {
+    if (editingRack && existingRackPackIds.includes(id)) return;
+    if (editingRack && replacementSlotIndex !== null) {
+      if (selected.includes(id)) return;
+      setReplacementBatteryId(current => current === id ? null : id);
+      return;
+    }
     setSelected(current => {
       if (current.includes(id)) {
         return current.filter(item => item !== id);
@@ -205,6 +276,13 @@ export const RackAssemblyView: React.FC = () => {
     if (!battery) {
       throw new Error(`Compatible ${selectedVoltage} pack with barcode '${barcode}' was not found in released inventory.`);
     }
+    if (editingRack && replacementSlotIndex !== null) {
+      if (selected.includes(battery.id)) throw new Error(`${battery.serialNumber} is already selected for this rack.`);
+      setReplacementBatteryId(battery.id);
+      setScannerOpen(false);
+      addNotification('success', 'Replacement Pack Scanned', `${battery.serialNumber} selected for slot ${replacementSlotIndex + 1}.`);
+      return;
+    }
     if (selected.includes(battery.id)) {
       throw new Error(`${battery.serialNumber} is already selected for this rack.`);
     }
@@ -218,17 +296,72 @@ export const RackAssemblyView: React.FC = () => {
   };
 
   const assemble = async () => {
-    if (assemblyInFlightRef.current || selected.length < 1 || selected.length > maxSlots || !physicalQc || !voltageQc || !selectedShell || (selectedShell.availableQuantity || 0) < 1) return;
+    if (assemblyInFlightRef.current || selected.length < 1 || selected.length > maxSlots || !physicalQc || !voltageQc || !selectedShell) return;
+    if (editingRack && replacementSlotIndex !== null && !replacementBatteryId) return;
+    if (editingRack && replacementSlotIndex === null && newPacksSelected.length === 0) return;
+    if (!editingRack && (selectedShell.availableQuantity || 0) < 1) return;
+    if (editingRack && replacementSlotIndex !== null && replacementBatteryId) {
+      const oldPackId = selected[replacementSlotIndex];
+      const oldPackSerial = batteries.find(item => item.id === oldPackId)?.serialNumber || 'current pack';
+      const newPackSerial = batteries.find(item => item.id === replacementBatteryId)?.serialNumber || 'selected pack';
+      if (!window.confirm(`Replace ${oldPackSerial} with ${newPackSerial} in slot ${replacementSlotIndex + 1}? The removed pack will return to IN_STOCK.`)) return;
+    }
     assemblyInFlightRef.current = true;
     setSaving(true);
     try {
+      if (editingRack) {
+        if (replacementSlotIndex !== null && replacementBatteryId) {
+          const result = await api.replacePackInExistingRack(editingRack.id, replacementSlotIndex, replacementBatteryId);
+          const savedIds = Array.isArray(result.batteryIds)
+            ? result.batteryIds
+            : existingRackPackIds.map((id, index) => index === replacementSlotIndex ? replacementBatteryId : id);
+          const pendingAdds = selected.filter(id => !existingRackPackIds.includes(id));
+          const selectedIds = [...savedIds, ...pendingAdds];
+          const updatedCount = Number(result.installedPackCount ?? savedIds.length);
+          const updatedCapacity = Number(result.actualCapacityKwh ?? (updatedCount * packKwh));
+          setSelected(selectedIds);
+          setExistingRackPackIds(savedIds);
+          setEditingRack(current => current ? {
+            ...current,
+            batteryIds: savedIds,
+            installedPackCount: updatedCount,
+            actualCapacityKwh: updatedCapacity,
+          } : current);
+          setReplacementSlotIndex(null);
+          setReplacementBatteryId(null);
+          setPhysicalQc(false);
+          setVoltageQc(false);
+          addNotification('success', 'Pack Replaced', `${result.removedBatterySerial || 'The removed pack'} returned to IN_STOCK. ${editingRack.serialNumber} remains at ${updatedCapacity} kWh.`);
+          triggerRefresh();
+          return;
+        }
+        const result = await api.addPacksToExistingRack(editingRack.id, newPacksSelected);
+        const updatedIds = Array.isArray(result.batteryIds) ? result.batteryIds : selected;
+        const updatedCount = Number(result.installedPackCount ?? updatedIds.length);
+        const updatedCapacity = Number(result.actualCapacityKwh ?? (updatedCount * packKwh));
+        setSelected(updatedIds);
+        setExistingRackPackIds(updatedIds);
+        setEditingRack(current => current ? {
+          ...current,
+          batteryIds: updatedIds,
+          installedPackCount: updatedCount,
+          actualCapacityKwh: updatedCapacity,
+          rackTemplateCode: result.rackTemplateCode || current.rackTemplateCode,
+        } : current);
+        setPhysicalQc(false);
+        setVoltageQc(false);
+        addNotification('success', 'Rack Updated', `${editingRack.serialNumber} now has ${updatedCount} packs (${updatedCapacity} kWh).`);
+        triggerRefresh();
+        return;
+      }
+
       const templateCode = `${selectedShell.shellType}_${currentActualKwh}KWH`;
       const result = await api.assembleRack({
         templateCode,
         batteryIds: selected,
         location,
         shellTemplateId: selectedShell.id,
-        inspectionData: {
+        inspectionData: includeFatReport ? {
           packSocs,
           packVoltages,
           packCurrents: Object.fromEntries(
@@ -245,7 +378,7 @@ export const RackAssemblyView: React.FC = () => {
           pdfFileName: testReportPdf?.name || null,
           pdfFileSize: testReportPdf?.size || null,
           pdfDataUrl: testReportPdf?.dataUrl || null,
-        },
+        } : null,
       });
 
       setQrRack(result);
@@ -258,6 +391,7 @@ export const RackAssemblyView: React.FC = () => {
 
       setSelected([]);
       setSelectedShell(null);
+      setIncludeFatReport(false);
       setTestReportPdf(null);
       setPackSocs({});
       setPackVoltages({});
@@ -276,6 +410,19 @@ export const RackAssemblyView: React.FC = () => {
       assemblyInFlightRef.current = false;
       setSaving(false);
     }
+  };
+
+  const exitRackEdit = () => {
+    setRackAssemblyEditId(null);
+    setEditingRack(null);
+    setExistingRackPackIds([]);
+    setReplacementSlotIndex(null);
+    setReplacementBatteryId(null);
+    setSelected([]);
+    setSelectedShell(null);
+    setPhysicalQc(false);
+    setVoltageQc(false);
+    setStep(1);
   };
 
   const sell = async (rack: RackUnit) => {
@@ -307,12 +454,19 @@ export const RackAssemblyView: React.FC = () => {
             <div>
               <h1 className="text-xl font-bold text-slate-900">Rack & Cabinet Assembly Studio</h1>
               <p className="text-xs text-slate-500">
-                Configure LV/HV voltage tiers, select imported shell bodies, and install flexible battery packs
+                {editingRack
+                  ? `Adding packs to ${editingRack.serialNumber}; its rack identity, shell, and existing packs will be preserved.`
+                  : 'Configure LV/HV voltage tiers, select imported shell bodies, and install flexible battery packs'}
               </p>
             </div>
           </div>
 
           <div className="flex items-center space-x-2">
+            {editingRack && (
+              <button type="button" onClick={exitRackEdit} className="rounded-xl border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-50">
+                Exit rack edit
+              </button>
+            )}
             <button
               onClick={() => setActiveView('rack-shells')}
               className="flex items-center space-x-1.5 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold rounded-xl text-xs transition-colors"
@@ -333,8 +487,9 @@ export const RackAssemblyView: React.FC = () => {
         {/* 3-Step Breadcrumb Progress Indicator */}
         <div className="grid grid-cols-3 gap-2 bg-white p-2 rounded-2xl border border-slate-200 shadow-xs">
           <button
-            onClick={() => { setStep(1); setSelectedShell(null); setSelected([]); }}
-            className={`flex items-center justify-center space-x-2 py-2 px-3 rounded-xl text-xs font-bold transition-all ${
+            onClick={() => { if (editingRack) return; setStep(1); setSelectedShell(null); setSelected([]); }}
+            disabled={Boolean(editingRack)}
+            className={`flex items-center justify-center space-x-2 py-2 px-3 rounded-xl text-xs font-bold transition-all ${editingRack ? 'cursor-not-allowed opacity-50' : ''} ${
               step === 1
                 ? 'bg-emerald-600 text-white shadow-xs'
                 : 'text-slate-600 hover:bg-slate-100'
@@ -349,9 +504,9 @@ export const RackAssemblyView: React.FC = () => {
           </button>
 
           <button
-            onClick={() => { if (step === 3) { setStep(2); setSelected([]); } }}
-            disabled={step < 2}
-            className={`flex items-center justify-center space-x-2 py-2 px-3 rounded-xl text-xs font-bold transition-all ${
+            onClick={() => { if (!editingRack && step === 3) { setStep(2); setSelected([]); } }}
+            disabled={step < 2 || Boolean(editingRack)}
+            className={`flex items-center justify-center space-x-2 py-2 px-3 rounded-xl text-xs font-bold transition-all ${editingRack ? 'cursor-not-allowed opacity-50' : ''} ${
               step === 2
                 ? 'bg-emerald-600 text-white shadow-xs'
                 : step > 2
@@ -602,19 +757,27 @@ export const RackAssemblyView: React.FC = () => {
                 </div>
 
                 <div className="flex flex-col gap-2">
-                  <input
-                    value={location}
-                    onChange={e => setLocation(e.target.value)}
-                    placeholder="Assembly Location"
-                    className="rounded-xl border border-slate-200 px-3 py-1.5 text-xs font-semibold focus:outline-hidden focus:border-emerald-600"
-                  />
-                  <button
-                    onClick={() => { setStep(2); setSelected([]); }}
-                    className="flex items-center space-x-1.5 px-3 py-1.5 text-xs font-bold text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-xl transition-colors"
-                  >
-                    <ArrowLeft className="w-3.5 h-3.5" />
-                    <span>Change Shell</span>
-                  </button>
+                  {editingRack ? (
+                    <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-600">
+                      {editingRack.serialNumber}<br />{editingRack.location || 'Rack Assembly'}
+                    </div>
+                  ) : (
+                    <>
+                      <input
+                        value={location}
+                        onChange={e => setLocation(e.target.value)}
+                        placeholder="Assembly Location"
+                        className="rounded-xl border border-slate-200 px-3 py-1.5 text-xs font-semibold focus:outline-hidden focus:border-emerald-600"
+                      />
+                      <button
+                        onClick={() => { setStep(2); setSelected([]); }}
+                        className="flex items-center space-x-1.5 px-3 py-1.5 text-xs font-bold text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-xl transition-colors"
+                      >
+                        <ArrowLeft className="w-3.5 h-3.5" />
+                        <span>Change Shell</span>
+                      </button>
+                    </>
+                  )}
                 </div>
               </div>
             </div>
@@ -639,7 +802,7 @@ export const RackAssemblyView: React.FC = () => {
                   <button
                     type="button"
                     onClick={() => setScannerOpen(true)}
-                    disabled={selected.length >= maxSlots}
+                    disabled={replacementSlotIndex === null && selected.length >= maxSlots}
                     className="flex items-center space-x-2 px-3 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition-colors disabled:opacity-50"
                   >
                     <QrCode className="w-3.5 h-3.5" />
@@ -653,6 +816,9 @@ export const RackAssemblyView: React.FC = () => {
                 {Array.from({ length: maxSlots }).map((_, slotIdx) => {
                   const assignedBatteryId = selected[slotIdx];
                   const assignedBattery = assignedBatteryId ? batteries.find(b => b.id === assignedBatteryId) : null;
+                  const replacementCandidate = replacementSlotIndex === slotIdx && replacementBatteryId
+                    ? batteries.find(b => b.id === replacementBatteryId)
+                    : null;
 
                   return (
                     <div
@@ -684,13 +850,33 @@ export const RackAssemblyView: React.FC = () => {
                           <p className="text-[10px] text-slate-500 truncate mt-0.5">
                             {assignedBattery.productName || 'Released Pack'}
                           </p>
-                          <button
-                            type="button"
-                            onClick={() => toggleBattery(assignedBattery.id)}
-                            className="mt-2 text-[10px] font-bold text-red-600 hover:text-red-700 underline"
-                          >
-                            Remove
-                          </button>
+                          {replacementCandidate && (
+                            <p className="mt-2 rounded-md bg-amber-50 px-2 py-1 text-[10px] font-bold text-amber-800">
+                              Replace with {replacementCandidate.serialNumber}
+                            </p>
+                          )}
+                          {editingRack && existingRackPackIds.includes(assignedBattery.id) ? (
+                            replacementSlotIndex === slotIdx ? (
+                              <button type="button" onClick={() => { setReplacementSlotIndex(null); setReplacementBatteryId(null); }} className="mt-2 text-[10px] font-bold text-slate-600 underline">Cancel replacement</button>
+                            ) : (
+                              <button type="button" onClick={() => {
+                                if (newPacksSelected.length > 0) {
+                                  addNotification('warning', 'Save Pack Additions First', 'Save or remove the newly selected packs before starting a replacement.');
+                                  return;
+                                }
+                                setReplacementSlotIndex(slotIdx);
+                                setReplacementBatteryId(null);
+                              }} className="mt-2 text-[10px] font-bold text-amber-700 underline">Replace pack</button>
+                            )
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => toggleBattery(assignedBattery.id)}
+                              className="mt-2 text-[10px] font-bold text-red-600 hover:text-red-700 underline"
+                            >
+                              Remove
+                            </button>
+                          )}
                         </div>
                       ) : (
                         <p className="text-[11px] text-slate-400 italic py-2">
@@ -706,7 +892,11 @@ export const RackAssemblyView: React.FC = () => {
               <div className="mb-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                 <div>
                   <h4 className="text-xs font-bold text-slate-700 uppercase">Available Released Packs ({filteredBatteries.length})</h4>
-                  <p className="text-[11px] text-slate-500">Only compatible {packKwh} kWh released packs are shown</p>
+                  <p className="text-[11px] text-slate-500">
+                    {replacementSlotIndex !== null
+                      ? `Choose a compatible ${packKwh} kWh pack to replace Slot #${replacementSlotIndex + 1}.`
+                      : `Only compatible ${packKwh} kWh released packs are shown`}
+                  </p>
                 </div>
 
                 <input
@@ -730,26 +920,31 @@ export const RackAssemblyView: React.FC = () => {
               ) : (
                 <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3 max-h-72 overflow-y-auto p-1 custom-scrollbar">
                   {filteredBatteries.map(item => {
-                    const isSelected = selected.includes(item.id);
-                    const slotIndex = isSelected ? selected.indexOf(item.id) + 1 : null;
+                    const isReplacementSelected = replacementBatteryId === item.id;
+                    const isSelected = selected.includes(item.id) || isReplacementSelected;
+                    const slotIndex = isReplacementSelected
+                      ? (replacementSlotIndex ?? 0) + 1
+                      : selected.includes(item.id) ? selected.indexOf(item.id) + 1 : null;
 
                     return (
                       <button
                         key={item.id}
                         type="button"
                         onClick={() => toggleBattery(item.id)}
-                        disabled={!isSelected && selected.length >= maxSlots}
+                        disabled={replacementSlotIndex === null && !isSelected && selected.length >= maxSlots}
                         className={`p-3 rounded-xl border text-left transition-all ${
                           isSelected
-                            ? 'bg-emerald-50/70 border-emerald-500 ring-2 ring-emerald-200'
-                            : selected.length >= maxSlots
+                            ? isReplacementSelected
+                              ? 'bg-amber-50 border-amber-500 ring-2 ring-amber-200'
+                              : 'bg-emerald-50/70 border-emerald-500 ring-2 ring-emerald-200'
+                            : replacementSlotIndex === null && selected.length >= maxSlots
                             ? 'bg-slate-50 border-slate-200 opacity-40 cursor-not-allowed'
                             : 'bg-white border-slate-200 hover:border-emerald-300'
                         }`}
                       >
                         <div className="flex items-center justify-between mb-1">
                           <span className="text-[9px] font-black uppercase tracking-wider text-emerald-800">
-                            {isSelected ? `Slot #${slotIndex}` : 'Available'}
+                            {isReplacementSelected ? `Replace Slot #${slotIndex}` : isSelected ? `Slot #${slotIndex}` : replacementSlotIndex !== null ? 'Choose Replacement' : 'Available'}
                           </span>
                           <span className="text-[9px] font-bold text-slate-400">{packKwh} kWh</span>
                         </div>
@@ -804,8 +999,41 @@ export const RackAssemblyView: React.FC = () => {
                 </label>
               </div>
 
-              {/* PDF Upload Section & QC Test Inspection */}
-              <div className="mt-6 rounded-2xl border border-slate-200 bg-slate-50/60 p-5 space-y-5">
+              {/* Optional FAT / Final Test Verification Checkbox */}
+              {editingRack ? (
+                <div className="mt-6 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-xs text-amber-900">
+                  Existing inspection reports are preserved when packs are added or replaced. Recheck and update the rack report after completing the pack changes.
+                </div>
+              ) : <>
+              <div className="mt-6 rounded-2xl border border-slate-200 bg-white p-4 shadow-xs">
+                <label className="flex items-center justify-between cursor-pointer">
+                  <div className="flex items-center space-x-3">
+                    <div className={`p-2.5 rounded-xl transition-colors ${
+                      includeFatReport ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-500'
+                    }`}>
+                      <FileCheck className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <p className="text-xs font-bold text-slate-900">
+                        Do you want to add FAT / Final Test Verification Report?
+                      </p>
+                      <p className="text-[11px] text-slate-500">
+                        Optional: tick to attach inspection PDF, record pack SOC, voltages, and Solis-BMS communication for this {isCabinet ? 'cabinet' : 'rack'}
+                      </p>
+                    </div>
+                  </div>
+                  <input
+                    type="checkbox"
+                    checked={includeFatReport}
+                    onChange={(e) => setIncludeFatReport(e.target.checked)}
+                    className="h-5 w-5 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500 cursor-pointer"
+                  />
+                </label>
+              </div>
+
+              {/* PDF Upload Section & QC Test Inspection - ONLY shown if includeFatReport is checked */}
+              {includeFatReport && (
+                <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50/60 p-5 space-y-5 animate-fade-in">
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-200 pb-3">
                   <div>
                     <div className="inline-flex items-center gap-1.5 text-[10px] font-black uppercase tracking-wider text-emerald-700 bg-emerald-100/60 px-2 py-0.5 rounded-full mb-1">
@@ -1111,27 +1339,37 @@ export const RackAssemblyView: React.FC = () => {
                   </div>
                 </div>
               </div>
+            )}
+              </>}
 
               {/* Assembly Action Button */}
               <div className="mt-6">
                 <button
                   type="button"
                   onClick={() => void assemble()}
-                  disabled={saving || selected.length < 1 || selected.length > maxSlots || !physicalQc || !voltageQc}
+                  disabled={saving || selected.length < 1 || selected.length > maxSlots || (editingRack ? (replacementSlotIndex !== null ? !replacementBatteryId : newPacksSelected.length < 1) : false) || !physicalQc || !voltageQc}
                   className="w-full py-3.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl text-sm transition-colors shadow-sm disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center space-x-2"
                 >
                   {saving ? (
-                    <span>Assembling System...</span>
+                    <span>{editingRack ? 'Updating Rack...' : 'Assembling System...'}</span>
                   ) : (
                     <>
                       <Check className="w-4 h-4" />
                       <span>
-                        Assemble {isCabinet ? 'Cabinet' : 'Rack'} ({currentActualKwh} kWh · {selected.length} Packs)
+                        {editingRack
+                          ? replacementSlotIndex !== null
+                            ? `Replace Slot #${replacementSlotIndex + 1} · Return removed pack to IN_STOCK`
+                            : `Add ${newPacksSelected.length} Pack${newPacksSelected.length === 1 ? '' : 's'} · Update to ${currentActualKwh} kWh`
+                          : `Assemble ${isCabinet ? 'Cabinet' : 'Rack'} (${currentActualKwh} kWh · ${selected.length} Packs)`}
                       </span>
                     </>
                   )}
                 </button>
-                {selected.length === 0 && (
+                {editingRack && replacementSlotIndex !== null && !replacementBatteryId ? (
+                  <p className="text-center text-xs text-slate-400 mt-2">Select a replacement pack for Slot #{replacementSlotIndex + 1}.</p>
+                ) : editingRack && replacementSlotIndex === null && newPacksSelected.length === 0 ? (
+                  <p className="text-center text-xs text-slate-400 mt-2">Select a new pack to add, or choose Replace pack on an installed slot.</p>
+                ) : !editingRack && selected.length === 0 && (
                   <p className="text-center text-xs text-slate-400 mt-2">
                     Please select at least 1 battery pack module to assemble.
                   </p>
@@ -1169,12 +1407,25 @@ export const RackAssemblyView: React.FC = () => {
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {racks.map(rack => {
-                  const isCab = rack.shellType === 'CABINET' || rack.rackTemplateCode?.includes('CAB') || ['RACK_45KWH', 'RACK_60KWH', 'RACK_70KWH', 'RACK_75KWH'].includes(rack.rackTemplateCode);
-                  const isHv = rack.voltageType === 'HV' || ['RACK_45KWH', 'RACK_60KWH', 'RACK_70KWH', 'RACK_75KWH'].includes(rack.rackTemplateCode);
-                  const installedPacks = rack.installedPackCount || rack.batteryIds?.length || rack.requiredPackCount || 5;
-                  const maxSlotsTotal = rack.maxPackCapacity || rack.requiredPackCount || 5;
-                  const capacityDisplay = rack.actualCapacityKwh
-                    ? `${rack.actualCapacityKwh} kWh`
+                  const serial = rack.serialNumber || (rack as any).serial_number || '';
+                  const template = rack.rackTemplateCode || (rack as any).rack_template_code || '';
+                  const serialCapMatch = String(serial).match(/(?:RACK|CAB)-(\d+(?:\.\d+)?)KWH/i);
+                  const effectiveCap = Number(rack.actualCapacityKwh || (serialCapMatch ? parseFloat(serialCapMatch[1]) : 0));
+                  const isCab = rack.shellType === 'CABINET' || String(template).includes('CAB') || String(serial).includes('CAB') || ['RACK_45KWH', 'RACK_60KWH', 'RACK_70KWH', 'RACK_75KWH'].includes(String(template));
+                  const isHv = rack.voltageType === 'HV' || (isCab && (effectiveCap > 30 || (template && !String(template).includes('25KWH')))) || ['RACK_45KWH', 'RACK_60KWH', 'RACK_70KWH', 'RACK_75KWH'].includes(String(template));
+                  const inferredMaxSlots = (effectiveCap >= 75)
+                    ? 10
+                    : (effectiveCap === 67.5 || effectiveCap === 52.5 || String(template).includes('70KWH'))
+                    ? 9
+                    : (effectiveCap === 60 || String(template).includes('60KWH'))
+                    ? 8
+                    : (effectiveCap === 45 || String(template).includes('45KWH'))
+                    ? 6
+                    : 5;
+                  const installedPacks = rack.installedPackCount || rack.batteryIds?.length || rack.requiredPackCount || (effectiveCap > 0 ? Math.round(effectiveCap / (isCab || effectiveCap > 30 ? 7.5 : 5.0)) : 5);
+                  const maxSlotsTotal = Math.max(installedPacks, Number(rack.maxPackCapacity || rack.requiredPackCount || inferredMaxSlots));
+                  const capacityDisplay = effectiveCap > 0
+                    ? `${effectiveCap} kWh`
                     : rack.rackTemplateCode === 'RACK_25KWH'
                     ? '25.0 kWh'
                     : rack.rackTemplateCode === 'RACK_45KWH'

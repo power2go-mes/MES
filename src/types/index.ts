@@ -108,8 +108,6 @@ export interface RackInspectionReport {
   packSocs?: Record<string, any>;
   packVoltages?: Record<string, any>;
   packCurrents?: Record<string, any>;
-  batteryVoltage?: number | null;
-  peakCurrent?: number | null;
   cycle1ChargedKwh?: number | null;
   cycle1DischargedKwh?: number | null;
   cycle2ChargedKwh?: number | null;

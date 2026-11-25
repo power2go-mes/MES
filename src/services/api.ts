@@ -15,6 +15,7 @@ import {
   Role,
   RackUnit,
   RackShellTemplate,
+  RackInspectionReport,
   AuditLog as AuditLogType,
 } from '../types';
 
@@ -1454,7 +1455,12 @@ export const api = {
           onlineMachines: 0,
           totalMachines: 0
         },
-        recentBatteries: Array.isArray(data?.recentBatteries) ? toAppValue(data.recentBatteries) : [],
+        recentBatteries: Array.isArray(data?.recentBatteries)
+          ? toAppValue(data.recentBatteries).map((battery: any) => ({
+              ...battery,
+              serialNumber: normalizeBatterySerial(battery.serialNumber || battery.serial_number),
+            }))
+          : [],
         recentOrders: Array.isArray(data?.recentOrders) ? data.recentOrders : [],
         recentAuditLogs: Array.isArray(data?.recentAuditLogs) ? data.recentAuditLogs : [],
         machines: Array.isArray(data?.machines) ? data.machines : [],
@@ -3182,6 +3188,28 @@ export const api = {
       query = query.range(0, 9999);
     }
     const { data, error } = await query;
+    if (error) throw error;
+    return (data || []).map((battery: any) => ({
+      id: battery.id,
+      serialNumber: normalizeBatterySerial(battery.serialNumber || battery.serial_number || battery.id),
+      productName: normalizeBatteryName(battery.productTemplates?.name || battery.product_templates?.name || ''),
+      capacityKwh: Number(battery.productTemplates?.capacityKwh ?? battery.product_templates?.capacity_kwh ?? 0) || undefined,
+      productionOrderId: battery.productionOrderId || battery.production_order_id,
+      currentStep: battery.currentStep || battery.current_step,
+      progressPercent: battery.progressPercent ?? battery.progress_percent,
+      status: battery.status,
+      lifecycleStatus: battery.lifecycleStatus || battery.lifecycle_status,
+      bmsId: battery.bmsId || battery.bms_id,
+      bmuId: battery.bmuId || battery.bmu_id,
+    }));
+  },
+
+  async getBatterySummariesByIds(ids: string[]): Promise<Array<Pick<BatteryUnit, 'id' | 'serialNumber' | 'productName' | 'productionOrderId' | 'currentStep' | 'progressPercent' | 'status' | 'lifecycleStatus'> & { bmsId?: string; bmuId?: string; capacityKwh?: number }>> {
+    if (ids.length === 0) return [];
+    const { data, error } = await supabase
+      .from('batteries')
+      .select('id,serial_number,production_order_id,current_step,progress_percent,status,lifecycle_status,bms_id,bmu_id,product_templates(name,capacity_kwh)')
+      .in('id', ids);
     if (error) throw error;
     return (data || []).map((battery: any) => ({
       id: battery.id,
@@ -5695,7 +5723,7 @@ export const api = {
     for (let offset = requestedLimit === undefined ? 0 : requestedOffset; ; offset += pageSize) {
       let query = supabase
         .from('racks')
-        .select(`${params?.summaryOnly ? 'id,serial_number,qr_code,rack_template_code,location,status,created_at,issued_to_person,issued_to_department,issued_by,issued_at' : '*'}, rack_packs(battery_id, pack_slot_index)`)
+        .select(`${params?.summaryOnly ? 'id,serial_number,qr_code,rack_template_code,location,status,created_at,issued_to_person,issued_to_department,issued_by,issued_at,shell_template_id,shell_type,voltage_type,actual_capacity_kwh,installed_pack_count,max_pack_capacity' : '*'}, rack_packs(battery_id, pack_slot_index)`)
         .order('created_at', { ascending: false });
       if (params?.ids) query = query.in('id', params.ids);
       if (params?.search) {
@@ -5751,16 +5779,58 @@ export const api = {
     }
 
     return rows.map((rack: any) => {
+      const rawSerial = rack.serialNumber || rack.serial_number || '';
+      const serial = normalizeRackSerial(rawSerial);
       const templateCode = rack.rackTemplateCode || rack.rack_template_code || '';
+      const rawCapacity = Number(rack.actualCapacityKwh ?? rack.actual_capacity_kwh ?? 0);
+
+      // Resilient capacity extraction from serial (e.g. P2G-CAB-52.5KWH-...) or template
+      const serialCapMatch = serial.match(/(?:RACK|CAB)-(\d+(?:\.\d+)?)KWH/i);
+      const templateCapMatch = templateCode.match(/(?:RACK|CABINET)_(\d+(?:\.\d+)?)KWH/i);
+      const parsedCapacity = serialCapMatch ? parseFloat(serialCapMatch[1]) : (templateCapMatch ? parseFloat(templateCapMatch[1]) : null);
+
+      const isCab = rack.shellType === 'CABINET' || rack.shell_type === 'CABINET' || templateCode.includes('CAB') || serial.includes('CAB') || ['RACK_45KWH', 'RACK_60KWH', 'RACK_70KWH', 'RACK_75KWH'].includes(templateCode);
+
+      const isHv = rack.voltageType === 'HV'
+        || rack.voltage_type === 'HV'
+        || templateCode.includes('HV')
+        || (isCab && (rawCapacity > 30 || (parsedCapacity !== null && parsedCapacity > 30) || (templateCode && !templateCode.includes('25KWH'))))
+        || ['RACK_45KWH', 'RACK_60KWH', 'RACK_70KWH', 'RACK_75KWH'].includes(templateCode)
+        || rawCapacity > 30
+        || (parsedCapacity !== null && parsedCapacity > 30);
+
       const installedCount = Number(rack.installedPackCount ?? rack.installed_pack_count ?? (rack.rackPacks || rack.rack_packs || []).length);
-      const isCab = templateCode.includes('CAB') || ['RACK_45KWH', 'RACK_60KWH', 'RACK_70KWH', 'RACK_75KWH'].includes(templateCode);
-      const isHv = templateCode.includes('HV') || ['RACK_45KWH', 'RACK_60KWH', 'RACK_70KWH', 'RACK_75KWH'].includes(templateCode);
-      const defaultCapacity = templateCode === 'RACK_25KWH' ? 25.0 : templateCode === 'RACK_45KWH' ? 45.0 : templateCode === 'RACK_60KWH' ? 60.0 : templateCode === 'RACK_70KWH' ? 67.5 : templateCode === 'RACK_75KWH' ? 75.0 : (installedCount * (isHv ? 7.5 : 5.0));
+
+      const defaultMaxSlots = (rawCapacity >= 75 || parsedCapacity === 75)
+        ? 10
+        : (rawCapacity === 67.5 || rawCapacity === 52.5 || parsedCapacity === 67.5 || parsedCapacity === 52.5 || templateCode === 'RACK_70KWH' || templateCode === 'CABINET_70KWH')
+        ? 9
+        : (rawCapacity === 60 || parsedCapacity === 60 || templateCode === 'RACK_60KWH' || templateCode === 'CABINET_60KWH')
+        ? 8
+        : (rawCapacity === 45 || parsedCapacity === 45 || templateCode === 'RACK_45KWH' || templateCode === 'CABINET_45KWH')
+        ? 6
+        : 5;
+
+      const maxSlots = Math.max(
+        installedCount,
+        Number(rack.maxPackCapacity ?? rack.max_pack_capacity ?? rack.requiredPackCount ?? rack.required_pack_count ?? defaultMaxSlots)
+      );
+
+      const defaultCapacity = parsedCapacity !== null
+        ? parsedCapacity
+        : templateCode === 'RACK_25KWH' ? 25.0
+        : templateCode === 'RACK_45KWH' ? 45.0
+        : templateCode === 'RACK_60KWH' ? 60.0
+        : templateCode === 'RACK_70KWH' ? 67.5
+        : templateCode === 'RACK_75KWH' ? 75.0
+        : (installedCount * (isHv ? 7.5 : 5.0));
+
+      const finalCapacity = rawCapacity > 0 ? rawCapacity : defaultCapacity;
 
       return {
         ...rack,
         id: rack.id,
-        serialNumber: normalizeRackSerial(rack.serialNumber || rack.serial_number),
+        serialNumber: serial,
         qrCode: rack.qrCode || rack.qr_code,
         rackTemplateCode: templateCode,
         requiredPackCount: rack.requiredPackCount || rack.required_pack_count || installedCount,
@@ -5770,9 +5840,9 @@ export const api = {
         shellTemplateId: rack.shellTemplateId || rack.shell_template_id || null,
         shellType: (rack.shellType || rack.shell_type || (isCab ? 'CABINET' : 'RACK')) as 'RACK' | 'CABINET',
         voltageType: (rack.voltageType || rack.voltage_type || (isHv ? 'HV' : 'LV')) as 'LV' | 'HV',
-        actualCapacityKwh: Number(rack.actualCapacityKwh ?? rack.actual_capacity_kwh ?? defaultCapacity),
+        actualCapacityKwh: finalCapacity,
         installedPackCount: installedCount,
-        maxPackCapacity: Number(rack.maxPackCapacity ?? rack.max_pack_capacity ?? rack.requiredPackCount ?? rack.required_pack_count ?? 5),
+        maxPackCapacity: maxSlots,
         inspectionReport: inspectionMap.get(rack.id) || null,
         batteryIds: (rack.rackPacks || rack.rack_packs || [])
           .sort((a: any, b: any) => (a.packSlotIndex ?? a.pack_slot_index) - (b.packSlotIndex ?? b.pack_slot_index))
@@ -5823,16 +5893,67 @@ export const api = {
       location = locationArg || 'RACK_ASSEMBLY';
     }
 
-    const { data, error } = await rawSupabase.rpc('assemble_rack_with_inspection', {
-      p_template_code: templateCode,
+    const hasInspectionData = Boolean(
+      inspectionData &&
+      (
+        inspectionData.pdfFileName ||
+        inspectionData.pdfDataUrl ||
+        (inspectionData.packSocs && Object.keys(inspectionData.packSocs).length > 0) ||
+        (inspectionData.packVoltages && Object.keys(inspectionData.packVoltages).length > 0) ||
+        (inspectionData.packCurrents && Object.values(inspectionData.packCurrents).some(value => value !== '' && value != null)) ||
+        inspectionData.solisBmsComm === 'Fault observed' ||
+        inspectionData.cycle1ChargedKwh ||
+        inspectionData.cycle1DischargedKwh ||
+        inspectionData.cycle2ChargedKwh ||
+        inspectionData.cycle2DischargedKwh
+      )
+    );
+
+    if (hasInspectionData) {
+      const { data, error } = await rawSupabase.rpc('assemble_rack_with_inspection', {
+        p_template_code: templateCode,
+        p_battery_ids: batteryIds,
+        p_location: location,
+        p_shell_template_id: shellTemplateId,
+        p_inspection_data: inspectionData || {},
+      });
+      if (error) throw error;
+      return toAppValue(data);
+    } else {
+      const { data, error } = await rawSupabase.rpc('assemble_rack_transaction', {
+        p_template_code: templateCode,
+        p_battery_ids: batteryIds,
+        p_location: location,
+        p_shell_template_id: shellTemplateId,
+      });
+      if (error) throw error;
+      return toAppValue(data);
+    }
+  },
+
+  async addPacksToExistingRack(rackId: string, batteryIds: string[]): Promise<any> {
+    if (!rawSupabase) throw new Error('Supabase is not configured.');
+    if (!rackId || batteryIds.length < 1) throw new Error('Select at least one new battery pack.');
+    const { data, error } = await rawSupabase.rpc('add_packs_to_existing_rack_transaction', {
+      p_rack_id: rackId,
       p_battery_ids: batteryIds,
-      p_location: location,
-      p_shell_template_id: shellTemplateId,
-      p_inspection_data: inspectionData || {},
     });
     if (error) throw error;
-    const assembledRack = toAppValue(data);
-    return assembledRack;
+    return toAppValue(data);
+  },
+
+  async replacePackInExistingRack(rackId: string, slotIndex: number, newBatteryId: string): Promise<any> {
+    if (!rawSupabase) throw new Error('Supabase is not configured.');
+    if (!rackId || !newBatteryId || !Number.isInteger(slotIndex) || slotIndex < 0) {
+      throw new Error('A rack, slot, and replacement battery pack are required.');
+    }
+    const { data, error } = await rawSupabase.rpc('replace_pack_in_existing_rack_transaction', {
+      p_rack_id: rackId,
+      p_slot_index: slotIndex,
+      p_new_battery_id: newBatteryId,
+    });
+    if (error) throw error;
+    return toAppValue(data);
   },
 
   async getRackShellTemplates(includeInactive: boolean = false): Promise<RackShellTemplate[]> {
@@ -6012,6 +6133,38 @@ export const api = {
     });
     if (error) throw error;
     return toAppValue(data);
+  },
+
+  async saveRackInspectionReport(rackId: string, report: Partial<RackInspectionReport>): Promise<RackInspectionReport> {
+    const { data: sessionData } = await rawSupabase?.auth.getSession() || { data: { session: null } };
+    const response = await fetch(`/api/racks/${encodeURIComponent(rackId)}/inspection-report`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(sessionData.session?.access_token ? { Authorization: `Bearer ${sessionData.session.access_token}` } : {}),
+      },
+      body: JSON.stringify(report),
+    });
+    const result = await readApiResponse(response);
+    if (!response.ok) throw new Error(result.error || 'Could not save the rack inspection report.');
+    return {
+      id: result.id,
+      rackId: result.rack_id,
+      rackSerial: result.rack_serial,
+      packSocs: result.pack_socs || {},
+      packVoltages: result.pack_voltages || {},
+      packCurrents: result.pack_currents || {},
+      cycle1ChargedKwh: result.cycle1_charged_kwh,
+      cycle1DischargedKwh: result.cycle1_discharged_kwh,
+      cycle2ChargedKwh: result.cycle2_charged_kwh,
+      cycle2DischargedKwh: result.cycle2_discharged_kwh,
+      solisBmsComm: result.solis_bms_comm,
+      pdfFileName: result.pdf_file_name,
+      pdfFileSize: result.pdf_file_size,
+      pdfDataUrl: result.pdf_data_url,
+      createdAt: result.created_at,
+      createdBy: result.created_by,
+    };
   },
 
   async sellRack(rackId: string, destination: string, reference: string): Promise<any> {

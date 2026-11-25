@@ -177,7 +177,7 @@ export const RackFatReportModal: React.FC<RackFatReportModalProps> = ({
       // Concentric watermark rings, clipped to the banner and drawn at 50% opacity.
       doc.setDrawColor(51, 75, 65);
       doc.setLineWidth(0.18);
-      doc.setGState(new doc.GState({ 'stroke-opacity': 0.5 }));
+      (doc as any).setGState(new (doc as any).GState({ 'stroke-opacity': 0.5 }));
       for (const radius of [5, 9, 13, 17, 21, 25, 29]) {
         let previousPoint: [number, number] | null = null;
         for (let step = 0; step <= 360; step += 1) {
@@ -191,7 +191,7 @@ export const RackFatReportModal: React.FC<RackFatReportModalProps> = ({
           previousPoint = insideBanner ? [x, y] : null;
         }
       }
-      doc.setGState(new doc.GState({ 'stroke-opacity': 1 }));
+      (doc as any).setGState(new (doc as any).GState({ 'stroke-opacity': 1 }));
 
       // Green completion seal and check mark
       doc.setDrawColor(46, 185, 67);

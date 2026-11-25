@@ -37,12 +37,15 @@ const exportDateOnly = (value?: string) => {
   return `${String(date.getUTCDate()).padStart(2, '0')}-${String(date.getUTCMonth() + 1).padStart(2, '0')}-${date.getUTCFullYear()}`;
 };
 const exportRackType = (value?: string, rack?: any) => {
-  if (rack?.actualCapacityKwh) {
-    const isCab = rack.shellType === 'CABINET' || String(value || '').includes('CAB');
-    return `${rack.actualCapacityKwh}kWh ${isCab ? 'Cabinet' : 'Rack'}`;
+  const serial = String(rack?.serialNumber || (rack as any)?.serial_number || '');
+  const serialCapMatch = serial.match(/(?:RACK|CAB)-(\d+(?:\.\d+)?)KWH/i);
+  const effectiveCap = Number(rack?.actualCapacityKwh || (serialCapMatch ? parseFloat(serialCapMatch[1]) : 0));
+  const isCab = rack?.shellType === 'CABINET' || String(value || '').includes('CAB') || serial.includes('CAB');
+  if (effectiveCap > 0) {
+    return `${effectiveCap}kWh ${isCab ? 'Cabinet' : 'Rack'}`;
   }
   const str = String(value || '');
-  if (str.includes('70KWH')) return '67.5kWh';
+  if (str.includes('70KWH')) return `67.5kWh ${isCab ? 'Cabinet' : 'Rack'}`;
   return str
     .replace(/^(?:RACK|CABINET)_/i, '')
     .replace(/KWH$/i, 'kWh');
@@ -303,14 +306,33 @@ export const downloadModuleReport = (modules: ModuleItem[]) => {
 
 export const downloadRackReport = (racks: RackUnit[], options: CellExportOptions = {}) => {
   if (racks.length === 0) throw new Error('No rack records are available to export.');
-  const rows = racks.map(rack => ({
-    'Serial Number': normalizeRackSerial(rack.serialNumber || (rack as any).serial_number || ''),
-    'Shell Type': rack.shellType || (String(rack.rackTemplateCode || '').includes('CAB') ? 'CABINET' : 'RACK'),
-    'Capacity': rack.actualCapacityKwh ? `${rack.actualCapacityKwh} kWh` : exportRackType(rack.rackTemplateCode || (rack as any).rack_template_code, rack),
-    'Packs Installed': `${rack.installedPackCount ?? (rack.batteryIds || []).length}/${rack.maxPackCapacity ?? rack.requiredPackCount ?? 5}`,
-    Classification: formatClassificationLabel(getRackClassification(rack, options.warehouseStatuses)),
-    'Created At': exportDateOnly(rack.createdAt || (rack as any).created_at),
-  }));
+  const rows = racks.map(rack => {
+    const serial = normalizeRackSerial(rack.serialNumber || (rack as any).serial_number || '');
+    const template = String(rack.rackTemplateCode || (rack as any).rack_template_code || '');
+    const isCab = rack.shellType === 'CABINET' || template.includes('CAB') || serial.includes('CAB') || ['RACK_45KWH', 'RACK_60KWH', 'RACK_70KWH', 'RACK_75KWH'].includes(template);
+    const serialCapMatch = serial.match(/(?:RACK|CAB)-(\d+(?:\.\d+)?)KWH/i);
+    const effectiveCap = Number(rack.actualCapacityKwh || (serialCapMatch ? parseFloat(serialCapMatch[1]) : 0));
+    const inferredMaxSlots = (effectiveCap >= 75)
+      ? 10
+      : (effectiveCap === 67.5 || effectiveCap === 52.5 || template.includes('70KWH'))
+      ? 9
+      : (effectiveCap === 60 || template.includes('60KWH'))
+      ? 8
+      : (effectiveCap === 45 || template.includes('45KWH'))
+      ? 6
+      : 5;
+    const installedPacks = rack.installedPackCount ?? (rack.batteryIds || []).length ?? rack.requiredPackCount ?? (effectiveCap > 0 ? Math.round(effectiveCap / (isCab || effectiveCap > 30 ? 7.5 : 5.0)) : 5);
+    const maxPacks = Math.max(installedPacks, Number(rack.maxPackCapacity ?? rack.requiredPackCount ?? inferredMaxSlots));
+
+    return {
+      'Serial Number': serial,
+      'Shell Type': isCab ? 'CABINET' : 'RACK',
+      'Capacity': effectiveCap > 0 ? `${effectiveCap} kWh` : exportRackType(template, rack),
+      'Packs Installed': `${installedPacks}/${maxPacks}`,
+      Classification: formatClassificationLabel(getRackClassification(rack, options.warehouseStatuses)),
+      'Created At': exportDateOnly(rack.createdAt || (rack as any).created_at),
+    };
+  });
   sortByClassification(rows);
   const workbook = XLSX.utils.book_new();
   appendOverviewSheet(workbook, rows.map(row => row.Classification), false);

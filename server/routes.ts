@@ -395,6 +395,51 @@ apiRouter.use(async (req: any, res: any, next: any) => {
   next();
 });
 
+// Add or update a rack inspection report using the existing report table.
+apiRouter.put('/racks/:rackId/inspection-report', requirePermission('qc.perform'), asyncHandler(async (req: any, res: any) => {
+  const rackId = String(req.params.rackId || '').trim();
+  const body = req.body || {};
+  const service = getServiceClient();
+  if (!rackId || !service) return res.status(service ? 400 : 503).json({ error: service ? 'Rack ID is required.' : 'Report editing is unavailable.' });
+
+  const { data: rack, error: rackError } = await service
+    .from('racks')
+    .select('id, serial_number')
+    .eq('id', rackId)
+    .maybeSingle();
+  if (rackError) throw rackError;
+  if (!rack) return res.status(404).json({ error: 'Rack not found.' });
+
+  const numericOrNull = (value: unknown, label: string) => {
+    if (value === '' || value == null) return null;
+    const parsed = Number(value);
+    if (!Number.isFinite(parsed)) throw new Error(`${label} must be a number.`);
+    return parsed;
+  };
+  const row = {
+    rack_id: rackId,
+    rack_serial: rack.serial_number || String(body.rackSerial || ''),
+    pack_socs: body.packSocs && typeof body.packSocs === 'object' ? body.packSocs : {},
+    pack_voltages: body.packVoltages && typeof body.packVoltages === 'object' ? body.packVoltages : {},
+    pack_currents: body.packCurrents && typeof body.packCurrents === 'object' ? body.packCurrents : {},
+    cycle1_charged_kwh: numericOrNull(body.cycle1ChargedKwh, 'Cycle 1 charged energy'),
+    cycle1_discharged_kwh: numericOrNull(body.cycle1DischargedKwh, 'Cycle 1 discharged energy'),
+    cycle2_charged_kwh: numericOrNull(body.cycle2ChargedKwh, 'Cycle 2 charged energy'),
+    cycle2_discharged_kwh: numericOrNull(body.cycle2DischargedKwh, 'Cycle 2 discharged energy'),
+    solis_bms_comm: body.solisBmsComm === 'Fault observed' ? 'Fault observed' : 'Stable',
+    pdf_file_name: typeof body.pdfFileName === 'string' ? body.pdfFileName : null,
+    pdf_file_size: typeof body.pdfFileSize === 'string' ? body.pdfFileSize : null,
+    pdf_data_url: typeof body.pdfDataUrl === 'string' && body.pdfDataUrl.startsWith('data:application/pdf;base64,') ? body.pdfDataUrl : null,
+  };
+  const { data, error } = await service
+    .from('rack_inspection_reports')
+    .upsert(row, { onConflict: 'rack_id' })
+    .select('*')
+    .single();
+  if (error) throw error;
+  return res.json(data);
+}));
+
 // --- RBAC AUTHORIZATION MIDDLEWARE ---
 export function requirePermission(permissionId: string) {
   return async (req: any, res: any, next: any) => {

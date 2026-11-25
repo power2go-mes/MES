@@ -52,8 +52,15 @@ const cellStatuses = [
 const displayRackSerial = normalizeRackSerial;
 const displayBatterySerial = normalizeBatterySerial;
 const displayRackTemplate = (value: unknown, rack?: any) => {
-  if (rack?.actualCapacityKwh) return `${rack.actualCapacityKwh} kWh`;
-  if (rack?.actual_capacity_kwh) return `${rack.actual_capacity_kwh} kWh`;
+  const serial = String(rack?.serialNumber || rack?.serial_number || '');
+  const serialCapMatch = serial.match(/(?:RACK|CAB)-(\d+(?:\.\d+)?)KWH/i);
+  if (rack?.actualCapacityKwh && Number(rack.actualCapacityKwh) > 0) {
+    if (!serialCapMatch || Math.abs(Number(rack.actualCapacityKwh) - parseFloat(serialCapMatch[1])) < 0.1) {
+      return `${rack.actualCapacityKwh} kWh`;
+    }
+  }
+  if (serialCapMatch) return `${serialCapMatch[1]} kWh`;
+  if (rack?.actual_capacity_kwh && Number(rack.actual_capacity_kwh) > 0) return `${rack.actual_capacity_kwh} kWh`;
   const str = String(value || '').toUpperCase();
   if (str === 'RACK_70KWH' || str === 'CABINET_70KWH') return '67.5 kWh';
   const match = str.match(/(?:RACK|CABINET)_(\d+(?:\.\d+)?)KWH/);
@@ -72,7 +79,7 @@ async function fetchAllInventoryPages<T>(fetchPage: (limit: number, offset: numb
 }
 
 export const InventoryView: React.FC = () => {
-  const { setActiveView, setActiveModuleId, setActiveBatteryId, setBatteryBuilderEditRequested, setQuickSearchQuery, refreshKey, addNotification, triggerRefresh, inventoryTab, setInventoryTab } = useApp();
+  const { setActiveView, setActiveModuleId, setActiveBatteryId, setBatteryBuilderEditRequested, setRackAssemblyEditId, setQuickSearchQuery, refreshKey, addNotification, triggerRefresh, inventoryTab, setInventoryTab } = useApp();
   const { hasPermission } = useAuth();
   const canManageInventory = hasPermission('MANAGE_INVENTORY');
   const activeTab = inventoryTab;
@@ -127,6 +134,9 @@ export const InventoryView: React.FC = () => {
   const [reportBattery, setReportBattery] = useState<BatteryUnit | null>(null);
   const [fatReportRack, setFatReportRack] = useState<any | null>(null);
   const [inspectionRack, setInspectionRack] = useState<any | null>(null);
+  const [rackEditTarget, setRackEditTarget] = useState<any | null>(null);
+  const [rackEditSuffix, setRackEditSuffix] = useState('');
+  const [rackEditSaving, setRackEditSaving] = useState(false);
   const [issueModalOpen, setIssueModalOpen] = useState(false);
   const [issueTarget, setIssueTarget] = useState<{
     entityType: IssueEntityType;
@@ -161,6 +171,28 @@ export const InventoryView: React.FC = () => {
       },
     });
     setIssueModalOpen(true);
+  };
+
+  const saveRackEdit = async () => {
+    if (!rackEditTarget || !/^\d{4}$/.test(rackEditSuffix)) {
+      addNotification('error', 'Invalid Serial', 'Rack serial suffix must contain exactly 4 digits.');
+      return;
+    }
+    if (String(rackEditTarget.serialNumber || '').match(/-(\d{4})$/)?.[1] === rackEditSuffix) {
+      setRackEditTarget(null);
+      return;
+    }
+    setRackEditSaving(true);
+    try {
+      await api.updateRackSerial(rackEditTarget.id, rackEditSuffix);
+      addNotification('success', 'Rack Updated', 'Rack serial was updated successfully.');
+      setRackEditTarget(null);
+      triggerRefresh();
+    } catch (error: any) {
+      addNotification('error', 'Rack Update Failed', error.message || 'Could not update this rack.');
+    } finally {
+      setRackEditSaving(false);
+    }
   };
 
   const cellStatusRowsCacheRef = useRef(new Map<string, CellStatusRowsCache>());
@@ -1784,26 +1816,20 @@ export const InventoryView: React.FC = () => {
                   const displaySerial = displayRackSerial(serial);
                   const displayTemplate = displayRackTemplate(template, rack);
                   const status = getRackDisplayStatus(rack);
-                  const isCab = rack.shellType === 'CABINET' || String(template).includes('CAB') || ['RACK_45KWH', 'RACK_60KWH', 'RACK_70KWH', 'RACK_75KWH'].includes(String(template));
-                  const installedPacks = rack.installedPackCount ?? rack.batteryIds?.length ?? rack.requiredPackCount ?? 5;
-                  const maxPacks = rack.maxPackCapacity ?? rack.requiredPackCount ?? 5;
-                  const editRackSerial = async () => {
-                    const currentSuffix = String(serial).match(/-(\d{4})$/)?.[1] || '';
-                    const nextSuffix = window.prompt(`Enter the last 4 digits for ${displaySerial}:`, currentSuffix)?.trim() || '';
-                    if (!nextSuffix) return;
-                    if (!/^\d{4}$/.test(nextSuffix)) {
-                      addNotification('error', 'Invalid Serial', 'Rack serial suffix must contain exactly 4 digits.');
-                      return;
-                    }
-                    if (nextSuffix === currentSuffix) return;
-                    try {
-                      await api.updateRackSerial(rack.id, nextSuffix);
-                      addNotification('success', 'Rack Serial Updated', `Rack serial changed to ${String(serial).replace(/-\d{4}$/, `-${nextSuffix}`)}.`);
-                      triggerRefresh();
-                    } catch (error: any) {
-                      addNotification('error', 'Serial Update Failed', error.message || 'Could not update rack serial.');
-                    }
-                  };
+                  const isCab = rack.shellType === 'CABINET' || String(template).includes('CAB') || String(serial).includes('CAB') || ['RACK_45KWH', 'RACK_60KWH', 'RACK_70KWH', 'RACK_75KWH'].includes(String(template));
+                  const serialCapMatch = String(serial).match(/(?:RACK|CAB)-(\d+(?:\.\d+)?)KWH/i);
+                  const effectiveCap = Number(rack.actualCapacityKwh || (serialCapMatch ? parseFloat(serialCapMatch[1]) : 0));
+                  const inferredMaxSlots = (effectiveCap >= 75)
+                    ? 10
+                    : (effectiveCap === 67.5 || effectiveCap === 52.5 || String(template).includes('70KWH'))
+                    ? 9
+                    : (effectiveCap === 60 || String(template).includes('60KWH'))
+                    ? 8
+                    : (effectiveCap === 45 || String(template).includes('45KWH'))
+                    ? 6
+                    : 5;
+                  const installedPacks = rack.installedPackCount ?? rack.batteryIds?.length ?? rack.requiredPackCount ?? (effectiveCap > 0 ? Math.round(effectiveCap / (isCab || effectiveCap > 30 ? 7.5 : 5.0)) : 5);
+                  const maxPacks = Math.max(installedPacks, Number(rack.maxPackCapacity ?? rack.max_pack_capacity ?? rack.requiredPackCount ?? inferredMaxSlots));
                   return (
                     <tr key={rack.id} className="hover:bg-slate-50/70">
                       <td className="px-3 py-3.5">
@@ -1858,7 +1884,6 @@ export const InventoryView: React.FC = () => {
                         >
                           <UserCheck className="w-4 h-4" />
                         </button>
-                        <button onClick={editRackSerial} className="p-1.5 text-slate-500 hover:text-amber-600 hover:bg-amber-50 rounded-lg transition-colors" title="Edit rack serial"><Pencil className="w-4 h-4" /></button>
                         <button onClick={() => { setQuickSearchQuery(serial); setActiveView('traceability'); }} className="p-1.5 text-slate-500 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors" title="View rack traceability"><Eye className="w-4 h-4" /></button>
                         <button
                           type="button"
@@ -1869,7 +1894,8 @@ export const InventoryView: React.FC = () => {
                           <Download className="w-4 h-4" />
                         </button>
                         <button onClick={() => { setQrData({ title: `Rack QR: ${displaySerial}`, qrPayload: rack.qrCode || rack.qr_code || `${serial}|RACK:${rack.id}`, serial: displaySerial, itemType: 'RACK', metadata: { TEMPLATE: displayTemplate, LOCATION: rack.location || '-', STATUS: status } }); setQrModalOpen(true); }} className="p-1.5 text-slate-500 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors" title="Print QR"><QrCode className="w-4 h-4" /></button>
-                        <button onClick={() => { setActiveView('rack-assembly'); addNotification('info', 'Rack Assembly Opened', `Open the rack builder to edit ${displaySerial}.`); }} className="p-1.5 text-slate-500 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors" title="Edit rack"><Pencil className="w-4 h-4" /></button>
+                        <button onClick={() => { setRackEditTarget(rack); setRackEditSuffix(String(serial).match(/-(\d{4})$/)?.[1] || ''); }} className="p-1.5 text-slate-500 hover:text-amber-600 hover:bg-amber-50 rounded-lg transition-colors" title="Edit rack serial"><Pencil className="w-4 h-4" /></button>
+                        <button disabled={status !== 'IN_STOCK' || isItemIssued(rack)} onClick={() => { setRackAssemblyEditId(rack.id); setActiveView('rack-assembly'); }} className="p-1.5 text-slate-500 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors disabled:cursor-not-allowed disabled:opacity-30" title={status !== 'IN_STOCK' || isItemIssued(rack) ? 'Only unissued in-stock racks can be edited' : 'Edit rack packs'}><Pencil className="w-4 h-4" /></button>
                         <button onClick={async () => { if (!window.confirm(`Delete rack ${displaySerial}? Its connected packs will be returned to inventory.`)) return; try { await api.deleteRack(rack.id); triggerRefresh(); } catch (err: any) { addNotification('error', 'Delete Failed', err.message); } }} className="p-1.5 text-slate-500 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors" title="Delete rack"><Trash2 className="w-4 h-4" /></button>
                       </td>
                     </tr>
@@ -1914,7 +1940,33 @@ export const InventoryView: React.FC = () => {
         isOpen={Boolean(inspectionRack)}
         onClose={() => setInspectionRack(null)}
         rack={inspectionRack}
+        onSave={async report => {
+          if (!inspectionRack) return;
+          const savedReport = await api.saveRackInspectionReport(inspectionRack.id, report);
+          setInspectionRack((current: any) => current?.id === inspectionRack.id ? { ...current, inspectionReport: savedReport } : current);
+          triggerRefresh();
+          addNotification('success', 'Report Saved', `Inspection report saved for ${inspectionRack.serialNumber || inspectionRack.id}.`);
+        }}
       />
+
+      {rackEditTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 p-4">
+          <div className="w-full max-w-md space-y-4 rounded-2xl border border-slate-200 bg-white p-6 shadow-2xl">
+            <div>
+              <h3 className="text-base font-black text-slate-900">Edit Rack</h3>
+              <p className="mt-1 text-xs text-slate-500">Update the last four digits of {rackEditTarget.serialNumber || rackEditTarget.id}.</p>
+            </div>
+            <label className="block text-xs font-bold text-slate-700">Serial suffix
+              <input autoFocus inputMode="numeric" maxLength={4} value={rackEditSuffix} onChange={event => setRackEditSuffix(event.target.value.replace(/\D/g, '').slice(0, 4))} className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2.5 font-mono text-sm" />
+            </label>
+            <p className="text-[11px] text-slate-500">Installed packs and rack configuration stay unchanged.</p>
+            <div className="flex justify-end gap-2">
+              <button type="button" onClick={() => setRackEditTarget(null)} className="rounded-lg border border-slate-200 px-4 py-2 text-xs font-bold text-slate-600">Cancel</button>
+              <button type="button" onClick={() => void saveRackEdit()} disabled={rackEditSaving || rackEditSuffix.length !== 4} className="rounded-lg bg-emerald-600 px-4 py-2 text-xs font-bold text-white disabled:opacity-50">{rackEditSaving ? 'Saving…' : 'Save rack'}</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <RackFatReportModal
         isOpen={Boolean(fatReportRack)}

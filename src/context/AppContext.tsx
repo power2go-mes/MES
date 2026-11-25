@@ -47,6 +47,8 @@ interface AppContextType {
   setActiveOrderId: (id: string | null) => void;
   activeModuleId: string | null;
   setActiveModuleId: (id: string | null) => void;
+  rackAssemblyEditId: string | null;
+  setRackAssemblyEditId: (id: string | null) => void;
   inventoryTab: 'CELLS' | 'BMS' | 'BMU' | 'MODULES' | 'BATTERIES' | 'RACKS';
   setInventoryTab: (tab: 'CELLS' | 'BMS' | 'BMU' | 'MODULES' | 'BATTERIES' | 'RACKS') => void;
   notifications: AppNotification[];
@@ -118,6 +120,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [batteryBuilderEditRequested, setBatteryBuilderEditRequested] = useState(false);
   const [activeOrderId, setActiveOrderId] = useLocalStorage<string | null>('p2g_activeOrderId', null);
   const [activeModuleId, setActiveModuleId] = useLocalStorage<string | null>('p2g_activeModuleId', null);
+  const [rackAssemblyEditId, setRackAssemblyEditId] = useState<string | null>(null);
   const [inventoryTab, setInventoryTab] = useState<'CELLS' | 'BMS' | 'BMU' | 'MODULES' | 'BATTERIES' | 'RACKS'>('CELLS');
 
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
@@ -183,6 +186,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setActiveOrderId,
     activeModuleId,
     setActiveModuleId,
+    rackAssemblyEditId,
+    setRackAssemblyEditId,
     inventoryTab,
     setInventoryTab,
     notifications,
@@ -203,6 +208,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     batteryBuilderEditRequested,
     activeOrderId,
     activeModuleId,
+    rackAssemblyEditId,
+    setRackAssemblyEditId,
     inventoryTab,
     notifications,
     addNotification,
