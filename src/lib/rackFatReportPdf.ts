@@ -43,6 +43,87 @@ function drawMathSymbol(doc: jsPDF, type: 'leq' | 'geq' | 'omega' | 'degree' | '
 }
 
 /**
+ * Generates an empty printable FAT Test Sheet template for factory floor testing.
+ * - Auto-fills ONLY MES system data:
+ *   - Customer / Project
+ *   - Report No.
+ *   - Battery System
+ *   - Configuration
+ *   - Inverter
+ *   - Serial / Cabinet ID
+ *   - Inspection Date / Location
+ *   - Pack serial numbers in Section 2.3 (e.g. PACK-01 .. PACK-06)
+ * - Leaves all Checkboxes UNCHECKED (empty boxes ☐) for technicians to tick by pen.
+ * - Leaves all Recorded Values (voltages, current, temperature, cycles, IR) BLANK with clean fill-in lines.
+ * - Leaves Overall Result, Remarks, Signatures BLANK.
+ */
+export function generateBlankFatTemplatePdf(data?: Partial<FatFourPageReportData> | null): jsPDF {
+  const blankData: Partial<FatFourPageReportData> = {
+    customerProject: data?.customerProject || '',
+    reportNo: data?.reportNo || '',
+    batterySystem: data?.batterySystem || 'Power2Go HV Battery | 45 kWh nominal',
+    configuration: data?.configuration || '6 x 7.5 kWh HV packs',
+    inverter: data?.inverter || 'Solis 50kW HV 3-Phase Hybrid Inverter',
+    cabinetSerial: data?.cabinetSerial || '',
+    inspectionDate: data?.inspectionDate || new Date().toISOString().split('T')[0],
+    location: data?.location || 'Karachi Plant',
+    // Checkboxes completely empty (neither Pass nor Fail checked)
+    checklist: {},
+    // Measurements blank
+    basicMeasurements: {
+      totalBatteryVoltage: undefined,
+      packVoltageSpread: undefined,
+      insulationResistance: undefined,
+      chargeCurrent: undefined,
+      dischargeCurrent: undefined,
+      peakPackTemperature: undefined,
+      solisCommStatus: '',
+    },
+    cycleMeasurements: {
+      cycle1ChargeKw: undefined,
+      cycle1DischargeKw: undefined,
+      cycle2ChargeKw: undefined,
+      cycle2DischargeKw: undefined,
+    },
+    irSection: {
+      meterModel: 'Hioki BT3562 / Calibrated',
+      calibrationDue: '2027-01-15',
+      socAtTest: undefined,
+      packTempAtTest: undefined,
+      packs: (data?.irSection?.packs && data.irSection.packs.length > 0)
+        ? data.irSection.packs.map(p => ({
+            packIndex: p.packIndex,
+            packSerial: p.packSerial,
+            voltage: undefined,
+            internalResistance: undefined,
+            result: undefined,
+          }))
+        : [1, 2, 3, 4, 5, 6].map(i => ({
+            packIndex: i,
+            packSerial: `PACK-0${i}`,
+            voltage: undefined,
+            internalResistance: undefined,
+            result: undefined,
+          })),
+      highestPackIr: undefined,
+      irSpread: undefined,
+    },
+    approval: {
+      overallResult: undefined,
+      remarks: '',
+      testedByName: '',
+      testedByDate: '',
+      reviewedByName: '',
+      reviewedByDate: '',
+      witnessName: '',
+      witnessDate: '',
+    },
+  };
+
+  return generateFourPageFatPdf(blankData);
+}
+
+/**
  * Generates the EXACT Factory Acceptance Test (FAT) 4-Page Report PDF
  * Matching 100% of formatting, dimensions, column widths, line positions, typography and wording
  * from 'FAT - 45kWh (1).pdf'.
@@ -737,7 +818,7 @@ export function generateFourPageFatPdf(data?: Partial<FatFourPageReportData> | n
   doc.setTextColor(0, 0, 0);
   doc.text('3. Final Assessment & Approval', leftX, 502);
 
-  const approval = d.approval || { overallResult: 'PASS' };
+  const approval = d.approval || {};
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(11);
   doc.text('Overall result:', leftX, 524);

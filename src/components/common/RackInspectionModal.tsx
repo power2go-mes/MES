@@ -14,11 +14,12 @@ import {
   Check,
   Layers,
   ChevronRight,
+  Printer,
 } from 'lucide-react';
 import type { RackUnit, RackInspectionReport } from '../../types';
 import type { FatFourPageReportData } from '../../types/rackFat';
 import { runFatDocumentOcr, type OcrProgress } from '../../lib/fatOcrEngine';
-import { generateFourPageFatPdf } from '../../lib/rackFatReportPdf';
+import { generateFourPageFatPdf, generateBlankFatTemplatePdf } from '../../lib/rackFatReportPdf';
 
 interface RackInspectionModalProps {
   isOpen: boolean;
@@ -256,6 +257,27 @@ export const RackInspectionModal: React.FC<RackInspectionModalProps> = ({
     }
   };
 
+  // Download Blank Printable Test Sheet (with only MES calculated metadata filled)
+  const handlePrintBlankTemplate = () => {
+    try {
+      const doc = generateBlankFatTemplatePdf(fatData);
+      const fileName = `${serial || 'Rack'}-FAT-Blank-Test-Sheet.pdf`;
+      
+      const blob = doc.output('blob');
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = fileName;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      setTimeout(() => URL.revokeObjectURL(url), 2000);
+    } catch (err: any) {
+      console.error('Failed to export blank template PDF:', err);
+      setError(err?.message || 'Could not export blank template PDF.');
+    }
+  };
+
   // Download 4-Page Official PDF (works even if completely un-filled or empty)
   const handleDownloadOfficialPdf = () => {
     try {
@@ -307,14 +329,27 @@ export const RackInspectionModal: React.FC<RackInspectionModalProps> = ({
           </div>
 
           <div className="flex items-center gap-2">
-            {/* OCR Upload Button */}
-            <label className="cursor-pointer inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-sky-200 bg-sky-50 hover:bg-sky-100 text-sky-800 text-xs font-bold transition-colors">
+            {/* Step 1: Print Blank Sheet Button */}
+            <button
+              type="button"
+              onClick={handlePrintBlankTemplate}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 text-xs font-bold transition-colors shadow-xs"
+              title="Step 1: Print blank FAT test sheet pre-filled with MES metadata for pen testing"
+            >
+              <Printer className="w-4 h-4 text-slate-600" />
+              <span>1. Print Blank Sheet</span>
+            </button>
+
+            {/* Step 2: OCR Upload Button */}
+            <label className="cursor-pointer inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-sky-300 bg-sky-50 hover:bg-sky-100 text-sky-800 text-xs font-bold transition-colors shadow-xs"
+              title="Step 2: Upload photo of pen-filled paper to scan via Gemini AI"
+            >
               {ocrScanning ? (
                 <Loader2 className="w-4 h-4 animate-spin text-sky-600" />
               ) : (
                 <ScanLine className="w-4 h-4 text-sky-600" />
               )}
-              <span>{ocrScanning ? 'Scanning...' : 'OCR Scan Sheet'}</span>
+              <span>{ocrScanning ? 'Scanning...' : '2. Scan Filled Sheet'}</span>
               <input
                 type="file"
                 multiple
@@ -325,15 +360,15 @@ export const RackInspectionModal: React.FC<RackInspectionModalProps> = ({
               />
             </label>
 
-            {/* Official 4-Page PDF Export Button */}
+            {/* Step 3: Official 4-Page PDF Export Button */}
             <button
               type="button"
               onClick={handleDownloadOfficialPdf}
               className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold transition-colors shadow-xs"
-              title="Download Official 4-Page FAT Report PDF"
+              title="Step 3: Download final verified 4-Page FAT Report PDF"
             >
               <Download className="w-4 h-4" />
-              <span>Export 4-Page PDF</span>
+              <span>3. Export Final PDF</span>
             </button>
 
             <button
@@ -356,6 +391,30 @@ export const RackInspectionModal: React.FC<RackInspectionModalProps> = ({
             <span className="font-bold font-mono">{Math.round(ocrStatus.progress * 100)}%</span>
           </div>
         )}
+
+        {/* 3-Step Physical Testing Workflow Ribbon */}
+        <div className="bg-gradient-to-r from-slate-50 via-sky-50/40 to-emerald-50/40 border-b border-slate-200/80 px-6 py-2 flex items-center justify-between text-[11px] text-slate-600 shrink-0">
+          <div className="flex items-center gap-4 flex-wrap">
+            <span className="font-black text-slate-700 uppercase tracking-wider text-[10px] flex items-center gap-1">
+              <span className="w-2 h-2 rounded-full bg-emerald-500 inline-block animate-ping" />
+              Physical Workflow:
+            </span>
+            <span className="flex items-center gap-1.5 font-medium">
+              <span className="w-4 h-4 rounded-full bg-slate-200 text-slate-700 font-bold text-[10px] inline-flex items-center justify-center">1</span>
+              <span>Click <b>Print Blank Sheet</b> (MES pre-fills serial &amp; specs)</span>
+            </span>
+            <span className="text-slate-300">➔</span>
+            <span className="flex items-center gap-1.5 font-medium">
+              <span className="w-4 h-4 rounded-full bg-sky-200 text-sky-800 font-bold text-[10px] inline-flex items-center justify-center">2</span>
+              <span>Fill checklist &amp; readings with pen on paper</span>
+            </span>
+            <span className="text-slate-300">➔</span>
+            <span className="flex items-center gap-1.5 font-medium">
+              <span className="w-4 h-4 rounded-full bg-emerald-200 text-emerald-800 font-bold text-[10px] inline-flex items-center justify-center">3</span>
+              <span>Snap phone photo &amp; click <b>Scan Filled Sheet</b></span>
+            </span>
+          </div>
+        </div>
 
         {/* Navigation Tabs (Pages 1 to 4) */}
         <div className="flex border-b border-slate-200 bg-slate-50/50 px-6 shrink-0 gap-1 overflow-x-auto">
