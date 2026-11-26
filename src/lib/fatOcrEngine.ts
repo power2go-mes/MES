@@ -100,7 +100,7 @@ async function runGeminiVisionOcr(
         '    "chargeCurrent": number or null,',
         '    "dischargeCurrent": number or null,',
         '    "peakPackTemperature": number or null,',
-        '    "solisCommStatus": string or null',
+        '    "solisCommStatus": "N/A" or "Fault" or "Stable link / no active faults" or null',
         '  },',
         '  "cycleMeasurements": {',
         '    "cycle1ChargeKw": number or null,',
@@ -126,9 +126,10 @@ async function runGeminiVisionOcr(
         '    "reviewedByName": string or null',
         '  }',
         '}',
-        'Important Checkbox Rules:',
+        'Important Rules:',
         '- Look at the checkboxes in the Result column. If the checkmark/tick is on the Pass box, set "Pass".',
         '- If the checkmark/tick/cross is on the Fail box, set "Fail".',
+        '- For "Solis 50kW HV communication / alarms", the recorded value should strictly be parsed as "N/A" or "Fault" (or "Stable link / no active faults" if written).',
         '- Read any handwritten text (like Customer/Project name, serial numbers, remarks, sign names) carefully.',
         'Output ONLY raw JSON, with no markdown code blocks.'
       ].join('\n')
@@ -216,6 +217,17 @@ export function parseFatOcrText(rawText: string): Partial<FatFourPageReportData>
   const reportNoMatch = text.match(/\[?FAT-[0-9]{4}-[0-9a-zA-Z\s_-]+\]?/i);
   if (reportNoMatch) {
     result.reportNo = reportNoMatch[0].replace(/\[|\]/g, '').trim();
+  }
+
+  // Solis comm status: N/A or Fault or Stable
+  if (/solis.*(?:comm|alarm)/i.test(text)) {
+    if (/fault/i.test(text)) {
+      result.basicMeasurements = { ...result.basicMeasurements, solisCommStatus: 'Fault' };
+    } else if (/n\/?a/i.test(text)) {
+      result.basicMeasurements = { ...result.basicMeasurements, solisCommStatus: 'N/A' };
+    } else {
+      result.basicMeasurements = { ...result.basicMeasurements, solisCommStatus: 'N/A' };
+    }
   }
 
   // 2. Checklist items 01 to 11

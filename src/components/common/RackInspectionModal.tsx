@@ -102,6 +102,17 @@ export const RackInspectionModal: React.FC<RackInspectionModalProps> = ({
   const serial = rack?.serialNumber || rack?.id || '';
   const packCount = rack?.installedPackCount || rack?.batteryIds?.length || 6;
 
+  // Exact calculated rack capacity (e.g. 45 or rack.actualCapacityKwh or maxPackCapacity)
+  const rackCapacityKwh = rack?.actualCapacityKwh || rack?.maxPackCapacity || (packCount * 7.5);
+  // Battery system must always be: "Power2Go HV Battery | <capacity> kWh nominal"
+  const batterySystemStr = `Power2Go HV Battery | ${rackCapacityKwh} kWh nominal`;
+
+  // Production date of the rack (when printing blank report)
+  const productionDate = rack?.createdAt ? new Date(rack.createdAt).toISOString().split('T')[0] : new Date().toISOString().split('T')[0];
+
+  // Warehouse location: if rack has location/warehouse, use it (e.g. Lahore / Karachi), else default to Karachi Plant
+  const rackLocation = rack?.location ? (rack.location.toLowerCase().includes('lahore') ? 'Lahore Plant' : rack.location.toLowerCase().includes('karachi') ? 'Karachi Plant' : `${rack.location}`) : 'Karachi Plant';
+
   // Initialize data from rack + existing inspection report
   useEffect(() => {
     if (!isOpen || !rack) return;
@@ -120,16 +131,18 @@ export const RackInspectionModal: React.FC<RackInspectionModalProps> = ({
       ...prev,
       cabinetSerial: initialSerial,
       reportNo: extended.reportNo || initialReportNo,
-      customerProject: extended.customerProject || rack.issuedToDepartment || rack.issuedToPerson || 'Power2Go Standard',
-      batterySystem: extended.batterySystem || (rack.maxPackCapacity ? `${rack.maxPackCapacity} kWh HV Cabinet` : 'Power2Go HV Battery | 45 kWh nominal'),
+      // Customer name left blank by default so it can be filled or scanned
+      customerProject: extended.customerProject || '',
+      batterySystem: batterySystemStr,
       configuration: extended.configuration || `${packCount} x 7.5 kWh HV packs`,
       inverter: extended.inverter || 'Solis 50kW HV 3-Phase Hybrid Inverter',
-      inspectionDate: extended.inspectionDate || (current?.createdAt ? new Date(current.createdAt).toISOString().split('T')[0] : new Date().toISOString().split('T')[0]),
+      inspectionDate: extended.inspectionDate || productionDate,
+      location: extended.location || rackLocation,
       checklist: extended.checklist || prev.checklist,
       basicMeasurements: {
         ...prev.basicMeasurements,
         ...(extended.basicMeasurements || {}),
-        solisCommStatus: current?.solisBmsComm || extended.basicMeasurements?.solisCommStatus || 'Stable link / no active faults'
+        solisCommStatus: current?.solisBmsComm || extended.basicMeasurements?.solisCommStatus || 'N/A'
       },
       cycleMeasurements: {
         cycle1ChargeKw: current?.cycle1ChargedKwh ?? extended.cycleMeasurements?.cycle1ChargeKw ?? 36.0,
@@ -191,12 +204,23 @@ export const RackInspectionModal: React.FC<RackInspectionModalProps> = ({
 
       const { parsedData } = await runFatDocumentOcr(imageUrls, setOcrStatus);
 
+      // Today's date when the report is uploaded for OCR
+      const uploadTodayDate = new Date().toISOString().split('T')[0];
+
       // Merge OCR extracted data into state
       setFatData(prev => ({
         ...prev,
+        // When report is uploaded for OCR, inspection date is the date of upload
+        inspectionDate: uploadTodayDate,
+        customerProject: parsedData.customerProject ?? prev.customerProject,
         inverter: parsedData.inverter || prev.inverter,
         checklist: { ...prev.checklist, ...(parsedData.checklist || {}) },
-        basicMeasurements: { ...prev.basicMeasurements, ...(parsedData.basicMeasurements || {}) },
+        basicMeasurements: {
+          ...prev.basicMeasurements,
+          ...(parsedData.basicMeasurements || {}),
+          // Ensure Solis comm status is either 'N/A' or 'Fault' (or scanned text)
+          solisCommStatus: parsedData.basicMeasurements?.solisCommStatus || prev.basicMeasurements.solisCommStatus || 'N/A'
+        },
         cycleMeasurements: { ...prev.cycleMeasurements, ...(parsedData.cycleMeasurements || {}) },
         irSection: {
           ...prev.irSection,
@@ -260,7 +284,12 @@ export const RackInspectionModal: React.FC<RackInspectionModalProps> = ({
   // Download Blank Printable Test Sheet (with only MES calculated metadata filled)
   const handlePrintBlankTemplate = () => {
     try {
-      const doc = generateBlankFatTemplatePdf(fatData);
+      const doc = generateBlankFatTemplatePdf({
+        ...fatData,
+        customerProject: '', // Customer name explicitly left blank for technician to write on paper
+        inspectionDate: productionDate, // Date of rack production when printing blank report
+        location: rackLocation, // Warehouse / plant location
+      });
       const fileName = `${serial || 'Rack'}-FAT-Blank-Test-Sheet.pdf`;
       
       const blob = doc.output('blob');
@@ -807,15 +836,16 @@ export const RackInspectionModal: React.FC<RackInspectionModalProps> = ({
                     <span className="text-[10px] text-slate-400 block font-mono">Link integrity</span>
                     <select
                       disabled={!editing}
-                      value={fatData.basicMeasurements.solisCommStatus || 'Stable link / no active faults'}
+                      value={fatData.basicMeasurements.solisCommStatus || 'N/A'}
                       onChange={e => setFatData(prev => ({
                         ...prev,
                         basicMeasurements: { ...prev.basicMeasurements, solisCommStatus: e.target.value }
                       }))}
                       className="mt-2 w-full text-xs font-bold text-slate-800 bg-white border border-slate-200 rounded-lg p-2 disabled:bg-slate-50"
                     >
-                      <option>Stable link / no active faults</option>
-                      <option>Fault observed</option>
+                      <option value="N/A">N/A</option>
+                      <option value="Fault">Fault</option>
+                      <option value="Stable link / no active faults">Stable link / no active faults</option>
                     </select>
                   </div>
                 </div>

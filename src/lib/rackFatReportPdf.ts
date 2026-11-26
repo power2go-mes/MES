@@ -59,13 +59,15 @@ function drawMathSymbol(doc: jsPDF, type: 'leq' | 'geq' | 'omega' | 'degree' | '
  */
 export function generateBlankFatTemplatePdf(data?: Partial<FatFourPageReportData> | null): jsPDF {
   const blankData: Partial<FatFourPageReportData> = {
-    customerProject: data?.customerProject || '',
+    // Customer name MUST be left blank on the printed template for technicians to write
+    customerProject: '',
     reportNo: data?.reportNo || '',
     batterySystem: data?.batterySystem || 'Power2Go HV Battery | 45 kWh nominal',
     configuration: data?.configuration || '6 x 7.5 kWh HV packs',
     inverter: data?.inverter || 'Solis 50kW HV 3-Phase Hybrid Inverter',
     cabinetSerial: data?.cabinetSerial || '',
-    inspectionDate: data?.inspectionDate || new Date().toISOString().split('T')[0],
+    // Inspection date defaults to provided date (production date) when printing blank report
+    inspectionDate: data?.inspectionDate || '',
     location: data?.location || 'Karachi Plant',
     // Checkboxes completely empty (neither Pass nor Fail checked)
     checklist: {},
@@ -139,6 +141,24 @@ export function generateFourPageFatPdf(data?: Partial<FatFourPageReportData> | n
   const leftX = 66.5; // Exact left margin in original PDF
   const checklist = d.checklist || {};
 
+  // Extract dynamic capacity and pack count to compute exact spec limit headers and voltage operating range
+  // e.g. "Power2Go HV Battery | 45 kWh nominal" or "45 kWh"
+  const capacityMatch = (d.batterySystem || '').match(/(\d+(?:\.\d+)?)\s*kWh/i) ||
+                        (d.configuration || '').match(/(\d+(?:\.\d+)?)\s*kWh/i);
+  const capacityKwh = capacityMatch ? capacityMatch[1] : '45';
+  const specLimitHeader = `Spec limit for ${capacityKwh}\nkWh`;
+
+  // Dynamic pack count: from packs list or configuration (e.g. "6 x 7.5 kWh HV packs")
+  const configPackMatch = (d.configuration || '').match(/(\d+)\s*x/i);
+  const packCount = d.irSection?.packs?.length || (configPackMatch ? parseInt(configPackMatch[1], 10) : 6);
+
+  // Formula requested:
+  // min voltage = 2.5 * 24 * number of battery packs
+  // max voltage = 3.6 * 24 * number of battery packs
+  const minVolts = (2.5 * 24 * packCount).toFixed(1).replace(/\.0$/, '');
+  const maxVolts = (3.6 * 24 * packCount).toFixed(1).replace(/\.0$/, '');
+  const voltageRangeSpec = `${minVolts} V – ${maxVolts} V`;
+
   // Standard font
   doc.setFont('helvetica', 'normal');
 
@@ -155,14 +175,14 @@ export function generateFourPageFatPdf(data?: Partial<FatFourPageReportData> | n
   // Subtitle
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(11);
-  doc.text('45 kWh High-Voltage Battery Cabinet | Customer Handover Inspection', leftX, 155);
+  doc.text(`${capacityKwh} kWh High-Voltage Battery Cabinet | Customer Handover Inspection`, leftX, 155);
 
   // Table 1: Item / Details
   const specsRows = [
     ['Customer / Project', d.customerProject || ''],
     ['Report No.', d.reportNo || '[FAT-2026-      ]'],
-    ['Battery system', d.batterySystem || 'Power2Go HV Battery | 45 kWh nominal'],
-    ['Configuration', d.configuration || '6 x 7.5 kWh HV packs'],
+    ['Battery system', d.batterySystem || `Power2Go HV Battery | ${capacityKwh} kWh nominal`],
+    ['Configuration', d.configuration || `${packCount} x 7.5 kWh HV packs`],
     ['Inverter', d.inverter || 'Solis 50kW HV 3-Phase Hybrid Inverter'],
     ['Serial / Cabinet ID', d.cabinetSerial || ''],
     ['Inspection date / Location', `${d.inspectionDate ? `[${d.inspectionDate}]` : '[24-11-2026]'} / ${d.location || 'Karachi Plant'}`],
@@ -352,7 +372,7 @@ export function generateFourPageFatPdf(data?: Partial<FatFourPageReportData> | n
       'Total battery voltage',
       bm.totalBatteryVoltage != null ? `${bm.totalBatteryVoltage} V` : '________\nV',
       'Approved HV operating\nrange',
-      '360 V – 518.4 V',
+      voltageRangeSpec,
     ],
     [
       'pack voltage spread',
@@ -367,7 +387,7 @@ export function generateFourPageFatPdf(data?: Partial<FatFourPageReportData> | n
     margin: { left: leftX },
     tableWidth: 468,
     theme: 'grid',
-    head: [['Measurement', 'Recorded\nvalue', 'Acceptance / reference', 'Spec limit for 45\nkWh']],
+    head: [['Measurement', 'Recorded\nvalue', 'Acceptance / reference', specLimitHeader]],
     headStyles: {
       fillColor: [255, 255, 255],
       textColor: [0, 0, 0],
@@ -433,7 +453,7 @@ export function generateFourPageFatPdf(data?: Partial<FatFourPageReportData> | n
     ],
     [
       'Solis 50kW HV\ncommunication /\nalarms',
-      bm.solisCommStatus != null ? bm.solisCommStatus : '________',
+      bm.solisCommStatus ? bm.solisCommStatus : '________',
       'Stable link / no active faults',
       'Stable link / no\nactive faults',
     ],
@@ -444,7 +464,7 @@ export function generateFourPageFatPdf(data?: Partial<FatFourPageReportData> | n
     margin: { left: leftX },
     tableWidth: 468,
     theme: 'grid',
-    head: [['Measurement', 'Recorded\nvalue', 'Acceptance / reference', 'Spec limit for 45\nkWh']],
+    head: [['Measurement', 'Recorded\nvalue', 'Acceptance / reference', specLimitHeader]],
     headStyles: {
       fillColor: [255, 255, 255],
       textColor: [0, 0, 0],
@@ -572,7 +592,7 @@ export function generateFourPageFatPdf(data?: Partial<FatFourPageReportData> | n
     margin: { left: leftX },
     tableWidth: 468,
     theme: 'grid',
-    head: [['Measurement', 'Recorded\nvalue', 'Acceptance / reference', 'Spec limit for 45\nkWh']],
+    head: [['Measurement', 'Recorded\nvalue', 'Acceptance / reference', specLimitHeader]],
     headStyles: {
       fillColor: [255, 255, 255],
       textColor: [0, 0, 0],
@@ -759,7 +779,7 @@ export function generateFourPageFatPdf(data?: Partial<FatFourPageReportData> | n
     margin: { left: leftX },
     tableWidth: 468,
     theme: 'grid',
-    head: [['Measurement', 'Recorded\nvalue', 'Acceptance / reference', 'Spec limit for 45\nkWh']],
+    head: [['Measurement', 'Recorded\nvalue', 'Acceptance / reference', specLimitHeader]],
     headStyles: {
       fillColor: [255, 255, 255],
       textColor: [0, 0, 0],
