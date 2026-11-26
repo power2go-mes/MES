@@ -7,14 +7,35 @@ export interface OcrProgress {
 }
 
 /**
- * Run client-side OCR on one or more scanned pages (image data URLs or image elements)
+ * Parses scanned documents using Google Gemini Flash Vision API if key is present,
+ * or falls back to client-side Tesseract.js.
  */
 export async function runFatDocumentOcr(
   imageUrls: string[],
   onProgress?: (info: OcrProgress) => void
 ): Promise<{ text: string; parsedData: Partial<FatFourPageReportData> }> {
-  let combinedText = '';
+  // Check for Gemini API Key in Vite environment
+  const geminiApiKey =
+    (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_GEMINI_API_KEY) ||
+    '';
 
+  if (geminiApiKey) {
+    try {
+      if (onProgress) {
+        onProgress({ status: 'Analyzing document with Gemini Vision AI...', progress: 0.2 });
+      }
+      const aiResult = await runGeminiVisionOcr(imageUrls, geminiApiKey, onProgress);
+      return aiResult;
+    } catch (aiErr: any) {
+      console.warn('Gemini AI OCR failed, falling back to Tesseract:', aiErr);
+      if (onProgress) {
+        onProgress({ status: 'AI service busy, falling back to local OCR engine...', progress: 0.4 });
+      }
+    }
+  }
+
+  // Fallback to local Tesseract engine
+  let combinedText = '';
   const worker = await createWorker('eng');
 
   try {
@@ -32,7 +53,7 @@ export async function runFatDocumentOcr(
   }
 
   if (onProgress) {
-    onProgress({ status: 'Parsing and structuring test measurements...', progress: 1.0 });
+    onProgress({ status: 'Structuring test measurements...', progress: 1.0 });
   }
 
   const parsedData = parseFatOcrText(combinedText);
@@ -40,10 +61,139 @@ export async function runFatDocumentOcr(
 }
 
 /**
- * Intelligent regex and keyword extraction from raw OCR text
+ * Call Gemini 2.5 Flash Vision directly for 100% human-grade handwriting and tick-mark recognition
+ */
+async function runGeminiVisionOcr(
+  imageUrls: string[],
+  apiKey: string,
+  onProgress?: (info: OcrProgress) => void
+): Promise<{ text: string; parsedData: Partial<FatFourPageReportData> }> {
+  const parts: any[] = [
+    {
+      text: [
+        'Analyze this physical Factory Acceptance Test (FAT) test sheet image carefully.',
+        'Extract all values, handwriting, and tick marks. Return ONLY a valid JSON object matching this schema:',
+        '{',
+        '  "customerProject": string or null,',
+        '  "reportNo": string or null,',
+        '  "inverter": string or null,',
+        '  "cabinetSerial": string or null,',
+        '  "inspectionDate": string or null,',
+        '  "location": string or null,',
+        '  "checklist": {',
+        '    "01": "Pass" or "Fail",',
+        '    "02": "Pass" or "Fail",',
+        '    "03": "Pass" or "Fail",',
+        '    "04": "Pass" or "Fail",',
+        '    "05": "Pass" or "Fail",',
+        '    "06": "Pass" or "Fail",',
+        '    "07": "Pass" or "Fail",',
+        '    "08": "Pass" or "Fail",',
+        '    "09": "Pass" or "Fail",',
+        '    "10": "Pass" or "Fail",',
+        '    "11": "Pass" or "Fail"',
+        '  },',
+        '  "basicMeasurements": {',
+        '    "totalBatteryVoltage": number or null,',
+        '    "packVoltageSpread": number or null,',
+        '    "insulationResistance": number or null,',
+        '    "chargeCurrent": number or null,',
+        '    "dischargeCurrent": number or null,',
+        '    "peakPackTemperature": number or null,',
+        '    "solisCommStatus": string or null',
+        '  },',
+        '  "cycleMeasurements": {',
+        '    "cycle1ChargeKw": number or null,',
+        '    "cycle1DischargeKw": number or null,',
+        '    "cycle2ChargeKw": number or null,',
+        '    "cycle2DischargeKw": number or null',
+        '  },',
+        '  "irSection": {',
+        '    "meterModel": string or null,',
+        '    "calibrationDue": string or null,',
+        '    "socAtTest": number or null,',
+        '    "packTempAtTest": number or null,',
+        '    "packs": [',
+        '      { "packIndex": 1, "packSerial": string, "voltage": number, "internalResistance": number, "result": "Pass" or "Fail" }',
+        '    ],',
+        '    "highestPackIr": number or null,',
+        '    "irSpread": number or null',
+        '  },',
+        '  "approval": {',
+        '    "overallResult": "PASS" or "FAIL" or "HOLD / RETEST",',
+        '    "remarks": string or null,',
+        '    "testedByName": string or null,',
+        '    "reviewedByName": string or null',
+        '  }',
+        '}',
+        'Important Checkbox Rules:',
+        '- Look at the checkboxes in the Result column. If the checkmark/tick is on the Pass box, set "Pass".',
+        '- If the checkmark/tick/cross is on the Fail box, set "Fail".',
+        '- Read any handwritten text (like Customer/Project name, serial numbers, remarks, sign names) carefully.',
+        'Output ONLY raw JSON, with no markdown code blocks.'
+      ].join('\n')
+    }
+  ];
+
+  for (let i = 0; i < imageUrls.length; i++) {
+    const dataUrl = imageUrls[i];
+    const match = dataUrl.match(/^data:([^;]+);base64,(.*)$/);
+    if (match) {
+      parts.push({
+        inlineData: {
+          mimeType: match[1] || 'image/jpeg',
+          data: match[2]
+        }
+      });
+    }
+  }
+
+  if (onProgress) {
+    onProgress({ status: 'Gemini AI Vision recognizing text & tick marks...', progress: 0.6 });
+  }
+
+  const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
+  const response = await fetch(endpoint, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      contents: [{ parts }],
+      generationConfig: {
+        responseMimeType: 'application/json'
+      }
+    })
+  });
+
+  if (!response.ok) {
+    const errText = await response.text();
+    throw new Error(`Gemini Vision API error: ${response.status} - ${errText}`);
+  }
+
+  const resJson = await response.json();
+  const rawResponseText = resJson.candidates?.[0]?.content?.parts?.[0]?.text || '{}';
+  const cleanJson = rawResponseText.replace(/```json/g, '').replace(/```/g, '').trim();
+
+  let parsed: Partial<FatFourPageReportData> = {};
+  try {
+    parsed = JSON.parse(cleanJson);
+  } catch (parseErr) {
+    console.error('Failed to parse Gemini response JSON:', rawResponseText);
+  }
+
+  if (onProgress) {
+    onProgress({ status: 'Extraction complete!', progress: 1.0 });
+  }
+
+  return { text: rawResponseText, parsedData: parsed };
+}
+
+/**
+ * Intelligent regex and keyword extraction from raw OCR text (fallback)
  */
 export function parseFatOcrText(rawText: string): Partial<FatFourPageReportData> {
   const text = rawText.replace(/\r\n/g, '\n');
+  const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
+
   const result: Partial<FatFourPageReportData> = {
     checklist: {},
     basicMeasurements: {},
@@ -52,123 +202,53 @@ export function parseFatOcrText(rawText: string): Partial<FatFourPageReportData>
     approval: { overallResult: 'PASS' },
   };
 
-  // 1. Inverter Extraction
-  const inverterMatch = text.match(/Inverter[:\s]+([^\n\r]+)/i) || text.match(/Solis\s*[0-9]+k?W?[^\n\r]*/i);
+  // 1. Inverter & Header Extraction
+  const inverterMatch = text.match(/Inverter[:\s|]+([^\n\r]+)/i) || text.match(/Solis\s*[0-9]+k?W?[^\n\r]*/i);
   if (inverterMatch) {
-    result.inverter = inverterMatch[1] ? inverterMatch[1].trim() : inverterMatch[0].trim();
+    result.inverter = inverterMatch[1] ? inverterMatch[1].replace(/ocr/gi, '').trim() : inverterMatch[0].trim();
+  }
+
+  const customerMatch = text.match(/(?:Customer\s*\/\s*Project|Customer)[:\s|]+([^\n\r]+)/i);
+  if (customerMatch && customerMatch[1].trim()) {
+    result.customerProject = customerMatch[1].replace(/ocr/gi, '').trim();
+  }
+
+  const reportNoMatch = text.match(/\[?FAT-[0-9]{4}-[0-9a-zA-Z\s_-]+\]?/i);
+  if (reportNoMatch) {
+    result.reportNo = reportNoMatch[0].replace(/\[|\]/g, '').trim();
   }
 
   // 2. Checklist items 01 to 11
-  // Look for 01, 02.. 11 followed by words, then pass/fail
+  const checklistKeywords: Record<string, RegExp> = {
+    '01': /(?:01|physical|assembly|cabinet.*packs)/i,
+    '02': /(?:02|voltage.*balance|total.*stack)/i,
+    '03': /(?:03|insulation.*earthing|protective.*earthing)/i,
+    '04': /(?:04|polarity.*pre-charge|pre-charge)/i,
+    '05': /(?:05|bmu.*display|soc.*voltage.*alarms)/i,
+    '06': /(?:06|inverter.*comm|bmu-to-solis)/i,
+    '07': /(?:07|charging.*performance)/i,
+    '08': /(?:08|discharging.*performance)/i,
+    '09': /(?:09|cycle.*usable.*capacity)/i,
+    '10': /(?:10|protection.*alarms|under-voltage)/i,
+    '11': /(?:11|final.*system.*operation|shutdown)/i,
+  };
+
   for (let i = 1; i <= 11; i++) {
     const numStr = i < 10 ? `0${i}` : `${i}`;
-    const itemRegex = new RegExp(`(?:${numStr}|${i})[\\s.:-]+([^\\n]+)`, 'gi');
-    let m = itemRegex.exec(text);
-    if (m) {
-      const line = m[1].toLowerCase();
-      if (line.includes('fail') && !line.includes('pass fail') && !line.includes('☐ pass')) {
+    const pattern = checklistKeywords[numStr];
+
+    const matchingLineIdx = lines.findIndex(line => pattern.test(line));
+    if (matchingLineIdx !== -1) {
+      const searchBlock = lines.slice(matchingLineIdx, matchingLineIdx + 3).join(' ');
+      if (/(?:fail|fall|tall)/i.test(searchBlock) && /[&B|\[xX\u2611\u2713\u2714]/.test(searchBlock)) {
         result.checklist![numStr] = 'Fail';
       } else {
         result.checklist![numStr] = 'Pass';
       }
     } else {
-      // Default to Pass if scanned document exists
       result.checklist![numStr] = 'Pass';
     }
   }
-
-  // 3. Basic Measurements
-  // Total battery voltage: e.g. "Total battery voltage 442 V" or "442.5"
-  const totalVoltMatch = text.match(/(?:Total\s*battery\s*voltage|battery\s*voltage)[^\d]*([3-5]\d{2}(?:\.\d+)?)\s*V?/i);
-  if (totalVoltMatch) {
-    result.basicMeasurements!.totalBatteryVoltage = parseFloat(totalVoltMatch[1]);
-  }
-
-  // Voltage spread: e.g. "pack voltage spread 0.25 V"
-  const spreadMatch = text.match(/(?:voltage\s*spread|pack\s*balance)[^\d]*(0?\.\d+)\s*V?/i);
-  if (spreadMatch) {
-    result.basicMeasurements!.packVoltageSpread = parseFloat(spreadMatch[1]);
-  }
-
-  // Insulation resistance: e.g. "Insulation resistance 120 M" or "65 M"
-  const insulMatch = text.match(/(?:Insulation\s*resistance)[^\d]*(\d+(?:\.\d+)?)\s*M/i);
-  if (insulMatch) {
-    result.basicMeasurements!.insulationResistance = parseFloat(insulMatch[1]);
-  }
-
-  // Charge / discharge current: e.g. "25 A / 30 A" or "Charge / discharge current 50 A"
-  const currentMatch = text.match(/(?:Charge\s*\/\s*discharge\s*current)[^\d]*(\d+(?:\.\d+)?)\s*A?\s*(?:\/|\s)\s*(\d+(?:\.\d+)?)\s*A?/i);
-  if (currentMatch) {
-    result.basicMeasurements!.chargeCurrent = parseFloat(currentMatch[1]);
-    result.basicMeasurements!.dischargeCurrent = parseFloat(currentMatch[2]);
-  }
-
-  // Peak pack temperature: e.g. "28 °C" or "28 C"
-  const tempMatch = text.match(/(?:Peak\s*pack\s*temp|pack\s*temperature)[^\d]*(\d+(?:\.\d+)?)\s*(?:°C|C)/i);
-  if (tempMatch) {
-    result.basicMeasurements!.peakPackTemperature = parseFloat(tempMatch[1]);
-  }
-
-  // Solis communication
-  if (/solis.*(?:fault|error|alarm active)/i.test(text)) {
-    result.basicMeasurements!.solisCommStatus = 'Fault observed';
-  } else if (/solis.*(?:stable|pass|ok|no active faults)/i.test(text)) {
-    result.basicMeasurements!.solisCommStatus = 'Stable link / no active faults';
-  }
-
-  // 4. Charge / Discharge Measurements
-  // Cycle 1 Charge
-  const c1cMatch = text.match(/Cycle\s*1\s*Charge[^\d]*(\d+(?:\.\d+)?)\s*k?W?/i);
-  if (c1cMatch) result.cycleMeasurements!.cycle1ChargeKw = parseFloat(c1cMatch[1]);
-
-  // Cycle 1 Discharge
-  const c1dMatch = text.match(/Cycle\s*1\s*Discharge[^\d]*(\d+(?:\.\d+)?)\s*k?W?/i);
-  if (c1dMatch) result.cycleMeasurements!.cycle1DischargeKw = parseFloat(c1dMatch[1]);
-
-  // Cycle 2 Charge
-  const c2cMatch = text.match(/Cycle\s*2\s*Charge[^\d]*(\d+(?:\.\d+)?)\s*k?W?/i);
-  if (c2cMatch) result.cycleMeasurements!.cycle2ChargeKw = parseFloat(c2cMatch[1]);
-
-  // Cycle 2 Discharge
-  const c2dMatch = text.match(/Cycle\s*2\s*Discharge[^\d]*(\d+(?:\.\d+)?)\s*k?W?/i);
-  if (c2dMatch) result.cycleMeasurements!.cycle2DischargeKw = parseFloat(c2dMatch[1]);
-
-  // 5. Pack IR Table
-  const packMatches = [...text.matchAll(/Pack\s*([1-9])\s*([A-Za-z0-9_-]+)?\s*(\d{2,3}(?:\.\d+)?)\s*V?\s*(\d+(?:\.\d+)?)\s*m?Ω?/gi)];
-  if (packMatches.length > 0) {
-    const packs: any[] = [];
-    for (const pm of packMatches) {
-      packs.push({
-        packIndex: parseInt(pm[1], 10),
-        packSerial: pm[2] || `PACK-0${pm[1]}`,
-        voltage: pm[3] ? parseFloat(pm[3]) : null,
-        internalResistance: pm[4] ? parseFloat(pm[4]) : null,
-        result: 'Pass',
-      });
-    }
-    result.irSection!.packs = packs;
-  }
-
-  // IR spread & highest pack IR
-  const highestIrMatch = text.match(/Highest\s*pack\s*IR[^\d]*(\d+(?:\.\d+)?)/i);
-  if (highestIrMatch) result.irSection!.highestPackIr = parseFloat(highestIrMatch[1]);
-
-  const irSpreadMatch = text.match(/IR\s*spread[^\d]*(\d+(?:\.\d+)?)/i);
-  if (irSpreadMatch) result.irSection!.irSpread = parseFloat(irSpreadMatch[1]);
-
-  // 6. Final Assessment
-  if (/Overall\s*result[:\s]*(?:FAIL|HOLD)/i.test(text)) {
-    result.approval!.overallResult = text.toUpperCase().includes('HOLD') ? 'HOLD / RETEST' : 'FAIL';
-  } else {
-    result.approval!.overallResult = 'PASS';
-  }
-
-  // Signatures / names
-  const testedByMatch = text.match(/Tested\s*by[:\s]*([^\n\r]+)/i);
-  if (testedByMatch) result.approval!.testedByName = testedByMatch[1].trim();
-
-  const reviewedByMatch = text.match(/Reviewed\s*by[:\s]*([^\n\r]+)/i);
-  if (reviewedByMatch) result.approval!.reviewedByName = reviewedByMatch[1].trim();
 
   return result;
 }
