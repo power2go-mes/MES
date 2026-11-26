@@ -121,9 +121,9 @@ export const IssueModal: React.FC<IssueModalProps> = ({
 
   if (!isOpen) return null;
 
-  const handleDownloadSlip = () => {
+  const handleDownloadSlip = async () => {
     try {
-      downloadHandoverSlipPdf({
+      await downloadHandoverSlipPdf({
         entityType,
         serialNumber,
         barcode,

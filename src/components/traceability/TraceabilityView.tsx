@@ -29,7 +29,7 @@ import { ScannerModal } from '../common/ScannerModal';
 import { preferredLifecycleStatus } from '../../services/api';
 import { normalizeBatterySerial } from '../../lib/batteryNaming';
 import { normalizeRackSerial } from '../../lib/rackNaming';
-import { getIssuedDisplayStatus } from '../../lib/issuance';
+import { getIssuedDisplayStatus, mergeLocalHandoverMetadata } from '../../lib/issuance';
 
 interface TraceNode {
   key: string;
@@ -57,6 +57,12 @@ const fmtDateOnly = (v: any): string => {
 const fmtDateShort = (v: any): string => {
   const date = fmtDateOnly(v);
   return date.match(/^(\d{2})-(\d{2})-(\d{4})$/) ? `${date.slice(0, 6)}${date.slice(-2)}` : date;
+};
+
+export const getCellTraceStatus = (cell: any): string | null => {
+  const previousStatus = cell?.lifecycleStatus || cell?.lifecycle_status || cell?.status;
+  if (cell?.handoverStatus === 'PENDING_SIGNATURE') return previousStatus || null;
+  return getIssuedDisplayStatus(cell) || previousStatus || null;
 };
 
 const formatTraceStatus = (status: any): string => {
@@ -323,7 +329,7 @@ function detailFields(node: TraceNode): { label: string; value: string }[] {
           { label: 'Internal Serial', value: fmt(d.internalSerial) },
           { label: 'Supplier Barcode', value: fmt(d.supplierBarcode) },
           { label: 'Pallet', value: fmt(d.palletNumber) },
-          { label: 'Status', value: fmt(getIssuedDisplayStatus(d) || d.lifecycleStatus || d.lifecycle_status || d.status) },
+          { label: 'Status', value: fmt(getCellTraceStatus(d)) },
         ];
       case 'MODULE':
         return [
@@ -518,8 +524,17 @@ export const TraceabilityView: React.FC = () => {
     try {
       const result = await api.universalTrace(q);
       if (requestId !== searchRequestRef.current) return;
-      setTrace(result);
-      setQuery(displayTraceIdentifier(result));
+      const hydratedResult = result.entityType === 'CELL' && result.entity
+        ? {
+          ...result,
+          entity: mergeLocalHandoverMetadata(
+            [{ ...result.entity, entityType: 'CELL' }],
+            typeof window !== 'undefined' ? window.localStorage : undefined
+          )[0],
+        }
+        : result;
+      setTrace(hydratedResult);
+      setQuery(displayTraceIdentifier(hydratedResult));
       setError(null);
     } catch (err: any) {
       if (requestId !== searchRequestRef.current) return;
@@ -661,7 +676,7 @@ export const TraceabilityView: React.FC = () => {
               <div className="mt-2 space-y-1 text-xs">
                 <p><span className="text-slate-400">Type:</span> <strong className="text-white">{TYPE_LABEL[trace.entityType] || trace.entityType}</strong></p>
                 <p className="inline-flex items-center gap-1"><span className="text-slate-400">Identifier:</span> <strong className="font-mono text-emerald-300">{trace.entityType === 'CELL' ? (trace.entity?.supplierBarcode || trace.entity?.supplier_barcode || trace.identifier) : displayTraceIdentifier(trace)}</strong><CopyToClipboardButton value={trace.entityType === 'CELL' ? String(trace.entity?.supplierBarcode || trace.entity?.supplier_barcode || trace.identifier || '') : displayTraceIdentifier(trace)} label="Copy trace identifier" /></p>
-                <p><span className="text-slate-400">Status:</span> <strong className="text-white">{formatTraceStatus(getIssuedDisplayStatus(trace.entity) || trace.status)}</strong></p>
+                <p><span className="text-slate-400">Status:</span> <strong className="text-white">{formatTraceStatus(trace.entityType === 'CELL' ? getCellTraceStatus(trace.entity) || trace.status : getIssuedDisplayStatus(trace.entity) || trace.status)}</strong></p>
               </div>
             </div>
             <button

@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { buildModuleTraceNodes } from '../components/traceability/TraceabilityView';
+import { buildModuleTraceNodes, getCellTraceStatus } from '../components/traceability/TraceabilityView';
 
 test('module trace should keep only that module’s cells and avoid a nested battery module tree', () => {
   const battery = {
@@ -33,4 +33,17 @@ test('module trace should keep only that module’s cells and avoid a nested bat
   const batterySummary = moduleNode.children?.find(node => node.type === 'BATTERY');
   assert.ok(batterySummary);
   assert.equal(batterySummary?.children?.some(child => child.type === 'MODULE'), false);
+});
+
+test('cell trace keeps the prior lifecycle status while handover is pending', () => {
+  const cell = {
+    lifecycle_status: 'IN_STOCK',
+    issued_to_person: 'Baqir',
+    issued_to_department: 'R&D',
+    handoverStatus: 'PENDING_SIGNATURE',
+  };
+
+  assert.equal(getCellTraceStatus(cell), 'IN_STOCK');
+  assert.equal(getCellTraceStatus({ ...cell, handoverStatus: 'COMPLETED' }), 'ISSUED (R&D)');
+  assert.equal(getCellTraceStatus({ ...cell, issued_to_person: null, handoverStatus: null }), 'IN_STOCK');
 });

@@ -26,6 +26,7 @@ import { legacyRackSerialLookup, normalizeRackSerial } from '../lib/rackNaming';
 import { buildCellInventoryBuckets, cellInventoryStatuses, cellInventoryStatusLabel, getCellInventoryStatus } from '../lib/cellInventoryStatus';
 import { getControllerInventoryBucket } from '../lib/inventoryStatus';
 import { readDashboardStatsCache, writeDashboardStatsCache } from '../lib/appCacheCleanup';
+import { mergeLocalHandoverMetadata } from '../lib/issuance';
 
 const columnAliases: Record<string, string> = {
   bmsConfig: 'bms_config_json',
@@ -6589,6 +6590,10 @@ export const api = {
     issuedBy: string;
     issuedAt: string;
     status: string;
+    handoverStatus?: 'PENDING_SIGNATURE' | 'COMPLETED' | null;
+    signedSlipUrl?: string | null;
+    signedSlipFileName?: string | null;
+    signedSlipUploadedAt?: string | null;
   }>> {
     const { data: sessionData } = (await rawSupabase?.auth.getSession().catch(() => ({ data: { session: null } }))) || { data: { session: null } };
     try {
@@ -6598,7 +6603,11 @@ export const api = {
         },
       });
       if (response.ok) {
-        return await response.json();
+        const items = await response.json();
+        return mergeLocalHandoverMetadata(
+          items,
+          typeof window !== 'undefined' ? window.localStorage : undefined
+        );
       }
     } catch {
       // Fallback to direct supabase client if server route is unreachable

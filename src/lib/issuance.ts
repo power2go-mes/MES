@@ -15,6 +15,57 @@ export interface IssuanceData {
   signedSlipUrl?: string | null;
 }
 
+export type HandoverStatus = 'PENDING_SIGNATURE' | 'COMPLETED';
+
+export interface HandoverMetadata {
+  handoverStatus?: HandoverStatus | null;
+  signedSlipUrl?: string | null;
+  signedSlipFileName?: string | null;
+  signedSlipUploadedAt?: string | null;
+}
+
+export function mergeLocalHandoverMetadata<T extends { id: string; entityType: string } & HandoverMetadata>(
+  items: T[],
+  storage?: Pick<Storage, 'getItem'>
+): Array<T & HandoverMetadata> {
+  return items.map(item => {
+    let localMetadata: HandoverMetadata | null = null;
+    if (storage) {
+      try {
+        const raw = storage.getItem(`p2g_handover_${item.entityType}_${item.id}`);
+        if (raw) {
+          const parsed: unknown = JSON.parse(raw);
+          if (parsed && typeof parsed === 'object') {
+            const value = parsed as Record<string, unknown>;
+            localMetadata = {
+              handoverStatus: value.handoverStatus === 'PENDING_SIGNATURE' || value.handoverStatus === 'COMPLETED'
+                ? value.handoverStatus
+                : item.handoverStatus ?? null,
+              signedSlipUrl: typeof value.signedSlipUrl === 'string' ? value.signedSlipUrl : item.signedSlipUrl ?? null,
+              signedSlipFileName: typeof value.signedSlipFileName === 'string'
+                ? value.signedSlipFileName
+                : item.signedSlipFileName ?? null,
+              signedSlipUploadedAt: typeof value.signedSlipUploadedAt === 'string'
+                ? value.signedSlipUploadedAt
+                : item.signedSlipUploadedAt ?? null,
+            };
+          }
+        }
+      } catch (error) {
+        console.warn(`Could not read local handover state for ${item.entityType} ${item.id}.`, error);
+      }
+    }
+
+    return {
+      ...item,
+      handoverStatus: localMetadata?.handoverStatus ?? item.handoverStatus ?? null,
+      signedSlipUrl: localMetadata?.signedSlipUrl ?? item.signedSlipUrl ?? null,
+      signedSlipFileName: localMetadata?.signedSlipFileName ?? item.signedSlipFileName ?? null,
+      signedSlipUploadedAt: localMetadata?.signedSlipUploadedAt ?? item.signedSlipUploadedAt ?? null,
+    };
+  });
+}
+
 /**
  * Returns formatted status string like "PENDING SIGNATURE" or "ISSUED (R&D)" / "ISSUED (Person Name)"
  * if the item is currently issued, otherwise returns null.
