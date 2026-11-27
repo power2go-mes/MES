@@ -1246,9 +1246,30 @@ export const api = {
       const moduleProgressBuckets = Array.from(moduleStatusCounts.entries()).map(([label, value]) => ({ label, value }));
 
       const batteryStatusCounts = new Map<string, number>();
+      const rackByBatteryId = new Map<string, any>();
+      (soldRackPacks || []).forEach((row: any) => {
+        if (row.battery_id && row.rack_id) rackByBatteryId.set(String(row.battery_id), row.rack_id);
+      });
+      (liveRackPacks || []).forEach((row: any) => {
+        if (row.battery_id && row.rack_id) rackByBatteryId.set(String(row.battery_id), row.rack_id);
+      });
+
       (liveBatteries || []).forEach((battery: any) => {
         const warehouseStatus = (battery.id && warehouseLocations.latestByEntity) ? warehouseLocations.latestByEntity.get(`BATTERY:${battery.id}`) : undefined;
-        const normalizedWarehouseStatus = warehouseStatus ? (String(warehouseStatus).toUpperCase().endsWith('_WAREHOUSE') ? String(warehouseStatus).toUpperCase() : String(warehouseStatus).toUpperCase() + '_WAREHOUSE') : '';
+        let normalizedWarehouseStatus = warehouseStatus ? (String(warehouseStatus).toUpperCase().endsWith('_WAREHOUSE') ? String(warehouseStatus).toUpperCase() : String(warehouseStatus).toUpperCase() + '_WAREHOUSE') : '';
+        
+        // If battery is installed in a rack and does not have its own warehouse status, inherit the rack's warehouse status!
+        if (!normalizedWarehouseStatus) {
+          const assignedRackId = rackByBatteryId.get(String(battery.id));
+          if (assignedRackId) {
+            const rackWh = (warehouseLocations.latestByEntity) ? warehouseLocations.latestByEntity.get(`RACK:${assignedRackId}`) : undefined;
+            if (rackWh) {
+              const rws = String(rackWh).toUpperCase();
+              normalizedWarehouseStatus = rws.endsWith('_WAREHOUSE') ? rws : rws + '_WAREHOUSE';
+            }
+          }
+        }
+
         const lifecycleStatus = String(battery.lifecycleStatus || battery.status || '').toUpperCase();
         let status = String(battery.status || 'UNKNOWN').toUpperCase();
         if (normalizedWarehouseStatus) {

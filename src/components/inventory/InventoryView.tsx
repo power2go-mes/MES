@@ -610,13 +610,25 @@ export const InventoryView: React.FC = () => {
     return lifecycleStatus || 'IN_MODULE';
   };
 
-  const getBatteryDisplayStatus = (battery: BatteryUnit) => {
+  const getBatteryDisplayStatus = (battery: BatteryUnit, assignedRack?: any) => {
     const issuedStatus = getIssuedDisplayStatus(battery);
     if (issuedStatus) return issuedStatus;
     const warehouseStatus = warehouseEntityStatuses[`BATTERY:${battery.id}`];
     const normalizedWarehouseStatus = warehouseStatus ? String(warehouseStatus).toUpperCase() : '';
-    const lifecycleStatus = String(battery.lifecycleStatus || battery.status || '').toUpperCase();
     if (normalizedWarehouseStatus) return normalizedWarehouseStatus;
+
+    // If this battery pack is installed inside a rack, check if that rack is in a warehouse!
+    const rackObj = assignedRack || racks.find(rack => (rack.batteryIds || []).includes(battery.id));
+    if (rackObj) {
+      const rackWarehouseStatus = warehouseEntityStatuses[`RACK:${rackObj.id}`];
+      const rackNormalized = rackWarehouseStatus ? String(rackWarehouseStatus).toUpperCase() : '';
+      if (rackNormalized.includes('WAREHOUSE')) return rackNormalized;
+      const rackRawLoc = String(rackObj.location || '').toUpperCase();
+      if (rackRawLoc.includes('KARACHI')) return 'KARACHI_WAREHOUSE';
+      if (rackRawLoc.includes('LAHORE')) return 'LAHORE_WAREHOUSE';
+    }
+
+    const lifecycleStatus = String(battery.lifecycleStatus || battery.status || '').toUpperCase();
     if (['RELEASED', 'DISPATCHED', 'FINISHED'].includes(lifecycleStatus)) return 'IN_STOCK';
     if (['IN_STOCK', 'FLOOR_STOCK', 'IN_MODULE', 'IN_PACK', 'IN_RACK', 'SOLD', 'SCRAP', 'KARACHI_WAREHOUSE', 'LAHORE_WAREHOUSE'].includes(lifecycleStatus)) return lifecycleStatus;
     return String(battery.status || 'UNKNOWN').toUpperCase();
@@ -712,12 +724,15 @@ export const InventoryView: React.FC = () => {
     const serialNumber = String(rawBattery.serialNumber ?? rawBattery.serial_number ?? '').toLowerCase();
     const productName = String(rawBattery.productName ?? rawBattery.product_name ?? '').toLowerCase();
     const query = String(search ?? '').toLowerCase();
+    const assignedRack = racks.find(rack => (rack.batteryIds || []).includes(b.id));
+    const rackSerial = String(assignedRack?.serialNumber || assignedRack?.serial_number || '').toLowerCase();
     const matchesSearch = !query
       || serialNumber.includes(query)
       || productName.includes(query)
+      || rackSerial.includes(query)
       || String(b.issuedToPerson || '').toLowerCase().includes(query)
       || String(b.issuedToDepartment || '').toLowerCase().includes(query);
-    const displayStatus = getBatteryDisplayStatus(b);
+    const displayStatus = getBatteryDisplayStatus(b, assignedRack);
     const matchesStatus = matchesStatusFilter(displayStatus, statusFilter);
     return matchesSearch && matchesStatus;
   });
@@ -1697,8 +1712,8 @@ export const InventoryView: React.FC = () => {
                     <td className="px-5 py-3.5 text-emerald-700">{b.bmu?.serialNumber || 'NONE'}</td>
                     <td className="px-5 py-3.5 font-bold text-emerald-600">{b.progressPercent}%</td>
                     <td className="px-5 py-3.5 font-sans">
-                      <span className={`px-2.5 py-0.5 rounded-md text-[10px] font-bold border uppercase tracking-wider ${getStatusBadge(getBatteryDisplayStatus(b))}`}>
-                        {formatEntityStatus(getBatteryDisplayStatus(b))}
+                      <span className={`px-2.5 py-0.5 rounded-md text-[10px] font-bold border uppercase tracking-wider ${getStatusBadge(getBatteryDisplayStatus(b, assignedRack))}`}>
+                        {formatEntityStatus(getBatteryDisplayStatus(b, assignedRack))}
                       </span>
                     </td>
                     <td className="px-5 py-3.5 text-right space-x-1 font-sans">
