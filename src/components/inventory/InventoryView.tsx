@@ -257,13 +257,11 @@ export const InventoryView: React.FC = () => {
           ids: hasCachedStatusIds ? statusPageIds : undefined,
           search: search || undefined,
           includeBatterySerial: true,
-          limit: statusFilter && !hasCachedStatusIds ? undefined : pageSize,
-          offset: statusFilter && !hasCachedStatusIds ? undefined : hasCachedStatusIds ? 0 : page * pageSize,
+          limit: statusFilter && !hasCachedStatusIds ? 500 : pageSize,
+          offset: statusFilter && !hasCachedStatusIds ? page * pageSize : hasCachedStatusIds ? 0 : page * pageSize,
           fields: 'id,internal_serial,supplier_barcode,qr_code,supplier_id,batch_number,pallet_number,box_number,supplier_ocv_v,supplier_ir_mohm,production_ocv_v,production_ir_mohm,grade,status,lifecycle_status,reserved_for_order_id,reserved_for_battery_id,tested_at,created_at,updated_at,supplier:suppliers(name),issued_to_person,issued_to_department,issued_by,issued_at',
         });
-        const countsPromise = !search && !statusFilter
-          ? api.getCellCounts(true)
-          : Promise.resolve({ total: allCellsCount, used: 0, available: 0, quarantined: 0 });
+        const countsPromise = api.getCellCounts(true);
         const warehouseStatusesPromise = statusFilter && page === 0 ? api.getWarehouseCellStatuses() : Promise.resolve(warehouseCellStatuses);
         const [res, warehouseStatuses] = await Promise.all([cellsPromise, warehouseStatusesPromise]);
         if (statusFilter && !search) {
@@ -593,13 +591,13 @@ export const InventoryView: React.FC = () => {
   const getBmsDisplayStatus = (b: BMSItem) => {
     const issuedStatus = getIssuedDisplayStatus(b);
     if (issuedStatus) return issuedStatus;
-    return warehouseEntityStatuses[`BATTERY:${b.id}`] || b.status;
+    return warehouseEntityStatuses[`BMS:${b.id}`] || warehouseEntityStatuses[`BATTERY:${b.id}`] || b.status;
   };
 
   const getBmuDisplayStatus = (b: BMUItem) => {
     const issuedStatus = getIssuedDisplayStatus(b);
     if (issuedStatus) return issuedStatus;
-    return b.status;
+    return warehouseEntityStatuses[`BMU:${b.id}`] || warehouseEntityStatuses[`BATTERY:${b.id}`] || b.status;
   };
 
   const getModuleDisplayStatus = (module: ModuleItem) => {
@@ -645,6 +643,18 @@ export const InventoryView: React.FC = () => {
     return status;
   };
 
+  const normalizeStatus = (val?: string | null): string => {
+    return String(val || '').trim().toUpperCase().replace(/[\s-]+/g, '_');
+  };
+
+  const matchesStatusFilter = (displayStatus: string, filter: string): boolean => {
+    if (!filter) return true;
+    if (filter === 'ISSUED') return displayStatus.startsWith('ISSUED');
+    const normDisplay = normalizeStatus(displayStatus);
+    const normFilter = normalizeStatus(filter);
+    return normDisplay === normFilter || displayStatus === filter;
+  };
+
   const filteredCells = cells.filter(c => {
     const internalSerial = (c.internalSerial || '').toLowerCase();
     const supplierBarcode = (c.supplierBarcode || '').toLowerCase();
@@ -659,7 +669,7 @@ export const InventoryView: React.FC = () => {
       issuedTo.includes(search.toLowerCase()) ||
       dept.includes(search.toLowerCase());
     const displayStatus = getCellDisplayStatus(c);
-    const matchesStatus = !statusFilter || (statusFilter === 'ISSUED' ? displayStatus.startsWith('ISSUED') : displayStatus === statusFilter);
+    const matchesStatus = matchesStatusFilter(displayStatus, statusFilter);
     return matchesSearch && matchesStatus;
   });
 
@@ -670,7 +680,8 @@ export const InventoryView: React.FC = () => {
       || String(b.issuedToPerson || '').toLowerCase().includes(search.toLowerCase())
       || String(b.issuedToDepartment || '').toLowerCase().includes(search.toLowerCase());
     const displayStatus = getBmsDisplayStatus(b);
-    const matchesStatus = !statusFilter || (statusFilter === 'ISSUED' ? displayStatus.startsWith('ISSUED') : getControllerInventoryBucket(b.status) === statusFilter);
+    const bucket = getControllerInventoryBucket(b.status);
+    const matchesStatus = matchesStatusFilter(displayStatus, statusFilter) || matchesStatusFilter(bucket, statusFilter);
     return matchesSearch && matchesStatus;
   });
 
@@ -681,7 +692,8 @@ export const InventoryView: React.FC = () => {
       || String(b.issuedToPerson || '').toLowerCase().includes(search.toLowerCase())
       || String(b.issuedToDepartment || '').toLowerCase().includes(search.toLowerCase());
     const displayStatus = getBmuDisplayStatus(b);
-    const matchesStatus = !statusFilter || (statusFilter === 'ISSUED' ? displayStatus.startsWith('ISSUED') : getControllerInventoryBucket(b.status) === statusFilter);
+    const bucket = getControllerInventoryBucket(b.status);
+    const matchesStatus = matchesStatusFilter(displayStatus, statusFilter) || matchesStatusFilter(bucket, statusFilter);
     return matchesSearch && matchesStatus;
   });
 
@@ -691,7 +703,7 @@ export const InventoryView: React.FC = () => {
       || String(m.issuedToPerson || '').toLowerCase().includes(search.toLowerCase())
       || String(m.issuedToDepartment || '').toLowerCase().includes(search.toLowerCase());
     const displayStatus = getModuleDisplayStatus(m);
-    const matchesStatus = !statusFilter || (statusFilter === 'ISSUED' ? displayStatus.startsWith('ISSUED') : displayStatus === statusFilter);
+    const matchesStatus = matchesStatusFilter(displayStatus, statusFilter);
     return matchesSearch && matchesStatus;
   });
 
@@ -706,7 +718,7 @@ export const InventoryView: React.FC = () => {
       || String(b.issuedToPerson || '').toLowerCase().includes(query)
       || String(b.issuedToDepartment || '').toLowerCase().includes(query);
     const displayStatus = getBatteryDisplayStatus(b);
-    const matchesStatus = !statusFilter || (statusFilter === 'ISSUED' ? displayStatus.startsWith('ISSUED') : displayStatus === statusFilter);
+    const matchesStatus = matchesStatusFilter(displayStatus, statusFilter);
     return matchesSearch && matchesStatus;
   });
 
@@ -726,7 +738,7 @@ export const InventoryView: React.FC = () => {
       rack.issuedToDepartment,
       rack.issued_to_department,
     ].filter(Boolean).join(' ').toLowerCase();
-    return (!search || haystack.includes(search.toLowerCase())) && (!statusFilter || (statusFilter === 'ISSUED' ? displayStatus.startsWith('ISSUED') : displayStatus === statusFilter));
+    return (!search || haystack.includes(search.toLowerCase())) && matchesStatusFilter(displayStatus, statusFilter);
   });
 
   const displayedCells = statusFilter
