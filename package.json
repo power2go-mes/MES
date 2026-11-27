@@ -3,7 +3,7 @@
   "engines": {
     "node": "24.x"
   },
-  "version": "2.1.30",
+  "version": "2.1.31",
   "type": "module",
   "scripts": {
     "dev": "tsx server.ts",
