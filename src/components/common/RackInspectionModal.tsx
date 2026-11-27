@@ -50,7 +50,7 @@ export const RackInspectionModal: React.FC<RackInspectionModalProps> = ({
     inverter: 'Solis 50kW HV 3-Phase Hybrid Inverter',
     cabinetSerial: '',
     inspectionDate: new Date().toISOString().split('T')[0],
-    location: 'Karachi Plant',
+    location: 'Karachi Warehouse',
     checklist: {
       '01': 'Pass', '02': 'Pass', '03': 'Pass', '04': 'Pass', '05': 'Pass',
       '06': 'Pass', '07': 'Pass', '08': 'Pass', '09': 'Pass', '10': 'Pass', '11': 'Pass'
@@ -110,8 +110,13 @@ export const RackInspectionModal: React.FC<RackInspectionModalProps> = ({
   // Production date of the rack (when printing blank report)
   const productionDate = rack?.createdAt ? new Date(rack.createdAt).toISOString().split('T')[0] : new Date().toISOString().split('T')[0];
 
-  // Warehouse location: if rack has location/warehouse, use it (e.g. Lahore / Karachi), else default to Karachi Plant
-  const rackLocation = rack?.location ? (rack.location.toLowerCase().includes('lahore') ? 'Lahore Plant' : rack.location.toLowerCase().includes('karachi') ? 'Karachi Plant' : `${rack.location}`) : 'Karachi Plant';
+  // Warehouse location: show status only ("Karachi Warehouse" / "Lahore Warehouse").
+  // If location is RACK_ASSEMBLY or other internal status, or anything else, default to "Karachi Warehouse".
+  const rawLoc = (rack?.location || '').toLowerCase();
+  const rawStatus = ((rack as any)?.warehouseLocation || (rack as any)?.status || '').toLowerCase();
+  const rackLocation = (rawLoc.includes('lahore') || rawStatus.includes('lahore'))
+    ? 'Lahore Warehouse'
+    : 'Karachi Warehouse';
 
   // Initialize data from rack + existing inspection report
   useEffect(() => {

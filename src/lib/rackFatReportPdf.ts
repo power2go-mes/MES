@@ -68,7 +68,7 @@ export function generateBlankFatTemplatePdf(data?: Partial<FatFourPageReportData
     cabinetSerial: data?.cabinetSerial || '',
     // Inspection date defaults to provided date (production date) when printing blank report
     inspectionDate: data?.inspectionDate || '',
-    location: data?.location || 'Karachi Plant',
+    location: data?.location || 'Karachi Warehouse',
     // Checkboxes completely empty (neither Pass nor Fail checked)
     checklist: {},
     // Measurements blank
@@ -185,7 +185,7 @@ export function generateFourPageFatPdf(data?: Partial<FatFourPageReportData> | n
     ['Configuration', d.configuration || `${packCount} x 7.5 kWh HV packs`],
     ['Inverter', d.inverter || 'Solis 50kW HV 3-Phase Hybrid Inverter'],
     ['Serial / Cabinet ID', d.cabinetSerial || ''],
-    ['Inspection date / Location', `${d.inspectionDate ? `[${d.inspectionDate}]` : '[24-11-2026]'} / ${d.location || 'Karachi Plant'}`],
+    ['Inspection date / Location', `${d.inspectionDate ? `[${d.inspectionDate}]` : '[24-11-2026]'} / ${d.location || 'Karachi Warehouse'}`],
   ];
 
   autoTable(doc, {
@@ -767,7 +767,7 @@ export function generateFourPageFatPdf(data?: Partial<FatFourPageReportData> | n
       '', // custom drawn with ≤ ______ mΩ
     ],
     [
-      'IR spread (max − min)',
+      'IR spread (max - min)',
       '', // custom drawn with mΩ
       'Approved pack-to-pack\nmatching',
       '', // custom drawn with ≤ ______ mΩ
